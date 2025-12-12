@@ -14,7 +14,8 @@
     "dev": "webpack serve --mode development",
     "start": "npm run dev",
     "serve": "cd dist && python3 -m http.server 8000",
-    "clean": "rm -rf dist node_modules wasm/build wasm/dist",
+    "clean": "rm -rf dist wasm/build wasm/dist",
+    "clean:all": "rm -rf dist node_modules wasm/build wasm/dist",
     "lint": "eslint src --ext .ts,.tsx",
     "type-check": "tsc --noEmit"
   },
