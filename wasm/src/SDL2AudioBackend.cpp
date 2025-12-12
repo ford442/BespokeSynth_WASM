@@ -14,6 +14,10 @@
 namespace bespoke {
 namespace wasm {
 
+// Audio conversion constants
+static const float kInt16ToFloatScale = 1.0f / 32768.0f;
+static const float kFloatToInt16Scale = 32767.0f;
+
 SDL2AudioBackend::SDL2AudioBackend() {
 }
 
@@ -197,9 +201,8 @@ void SDL2AudioBackend::audioCallbackInternal(Uint8* stream, int len) {
 }
 
 void SDL2AudioBackend::convertToFloat(const Sint16* input, float* output, int numSamples) {
-    const float scale = 1.0f / 32768.0f;
     for (int i = 0; i < numSamples; i++) {
-        output[i] = input[i] * scale;
+        output[i] = input[i] * kInt16ToFloatScale;
     }
 }
 
@@ -207,7 +210,7 @@ void SDL2AudioBackend::convertFromFloat(const float* input, Sint16* output, int 
     for (int i = 0; i < numSamples; i++) {
         float sample = input[i];
         sample = std::max(-1.0f, std::min(1.0f, sample));  // Clamp
-        output[i] = static_cast<Sint16>(sample * 32767.0f);
+        output[i] = static_cast<Sint16>(sample * kFloatToInt16Scale);
     }
 }
 

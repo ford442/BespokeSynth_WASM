@@ -15,6 +15,10 @@
 #include <memory>
 #include <vector>
 
+// Key code constants
+static const int KEY_SHIFT = 16;
+static const int KEY_SPACE = 32;
+
 using namespace bespoke::wasm;
 
 // Global state
@@ -352,14 +356,14 @@ EMSCRIPTEN_KEEPALIVE void bespoke_mouse_wheel(float deltaX, float deltaY) {
 
 EMSCRIPTEN_KEEPALIVE void bespoke_key_down(int keyCode, int modifiers) {
     // Handle shift for fine mode
-    if (keyCode == 16) {  // Shift key
+    if (keyCode == KEY_SHIFT) {
         for (auto& knob : gKnobs) {
             knob->setFineMode(true);
         }
     }
     
     // Space to toggle audio
-    if (keyCode == 32 && gAudioBackend) {
+    if (keyCode == KEY_SPACE && gAudioBackend) {
         if (gAudioBackend->isRunning()) {
             gAudioBackend->stop();
         } else {
@@ -369,7 +373,7 @@ EMSCRIPTEN_KEEPALIVE void bespoke_key_down(int keyCode, int modifiers) {
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_key_up(int keyCode, int modifiers) {
-    if (keyCode == 16) {  // Shift key
+    if (keyCode == KEY_SHIFT) {
         for (auto& knob : gKnobs) {
             knob->setFineMode(false);
         }

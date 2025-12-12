@@ -13,6 +13,10 @@
 namespace bespoke {
 namespace wasm {
 
+// Constants for 2D rendering
+static const int kArcTessellationFactor = 4;  // Arc subdivisions per radius unit
+static const float kCharacterWidthRatio = 0.6f;  // Character width as ratio of font size
+
 // Shader source code (WGSL)
 static const char* kVertexShader = R"(
 struct VertexInput {
@@ -425,7 +429,7 @@ void WebGPURenderer::arc(float cx, float cy, float r, float a0, float a1, int di
         if (da > 0) da -= 2.0f * 3.14159265f;
     }
     
-    int numSegments = std::max(3, static_cast<int>(std::abs(da) * r / 4.0f));
+    int numSegments = std::max(3, static_cast<int>(std::abs(da) * r / kArcTessellationFactor));
     float dAngle = da / numSegments;
     
     if (!mPathHasStart) {
@@ -585,7 +589,7 @@ void WebGPURenderer::text(float x, float y, const char* string) {
 
 float WebGPURenderer::textWidth(const char* string) {
     // Approximate text width
-    return strlen(string) * mFontSize * 0.6f;
+    return strlen(string) * mFontSize * kCharacterWidthRatio;
 }
 
 // Specialized synth UI elements

@@ -303,12 +303,15 @@ export class BespokeSynth {
         // Keyboard events
         document.addEventListener('keydown', (e) => {
             const modifiers = this.getModifiers(e);
-            this.module._bespoke_key_down(e.keyCode, modifiers);
+            // Use e.key for modern API, fall back to keyCode for compatibility
+            const keyCode = e.key ? e.key.charCodeAt(0) : e.keyCode;
+            this.module._bespoke_key_down(keyCode, modifiers);
         });
 
         document.addEventListener('keyup', (e) => {
             const modifiers = this.getModifiers(e);
-            this.module._bespoke_key_up(e.keyCode, modifiers);
+            const keyCode = e.key ? e.key.charCodeAt(0) : e.keyCode;
+            this.module._bespoke_key_up(keyCode, modifiers);
         });
 
         // Resize handling

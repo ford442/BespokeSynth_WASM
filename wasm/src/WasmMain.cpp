@@ -15,12 +15,16 @@ static void mainLoop() {
     bespoke_render();
 }
 
+// Default canvas dimensions
+static const int kDefaultCanvasWidth = 800;
+static const int kDefaultCanvasHeight = 600;
+
 int main(int argc, char* argv[]) {
     printf("BespokeSynth WASM starting...\n");
     
     // Get canvas size from DOM
-    int width = 800;
-    int height = 600;
+    int width = kDefaultCanvasWidth;
+    int height = kDefaultCanvasHeight;
     
     double cssWidth, cssHeight;
     if (emscripten_get_element_css_size("#canvas", &cssWidth, &cssHeight) == EMSCRIPTEN_RESULT_SUCCESS) {
