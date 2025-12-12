@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>BespokeSynth WASM - Modular Synthesizer</title>
+    <meta name="description" content="BespokeSynth WebAssembly - A modular synthesizer running in your browser">
+</head>
+<body>
+    <div id="container">
+        <header id="header">
+            <h1>BespokeSynth WASM</h1>
+            <span class="version">v1.0.0</span>
+            <div class="controls">
+                <button id="playBtn" class="btn btn-play">Play</button>
+                <button id="stopBtn" class="btn btn-stop">Stop</button>
+            </div>
+        </header>
+        <main id="canvas-container">
+            <canvas id="canvas"></canvas>
+            <div id="status">Initializing...</div>
+        </main>
+        <footer id="footer">
+            <div class="info">
+                WebGPU-accelerated modular synthesizer | Licensed under GPL-3.0
+            </div>
+        </footer>
+    </div>
+</body>
+</html>

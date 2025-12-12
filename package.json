@@ -1,0 +1,57 @@
+{
+  "name": "bespoke-synth-wasm",
+  "version": "1.0.0",
+  "description": "BespokeSynth WebAssembly - A modular synthesizer for the web",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "prebuild": "node scripts/prebuild.js",
+    "build": "npm run build:ts && npm run build:webpack",
+    "build:wasm": "cd wasm && ./build.sh",
+    "build:ts": "tsc",
+    "build:webpack": "webpack --mode production",
+    "build:web-only": "npm run build:ts && npm run build:webpack",
+    "dev": "webpack serve --mode development",
+    "start": "npm run dev",
+    "serve": "cd dist && python3 -m http.server 8000",
+    "clean": "rm -rf dist wasm/build wasm/dist",
+    "clean:all": "rm -rf dist node_modules wasm/build wasm/dist",
+    "lint": "eslint src --ext .ts,.tsx",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "synthesizer",
+    "webassembly",
+    "wasm",
+    "audio",
+    "music",
+    "webgpu",
+    "modular"
+  ],
+  "author": "BespokeSynth Contributors",
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ford442/BespokeSynth_WASM.git"
+  },
+  "devDependencies": {
+    "@types/emscripten": "^1.39.10",
+    "@types/node": "^20.10.6",
+    "@typescript-eslint/eslint-plugin": "^6.16.0",
+    "@typescript-eslint/parser": "^6.16.0",
+    "copy-webpack-plugin": "^11.0.0",
+    "css-loader": "^6.8.1",
+    "eslint": "^8.56.0",
+    "html-webpack-plugin": "^5.6.0",
+    "style-loader": "^3.3.3",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.3.3",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^4.15.1"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
