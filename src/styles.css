@@ -117,6 +117,7 @@ body {
     pointer-events: none;
     transition: opacity 0.3s ease;
     z-index: 1000;
+    animation: pulse 2s ease-in-out infinite;
 }
 
 /* Footer */
@@ -143,10 +144,6 @@ body {
     50% {
         opacity: 0.5;
     }
-}
-
-#status {
-    animation: pulse 2s ease-in-out infinite;
 }
 
 /* Responsive Design */
