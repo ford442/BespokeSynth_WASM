@@ -290,6 +290,22 @@ node_modules/
 orleans.codegen.cs
 CMakeUserPresets.json
 
+# TypeScript/JavaScript build artifacts
+dist/
+*.tsbuildinfo
+*.js.map
+*.d.ts.map
+
+# AssemblyScript build artifacts
+build/*.wasm
+build/*.wat
+build/*.js
+
+# Package manager locks (keep package.json but ignore locks for flexibility)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
 # LSP command database; used by clangd
 compile_commands.json
 
