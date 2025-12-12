@@ -12,6 +12,24 @@ You can find the most recent builds for Mac/Windows/Linux at http://bespokesynth
 
 Join the [Bespoke Discord](https://discord.gg/YdTMkvvpZZ) for support and to discuss with the community.
 
+---
+
+## 🌐 Web App (TypeScript + WASM)
+
+**NEW!** This repository now includes an npm-buildable TypeScript web application with AssemblyScript WASM support.
+
+### Quick Start
+
+```bash
+npm install
+npm run build
+npm run dev  # Start dev server at http://localhost:8080
+```
+
+For detailed documentation, see [README_WEBAPP.md](README_WEBAPP.md) and [EXAMPLE.md](EXAMPLE.md).
+
+---
+
 
 ## Documentation
 
