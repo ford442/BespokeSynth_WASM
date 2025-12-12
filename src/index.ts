@@ -130,7 +130,8 @@ class BespokeSynthApp {
     document.addEventListener('keydown', (e) => {
       if (this.module._bespoke_key_down) {
         const modifiers = this.getModifiers(e);
-        const keyCode = e.keyCode || e.which;
+        // Use e.code for key position, fall back to keyCode for compatibility
+        const keyCode = e.code ? e.code.charCodeAt(0) : (e.keyCode || e.which);
         this.module._bespoke_key_down(keyCode, modifiers);
       }
     });
@@ -138,7 +139,8 @@ class BespokeSynthApp {
     document.addEventListener('keyup', (e) => {
       if (this.module._bespoke_key_up) {
         const modifiers = this.getModifiers(e);
-        const keyCode = e.keyCode || e.which;
+        // Use e.code for key position, fall back to keyCode for compatibility
+        const keyCode = e.code ? e.code.charCodeAt(0) : (e.keyCode || e.which);
         this.module._bespoke_key_up(keyCode, modifiers);
       }
     });

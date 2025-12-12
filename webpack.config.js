@@ -62,7 +62,8 @@ module.exports = (env, argv) => {
       hot: true,
       open: true,
       headers: {
-        // Required for SharedArrayBuffer (if using threads)
+        // Required for SharedArrayBuffer and other security-sensitive features
+        // like high-resolution timing and cross-origin isolation
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'require-corp',
       },
