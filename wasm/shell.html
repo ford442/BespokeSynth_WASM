@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BespokeSynth WASM - WebGPU Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #1a1a1e;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow: hidden;
+            color: #e0e0e5;
+        }
+        
+        #container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #header {
+            height: 40px;
+            background: #252528;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            border-bottom: 1px solid #3a3a40;
+        }
+        
+        #header h1 {
+            font-size: 16px;
+            font-weight: 500;
+            color: #e0e0e5;
+        }
+        
+        #header .version {
+            margin-left: 12px;
+            font-size: 12px;
+            color: #888;
+        }
+        
+        #header .controls {
+            margin-left: auto;
+            display: flex;
+            gap: 8px;
+        }
+        
+        #header button {
+            background: #3a3a40;
+            border: none;
+            color: #e0e0e5;
+            padding: 6px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+        
+        #header button:hover {
+            background: #4a4a50;
+        }
+        
+        #header button.primary {
+            background: #4080c0;
+        }
+        
+        #header button.primary:hover {
+            background: #5090d0;
+        }
+        
+        #header button.danger {
+            background: #c04040;
+        }
+        
+        #header button.danger:hover {
+            background: #d05050;
+        }
+        
+        #canvas-container {
+            flex: 1;
+            position: relative;
+        }
+        
+        #canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+        }
+        
+        #loading .spinner {
+            width: 48px;
+            height: 48px;
+            border: 3px solid #3a3a40;
+            border-top-color: #4080c0;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        #loading .message {
+            font-size: 14px;
+            color: #888;
+        }
+        
+        #loading.hidden {
+            display: none;
+        }
+        
+        #error {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            max-width: 500px;
+            padding: 32px;
+            background: #2a2020;
+            border: 1px solid #c04040;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        #error.visible {
+            display: block;
+        }
+        
+        #error h2 {
+            color: #ff6060;
+            margin-bottom: 16px;
+        }
+        
+        #error p {
+            color: #ccc;
+            line-height: 1.5;
+        }
+        
+        #status {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            font-size: 11px;
+            color: #666;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        
+        /* WebGPU not supported message */
+        #webgpu-check {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            max-width: 500px;
+            padding: 32px;
+            background: #202030;
+            border: 1px solid #4060a0;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        #webgpu-check.visible {
+            display: block;
+        }
+        
+        #webgpu-check h2 {
+            color: #6090d0;
+            margin-bottom: 16px;
+        }
+        
+        #webgpu-check ul {
+            text-align: left;
+            margin: 16px 0;
+            padding-left: 24px;
+        }
+        
+        #webgpu-check li {
+            margin: 8px 0;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <header id="header">
+            <h1>BespokeSynth</h1>
+            <span class="version" id="version-text">WASM</span>
+            <div class="controls">
+                <button id="btn-play" class="primary">▶ Play</button>
+                <button id="btn-stop" class="danger">⏹ Stop</button>
+            </div>
+        </header>
+        
+        <div id="canvas-container">
+            <canvas id="canvas"></canvas>
+            
+            <div id="loading">
+                <div class="spinner"></div>
+                <div class="message" id="loading-message">Loading BespokeSynth...</div>
+            </div>
+            
+            <div id="webgpu-check">
+                <h2>WebGPU Required</h2>
+                <p>BespokeSynth WASM requires WebGPU, which is not available in your browser.</p>
+                <ul>
+                    <li>Chrome 113+ with WebGPU enabled</li>
+                    <li>Edge 113+ with WebGPU enabled</li>
+                    <li>Firefox Nightly with WebGPU enabled</li>
+                </ul>
+                <p>Please update your browser or enable WebGPU in flags.</p>
+            </div>
+            
+            <div id="error">
+                <h2>Error</h2>
+                <p id="error-message"></p>
+            </div>
+            
+            <div id="status"></div>
+        </div>
+    </div>
+    
+    <script>
+        // Check WebGPU support
+        async function checkWebGPU() {
+            if (!navigator.gpu) {
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('webgpu-check').classList.add('visible');
+                return false;
+            }
+            
+            try {
+                const adapter = await navigator.gpu.requestAdapter();
+                if (!adapter) {
+                    throw new Error('No WebGPU adapter found');
+                }
+                return true;
+            } catch (e) {
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('webgpu-check').classList.add('visible');
+                return false;
+            }
+        }
+        
+        // Update loading message
+        function updateLoadingMessage(message) {
+            document.getElementById('loading-message').textContent = message;
+        }
+        
+        // Show error
+        function showError(message) {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('error-message').textContent = message;
+            document.getElementById('error').classList.add('visible');
+        }
+        
+        // Module loaded callback
+        var Module = {
+            preRun: [],
+            postRun: [],
+            
+            print: function(text) {
+                console.log(text);
+            },
+            
+            printErr: function(text) {
+                console.error(text);
+            },
+            
+            canvas: (function() {
+                var canvas = document.getElementById('canvas');
+                return canvas;
+            })(),
+            
+            setStatus: function(text) {
+                if (text) {
+                    updateLoadingMessage(text);
+                }
+            },
+            
+            onRuntimeInitialized: function() {
+                document.getElementById('loading').classList.add('hidden');
+                
+                // Update version
+                if (Module._bespoke_get_version) {
+                    var version = Module.ccall('bespoke_get_version', 'string', [], []);
+                    document.getElementById('version-text').textContent = version;
+                }
+                
+                console.log('BespokeSynth WASM initialized');
+            }
+        };
+        
+        // Button handlers
+        document.getElementById('btn-play').addEventListener('click', function() {
+            if (Module._bespoke_play) {
+                Module._bespoke_play();
+            }
+        });
+        
+        document.getElementById('btn-stop').addEventListener('click', function() {
+            if (Module._bespoke_stop) {
+                Module._bespoke_stop();
+            }
+        });
+        
+        // Resize canvas to container
+        function resizeCanvas() {
+            var container = document.getElementById('canvas-container');
+            var canvas = document.getElementById('canvas');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+        
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        
+        // Status update loop
+        function updateStatus() {
+            if (Module._bespoke_get_sample_rate && Module._bespoke_get_buffer_size) {
+                var sampleRate = Module._bespoke_get_sample_rate();
+                var bufferSize = Module._bespoke_get_buffer_size();
+                var cpuLoad = Module._bespoke_get_cpu_load ? Module._bespoke_get_cpu_load() : 0;
+                
+                document.getElementById('status').textContent = 
+                    `${sampleRate} Hz | ${bufferSize} samples | CPU: ${(cpuLoad * 100).toFixed(1)}%`;
+            }
+        }
+        
+        setInterval(updateStatus, 500);
+        
+        // Start initialization
+        async function init() {
+            updateLoadingMessage('Checking WebGPU support...');
+            
+            if (!await checkWebGPU()) {
+                return;
+            }
+            
+            updateLoadingMessage('Loading WebAssembly module...');
+        }
+        
+        init();
+    </script>
+    
+    {{{ SCRIPT }}}
+</body>
+</html>

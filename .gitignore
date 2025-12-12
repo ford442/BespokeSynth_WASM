@@ -409,3 +409,9 @@ run_cmake*.bat
 run_cmake*.sh
 
 scripts/installer_macOS/Bespoke-Mac.dmg
+
+# WASM build artifacts
+wasm/build/
+wasm/dist/
+*.wasm
+*.wasm.map
