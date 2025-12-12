@@ -5,12 +5,15 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "prebuild": "npm run build:wasm",
+    "prebuild": "npm run build:wasm || echo 'WASM build skipped (requires Emscripten)'",
     "build": "npm run build:ts && npm run build:webpack",
     "build:wasm": "cd wasm && ./build.sh",
     "build:ts": "tsc",
     "build:webpack": "webpack --mode production",
+    "build:web-only": "npm run build:ts && npm run build:webpack",
     "dev": "webpack serve --mode development",
+    "start": "npm run dev",
+    "serve": "cd dist && python3 -m http.server 8000",
     "clean": "rm -rf dist node_modules wasm/build wasm/dist",
     "lint": "eslint src --ext .ts,.tsx",
     "type-check": "tsc --noEmit"
