@@ -18,7 +18,7 @@ interface WasmExports {
 }
 
 class BespokeSynthApp {
-  private wasmModule: any = null;
+  private wasmModule: WasmExports | null = null;
   private statusElement: HTMLElement | null = null;
   private outputElement: HTMLElement | null = null;
 
@@ -48,13 +48,24 @@ class BespokeSynthApp {
   private async loadWasm(): Promise<void> {
     try {
       // Load the WASM module using AssemblyScript loader
-      const wasmModule = await instantiate(
-        fetch('release.wasm')
-      );
+      // Try release build first, fallback to debug if not available
+      let wasmPath = 'release.wasm';
+      let response = await fetch(wasmPath);
       
-      this.wasmModule = wasmModule.exports;
+      if (!response.ok) {
+        console.log('Release WASM not found, trying debug build...');
+        wasmPath = 'debug.wasm';
+        response = await fetch(wasmPath);
+      }
       
-      console.log('✅ WASM module loaded successfully');
+      if (!response.ok) {
+        throw new Error(`Failed to load WASM from ${wasmPath}`);
+      }
+      
+      const wasmModule = await instantiate(response);
+      this.wasmModule = wasmModule.exports as unknown as WasmExports;
+      
+      console.log(`✅ WASM module loaded successfully from ${wasmPath}`);
     } catch (error) {
       console.error('Failed to load WASM module:', error);
       throw new Error('WASM module failed to load');

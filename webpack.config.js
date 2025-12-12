@@ -21,6 +21,9 @@ module.exports = {
   resolve: {
     extensions: ['.tsx', '.ts', '.js', '.wasm'],
     fallback: {
+      // Disable Node.js polyfills for browser-only build
+      // These are not needed for the WASM loader when running in browser
+      // If you need to support server-side rendering, enable appropriate polyfills
       "fs": false,
       "path": false,
       "crypto": false,

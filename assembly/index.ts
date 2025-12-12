@@ -29,13 +29,23 @@ export function multiply(a: i32, b: i32): i32 {
 }
 
 /**
- * Calculate Fibonacci number (recursive implementation)
+ * Calculate Fibonacci number (iterative implementation for O(n) performance)
  * @param n - The position in the Fibonacci sequence
  * @returns The nth Fibonacci number
  */
 export function fibonacci(n: i32): i32 {
   if (n <= 1) return n;
-  return fibonacci(n - 1) + fibonacci(n - 2);
+  
+  let prev: i32 = 0;
+  let curr: i32 = 1;
+  
+  for (let i: i32 = 2; i <= n; i++) {
+    const next = prev + curr;
+    prev = curr;
+    curr = next;
+  }
+  
+  return curr;
 }
 
 /**
