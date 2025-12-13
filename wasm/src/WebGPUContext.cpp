@@ -1,32 +1,45 @@
 #include "WebGPUContext.h"
 #include <iostream>
 #include <emscripten/html5.h>
-#include <cstring> // for strlen
+#include <cstring>
+#include <cassert>
+
+// --- Callback Wrappers for New Dawn API ---
+// These store the result into the userdata pointer
+void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, char const * message, void * userdata) {
+    if (status == WGPURequestAdapterStatus_Success) {
+        *(WGPUAdapter*)userdata = adapter;
+    } else {
+        std::cerr << "WebGPU Adapter Error: " << (message ? message : "Unknown") << std::endl;
+    }
+}
+
+void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, char const * message, void * userdata) {
+    if (status == WGPURequestDeviceStatus_Success) {
+        *(WGPUDevice*)userdata = device;
+    } else {
+        std::cerr << "WebGPU Device Error: " << (message ? message : "Unknown") << std::endl;
+    }
+}
+// ------------------------------------------
 
 WebGPUContext::WebGPUContext() {
-    // Initialize default identity matrix
+    // Identity Matrix
     mCurrentState.transform[0] = 1.0f; mCurrentState.transform[2] = 0.0f; mCurrentState.transform[4] = 0.0f;
     mCurrentState.transform[1] = 0.0f; mCurrentState.transform[3] = 1.0f; mCurrentState.transform[5] = 0.0f;
-    // Default white color
+    // White Color
     mCurrentState.color[0] = 1.0f; mCurrentState.color[1] = 1.0f; mCurrentState.color[2] = 1.0f; mCurrentState.color[3] = 1.0f;
 }
 
-WebGPUContext::~WebGPUContext() {
-    // Cleanup handled by WebGPU internal ref counting mostly, 
-    // but explicit release is good practice in C++
-}
+WebGPUContext::~WebGPUContext() {}
 
-bool WebGPUContext::init(const char* selector) {
-    // 1. Create Instance
+bool WebGPUContext::initialize(const char* selector) {
+    // 1. Instance
     WGPUInstanceDescriptor instanceDesc = {};
-    instanceDesc.nextInChain = nullptr;
     mInstance = wgpuCreateInstance(&instanceDesc);
-    if (!mInstance) {
-        std::cerr << "Could not initialize WebGPU Instance" << std::endl;
-        return false;
-    }
+    if (!mInstance) return false;
 
-    // 2. Create Surface from Canvas
+    // 2. Surface
     WGPUSurfaceSourceCanvasHTMLSelector canvasSource = {};
     canvasSource.chain.sType = WGPUSType_SurfaceSourceCanvasHTMLSelector;
     canvasSource.selector = WGPUStringView{selector, strlen(selector)};
@@ -35,40 +48,38 @@ bool WebGPUContext::init(const char* selector) {
     surfaceDesc.nextInChain = (const WGPUChainedStruct*)&canvasSource;
     mSurface = wgpuInstanceCreateSurface(mInstance, &surfaceDesc);
 
-    // 3. Request Adapter (Synchronous for simplicity in this port, usually async)
+    // 3. Adapter (Async-style API, but usually resolves immediately in Emscripten if data allows)
+    WGPUAdapter adapter = nullptr;
     WGPURequestAdapterOptions adapterOpts = {};
     adapterOpts.compatibleSurface = mSurface;
+
+    WGPURequestAdapterCallbackInfo adapterCb = {};
+    adapterCb.callback = onAdapterRequest;
+    adapterCb.userdata = &adapter;
     
-    // NOTE: In Emscripten/Dawn C++, we often need to use a helper or callback.
-    // However, emdawnwebgpu allows wgpuInstanceRequestAdapter to be synchronous if built that way,
-    // OR we just cheat and assume the default adapter is fine.
-    // For strictly correct C code, we need a callback.
-    // Let's use the blocking helper if available, or a simple callback hack.
-    
-    WGPUAdapter adapter = nullptr;
-    wgpuInstanceRequestAdapter(mInstance, &adapterOpts, [](WGPURequestAdapterStatus status, WGPUAdapter a, const char* msg, void* userdata) {
-        *(WGPUAdapter*)userdata = a;
-    }, &adapter);
+    wgpuInstanceRequestAdapter(mInstance, &adapterOpts, adapterCb);
 
     if (!adapter) {
-        std::cerr << "Failed to get WebGPU Adapter" << std::endl;
+        std::cerr << "Failed to obtain WebGPU Adapter (Synchronous request failed)" << std::endl;
         return false;
     }
 
-    // 4. Request Device
+    // 4. Device
     WGPUDeviceDescriptor deviceDesc = {};
-    wgpuAdapterRequestDevice(adapter, &deviceDesc, [](WGPURequestDeviceStatus status, WGPUDevice d, const char* msg, void* userdata) {
-        *(WGPUDevice*)userdata = d;
-    }, &mDevice);
+    WGPURequestDeviceCallbackInfo deviceCb = {};
+    deviceCb.callback = onDeviceRequest;
+    deviceCb.userdata = &mDevice;
+
+    wgpuAdapterRequestDevice(adapter, &deviceDesc, deviceCb);
 
     if (!mDevice) {
-        std::cerr << "Failed to get WebGPU Device" << std::endl;
+        std::cerr << "Failed to obtain WebGPU Device" << std::endl;
         return false;
     }
 
     mQueue = wgpuDeviceGetQueue(mDevice);
-    
-    // Get initial size
+
+    // Initial Resize
     double w, h;
     emscripten_get_element_css_size(selector, &w, &h);
     resize((int)w, (int)h);
@@ -79,7 +90,6 @@ bool WebGPUContext::init(const char* selector) {
 void WebGPUContext::resize(int width, int height) {
     mWidth = width;
     mHeight = height;
-
     if (!mDevice || !mSurface) return;
 
     WGPUSurfaceConfiguration config = {};
@@ -94,10 +104,11 @@ void WebGPUContext::resize(int width, int height) {
     wgpuSurfaceConfigure(mSurface, &config);
 }
 
-WGPUTextureView WebGPUContext::getCurrentTextureView() {
+WGPURenderPassEncoder WebGPUContext::beginFrame() {
     WGPUSurfaceTexture surfaceTexture;
     wgpuSurfaceGetCurrentTexture(mSurface, &surfaceTexture);
-    
+
+    // In the new API, we must check status differently or just assume Success for now
     if (surfaceTexture.status != WGPUSurfaceGetCurrentTextureStatus_Success) {
         return nullptr;
     }
@@ -110,10 +121,47 @@ WGPUTextureView WebGPUContext::getCurrentTextureView() {
     viewDesc.baseArrayLayer = 0;
     viewDesc.arrayLayerCount = 1;
     viewDesc.aspect = WGPUTextureAspect_All;
+    
+    mCurrentView = wgpuTextureCreateView(surfaceTexture.texture, &viewDesc);
 
-    return wgpuTextureCreateView(surfaceTexture.texture, &viewDesc);
+    WGPUCommandEncoderDescriptor encoderDesc = {};
+    mCurrentEncoder = wgpuDeviceCreateCommandEncoder(mDevice, &encoderDesc);
+
+    WGPURenderPassColorAttachment colorAttachment = {};
+    colorAttachment.view = mCurrentView;
+    colorAttachment.loadOp = WGPULoadOp_Clear;
+    colorAttachment.storeOp = WGPUStoreOp_Store;
+    colorAttachment.clearValue = {0.1, 0.1, 0.1, 1.0}; // Dark background
+
+    WGPURenderPassDescriptor passDesc = {};
+    passDesc.colorAttachmentCount = 1;
+    passDesc.colorAttachments = &colorAttachment;
+
+    mCurrentPass = wgpuCommandEncoderBeginRenderPass(mCurrentEncoder, &passDesc);
+    return mCurrentPass;
 }
 
-void WebGPUContext::present() {
-    // wgpuSurfacePresent(mSurface); // Not needed in typical loop, handled by browser/Emscripten frame
+void WebGPUContext::endFrame() {
+    if (mCurrentPass) {
+        wgpuRenderPassEncoderEnd(mCurrentPass);
+        wgpuRenderPassEncoderRelease(mCurrentPass);
+        mCurrentPass = nullptr;
+    }
+
+    if (mCurrentEncoder) {
+        WGPUCommandBufferDescriptor cmdBufDesc = {};
+        WGPUCommandBuffer cmdBuf = wgpuCommandEncoderFinish(mCurrentEncoder, &cmdBufDesc);
+        wgpuQueueSubmit(mQueue, 1, &cmdBuf);
+        wgpuCommandBufferRelease(cmdBuf);
+        wgpuCommandEncoderRelease(mCurrentEncoder);
+        mCurrentEncoder = nullptr;
+    }
+
+    if (mCurrentView) {
+        wgpuTextureViewRelease(mCurrentView);
+        mCurrentView = nullptr;
+    }
+    
+    // Surface present is implicit in Emscripten loop usually, 
+    // or handled by wgpuSurfacePresent if explicit presentation is enabled.
 }
