@@ -31,13 +31,24 @@ add_link_options(
     "-sASSERTIONS=1"
 )
 
-# 3. Fix JSON Include Path
-# We attempt to find the jsoncpp library in standard locations relative to your source.
-# Add these likely paths:
+# JUCE Configuration (Fixes "No global header" error)
+add_compile_definitions(
+    JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_USE_PTHREAD=0
+    DONT_SET_USING_JUCE_NAMESPACE=1
+)
+
+# Include Paths
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../Source")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../Source/libs/jsoncpp/include")
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../addons/ofxJSON/libs/jsoncpp/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/JUCE/modules")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/JUCE/include")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/nanovg/src") # NanoVG
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs")             # For 'leathers'
+
 # WASM-specific options
 option(BESPOKE_WASM_WEBGPU "Enable WebGPU rendering backend" ON)
 option(BESPOKE_WASM_SDL2_AUDIO "Enable SDL2 audio backend" ON)
