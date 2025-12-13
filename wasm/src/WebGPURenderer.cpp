@@ -9,9 +9,15 @@
 #include <cmath>
 #include <cstring>
 #include <algorithm>
+#include <iostream>
 
 namespace bespoke {
 namespace wasm {
+
+// Helper for StringViews
+WGPUStringView s(const char* str) {
+    return WGPUStringView{str, strlen(str)};
+}
 
 // Constants for 2D rendering
 static const int kArcTessellationFactor = 4;  // Arc subdivisions per radius unit
@@ -103,19 +109,23 @@ bool WebGPURenderer::initialize() {
 void WebGPURenderer::createPipelines() {
     WGPUDevice device = mContext.getDevice();
     
-    // Create shader modules
-    WGPUShaderModuleWGSLDescriptor wgslDesc = {};
-    wgslDesc.chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
-    wgslDesc.code = kVertexShader;
-    
-    WGPUShaderModuleDescriptor vsDesc = {};
-    vsDesc.nextInChain = (WGPUChainedStruct*)&wgslDesc;
-    WGPUShaderModule vertexShader = wgpuDeviceCreateShaderModule(device, &vsDesc);
-    
-    wgslDesc.code = kFragmentShader;
-    WGPUShaderModuleDescriptor fsDesc = {};
-    fsDesc.nextInChain = (WGPUChainedStruct*)&wgslDesc;
-    WGPUShaderModule fragmentShader = wgpuDeviceCreateShaderModule(device, &fsDesc);
+    // Vertex Shader
+    WGPUShaderSourceWGSL vertexWGSL = {};
+    vertexWGSL.chain.sType = WGPUSType_ShaderSourceWGSL;
+    vertexWGSL.code = s(kVertexShader);
+
+    WGPUShaderModuleDescriptor vertexDesc = {};
+    vertexDesc.nextInChain = (const WGPUChainedStruct*)&vertexWGSL;
+    WGPUShaderModule vertexShader = wgpuDeviceCreateShaderModule(device, &vertexDesc);
+
+    // Fragment Shader
+    WGPUShaderSourceWGSL fragmentWGSL = {};
+    fragmentWGSL.chain.sType = WGPUSType_ShaderSourceWGSL;
+    fragmentWGSL.code = s(kFragmentShader);
+
+    WGPUShaderModuleDescriptor fragmentDesc = {};
+    fragmentDesc.nextInChain = (const WGPUChainedStruct*)&fragmentWGSL;
+    WGPUShaderModule fragmentShader = wgpuDeviceCreateShaderModule(device, &fragmentDesc);
     
     // Vertex layout
     WGPUVertexAttribute attributes[3] = {};
@@ -164,13 +174,13 @@ void WebGPURenderer::createPipelines() {
     pipelineDesc.layout = pipelineLayout;
     
     pipelineDesc.vertex.module = vertexShader;
-    pipelineDesc.vertex.entryPoint = "main";
+    pipelineDesc.vertex.entryPoint = s("main");
     pipelineDesc.vertex.bufferCount = 1;
     pipelineDesc.vertex.buffers = &vertexBufferLayout;
     
     WGPUFragmentState fragmentState = {};
     fragmentState.module = fragmentShader;
-    fragmentState.entryPoint = "main";
+    fragmentState.entryPoint = s("main");
     
     WGPUColorTargetState colorTarget = {};
     colorTarget.format = mContext.getSwapChainFormat();
