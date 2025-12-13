@@ -12,6 +12,31 @@ endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
+cmake_minimum_required(VERSION 3.10)
+project(BespokeSynthWASM)
+
+# --- CRITICAL FIX START ---
+
+# 1. Force Emscripten to make SDL2 and WebGPU headers available
+add_compile_options(
+    "-sUSE_SDL=2" 
+    "-sUSE_WEBGPU=1"
+)
+
+# 2. Linker options
+add_link_options(
+    "-sUSE_SDL=2" 
+    "-sUSE_WEBGPU=1" 
+    "-sALLOW_MEMORY_GROWTH=1"
+    "-sASSERTIONS=1"
+)
+
+# 3. Fix JSON Include Path
+# We attempt to find the jsoncpp library in standard locations relative to your source.
+# Add these likely paths:
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../Source/libs/jsoncpp/include")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../addons/ofxJSON/libs/jsoncpp/include")
 
 # WASM-specific options
 option(BESPOKE_WASM_WEBGPU "Enable WebGPU rendering backend" ON)
