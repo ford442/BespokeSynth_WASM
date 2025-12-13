@@ -37,7 +37,7 @@ add_link_options(
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../Source/libs/jsoncpp/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../addons/ofxJSON/libs/jsoncpp/include")
-
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/JUCE/modules")
 # WASM-specific options
 option(BESPOKE_WASM_WEBGPU "Enable WebGPU rendering backend" ON)
 option(BESPOKE_WASM_SDL2_AUDIO "Enable SDL2 audio backend" ON)
