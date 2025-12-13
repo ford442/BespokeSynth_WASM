@@ -83,6 +83,8 @@ target_compile_definitions(BespokeSynthWASM PRIVATE
     $<$<BOOL:${BESPOKE_WASM_SDL2_AUDIO}>:BESPOKE_SDL2_AUDIO=1>
 )
 
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
+
 # Emscripten linker flags
 set(EMSCRIPTEN_LINK_FLAGS
     "-sWASM=1"
