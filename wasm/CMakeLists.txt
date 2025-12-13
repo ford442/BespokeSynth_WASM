@@ -20,13 +20,13 @@ project(BespokeSynthWASM)
 # 1. Force Emscripten to make SDL2 and WebGPU headers available
 add_compile_options(
     "-sUSE_SDL=2" 
-    "-sUSE_WEBGPU=1"
+    "--use-port=emdawnwebgpu"     # NEW: Replacement for -sUSE_WEBGPU=1
 )
 
 # 2. Linker options
 add_link_options(
     "-sUSE_SDL=2" 
-    "-sUSE_WEBGPU=1" 
+    "--use-port=emdawnwebgpu"     # NEW: Replacement for -sUSE_WEBGPU=1
     "-sALLOW_MEMORY_GROWTH=1"
     "-sASSERTIONS=1"
 )
@@ -114,7 +114,7 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
 set(EMSCRIPTEN_LINK_FLAGS
     "-sWASM=1"
     "-sUSE_SDL=2"
-    "-sUSE_WEBGPU=1"
+    "--use-port=emdawnwebgpu"     # NEW: Replacement for -sUSE_WEBGPU=1
     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
     "-sEXPORTED_FUNCTIONS=['_main','_bespoke_init','_bespoke_process_audio','_bespoke_render']"
     "-sALLOW_MEMORY_GROWTH=1"
