@@ -115,7 +115,7 @@ void WebGPURenderer::createPipelines() {
     vertexWGSL.code = s(kVertexShader);
 
     WGPUShaderModuleDescriptor vertexDesc = {};
-    vertexDesc.nextInChain = (const WGPUChainedStruct*)&vertexWGSL;
+    vertexDesc.nextInChain = (WGPUChainedStruct*)&vertexWGSL;
     WGPUShaderModule vertexShader = wgpuDeviceCreateShaderModule(device, &vertexDesc);
 
     // Fragment Shader
@@ -124,7 +124,7 @@ void WebGPURenderer::createPipelines() {
     fragmentWGSL.code = s(kFragmentShader);
 
     WGPUShaderModuleDescriptor fragmentDesc = {};
-    fragmentDesc.nextInChain = (const WGPUChainedStruct*)&fragmentWGSL;
+    fragmentDesc.nextInChain = (WGPUChainedStruct*)&fragmentWGSL;
     WGPUShaderModule fragmentShader = wgpuDeviceCreateShaderModule(device, &fragmentDesc);
     
     // Vertex layout
