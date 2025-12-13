@@ -16,7 +16,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}=== BespokeSynth WASM Build ===${NC}"
-
+source /content/build_space/emsdk/emsdk_env.sh
 # Check for Emscripten
 if ! command -v emcc &> /dev/null; then
     echo -e "${RED}Error: Emscripten (emcc) not found${NC}"
