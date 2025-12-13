@@ -8,7 +8,7 @@
 
 #include <emscripten.h>
 #include <cstdio>
-
+#include <string>  // <-- Add this line
 // Test results
 static int gTestsPassed = 0;
 static int gTestsFailed = 0;
