@@ -86,6 +86,8 @@ target_compile_definitions(BespokeSynthWASM PRIVATE
 # Emscripten linker flags
 set(EMSCRIPTEN_LINK_FLAGS
     "-sWASM=1"
+    "-sUSE_SDL=2"
+    "-sUSE_WEBGPU=1"
     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
     "-sEXPORTED_FUNCTIONS=['_main','_bespoke_init','_bespoke_process_audio','_bespoke_render']"
     "-sALLOW_MEMORY_GROWTH=1"
