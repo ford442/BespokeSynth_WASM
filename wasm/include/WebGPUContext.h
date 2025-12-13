@@ -9,7 +9,6 @@
 #pragma once
 
 #include <webgpu/webgpu.h>
-#include <emscripten/html5_webgpu.h>
 #include <functional>
 #include <string>
 #include <vector>
