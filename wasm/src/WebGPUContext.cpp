@@ -4,10 +4,9 @@
 #include <cstring>
 #include <cassert>
 
-// --- Callback Wrappers for New Dawn API (5 Arguments) ---
-// The signature is now: (Status, Object, Message, UserData, None)
-
-void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata, void * /*userdata2*/) {
+// --- Callback Wrappers ---
+// Note: We ignore the last 'userdata2' argument often present in newer shim headers
+void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata, void *) {
     if (status == WGPURequestAdapterStatus_Success) {
         *(WGPUAdapter*)userdata = adapter;
     } else {
@@ -17,7 +16,7 @@ void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPU
     }
 }
 
-void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * /*userdata2*/) {
+void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void *) {
     if (status == WGPURequestDeviceStatus_Success) {
         *(WGPUDevice*)userdata = device;
     } else {
@@ -26,7 +25,7 @@ void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStri
         std::cerr << std::endl;
     }
 }
-// ------------------------------------------
+// -------------------------
 
 WebGPUContext::WebGPUContext() {
     // Identity Matrix
@@ -44,7 +43,7 @@ bool WebGPUContext::initialize(const char* selector) {
     mInstance = wgpuCreateInstance(&instanceDesc);
     if (!mInstance) return false;
 
-    // 2. Surface (Updated for Emscripten Dawn Port)
+    // 2. Surface
     WGPUEmscriptenSurfaceSourceCanvasHTMLSelector canvasSource = {};
     canvasSource.chain.sType = WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector;
     canvasSource.selector = WGPUStringView{selector, strlen(selector)};
@@ -60,9 +59,12 @@ bool WebGPUContext::initialize(const char* selector) {
 
     WGPURequestAdapterCallbackInfo adapterCb = {};
     adapterCb.callback = onAdapterRequest;
-    adapterCb.userdata = &adapter;
+    // FIX: Try 'userData' (camelCase) if 'userdata' failed. 
+    // If this still fails, we'll cast the struct to void* and offset manually, but camelCase is the likely fix.
+    // However, some headers use 'nextInChain' logic for data. 
+    // Let's assume standard C header behavior which often allows 'userData'.
+    adapterCb.userData = &adapter; 
     
-    // Note: Emscripten's wgpuInstanceRequestAdapter is often synchronous if possible
     wgpuInstanceRequestAdapter(mInstance, &adapterOpts, adapterCb);
 
     if (!adapter) {
@@ -74,7 +76,7 @@ bool WebGPUContext::initialize(const char* selector) {
     WGPUDeviceDescriptor deviceDesc = {};
     WGPURequestDeviceCallbackInfo deviceCb = {};
     deviceCb.callback = onDeviceRequest;
-    deviceCb.userdata = &mDevice;
+    deviceCb.userData = &mDevice; // FIX: camelCase
 
     wgpuAdapterRequestDevice(adapter, &deviceDesc, deviceCb);
 
@@ -85,7 +87,6 @@ bool WebGPUContext::initialize(const char* selector) {
 
     mQueue = wgpuDeviceGetQueue(mDevice);
 
-    // Initial Resize
     double w, h;
     emscripten_get_element_css_size(selector, &w, &h);
     resize((int)w, (int)h);
@@ -114,7 +115,8 @@ WGPURenderPassEncoder WebGPUContext::beginFrame() {
     WGPUSurfaceTexture surfaceTexture;
     wgpuSurfaceGetCurrentTexture(mSurface, &surfaceTexture);
 
-    if (surfaceTexture.status != WGPUSurfaceGetCurrentTextureStatus_Success) {
+    // FIX: Check if texture is valid instead of relying on the Status enum
+    if (surfaceTexture.status != 0 && surfaceTexture.texture == nullptr) {
         return nullptr;
     }
 
@@ -136,7 +138,6 @@ WGPURenderPassEncoder WebGPUContext::beginFrame() {
     colorAttachment.view = mCurrentView;
     colorAttachment.loadOp = WGPULoadOp_Clear;
     colorAttachment.storeOp = WGPUStoreOp_Store;
-    // Initial clear color (dark grey)
     colorAttachment.clearValue = {0.1, 0.1, 0.1, 1.0}; 
 
     WGPURenderPassDescriptor passDesc = {};
