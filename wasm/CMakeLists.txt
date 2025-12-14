@@ -48,7 +48,7 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/JUCE/modules")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/JUCE/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/nanovg/src") # NanoVG
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs")             # For 'leathers'
-
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/nanovg_fix")
 # WASM-specific options
 option(BESPOKE_WASM_WEBGPU "Enable WebGPU rendering backend" ON)
 option(BESPOKE_WASM_SDL2_AUDIO "Enable SDL2 audio backend" ON)
