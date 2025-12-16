@@ -1,69 +1,57 @@
+// Minimal Tunings stub for WASM builds
 #pragma once
 #include <vector>
-#include <string>
-#include <cmath>
 #include <stdexcept>
 
 namespace Tunings {
 
-// 1. Define Scale as a struct, not just a vector
-struct Scale {
-    std::string description;
-    std::vector<double> intervals;
-    size_t count;
+using Scale = std::vector<float>;
 
-    Scale() : count(0) {}
-    Scale(size_t n, double val) : intervals(n, val), count(n) {}
-    Scale(const std::vector<double>& v) : intervals(v), count(v.size()) {}
-};
+struct KeyboardMapping { int dummy = 0; };
 
-// 2. Define KeyboardMapping as a struct
-struct KeyboardMapping {
-    std::string rawText;
-    std::vector<int> keys;
-    
-    KeyboardMapping() {}
-    KeyboardMapping(size_t n, int val) : keys(n, val) {}
-};
+struct TuningError : public std::runtime_error { TuningError(const char* s): std::runtime_error(s) {} };
 
-struct TuningError : public std::runtime_error { 
-    TuningError(const std::string& s) : std::runtime_error(s) {} 
-};
-
-// 3. Define Tuning with the required helper method
 struct Tuning {
-    Scale scale;
-    KeyboardMapping mapping;
-
-    Tuning() = default;
-    Tuning(const Scale& s, const KeyboardMapping& m) : scale(s), mapping(m) {}
-
-    // The function Scale.cpp is looking for:
-    double logScaledFrequencyForMidiNote(int note) const {
-        // Simple 12-TET fallback for WASM
-        // Frequency = 440 * 2^((note - 69) / 12)
-        // LogScaled = log2(Frequency / MIDI_0_FREQ)
-        // This is a rough approximation to satisfy the linker.
-        return (double)note / 12.0; 
-    }
+    Tuning() {}
+    Tuning(const Scale&, const KeyboardMapping&) {}
 };
 
-static const double MIDI_0_FREQ = 8.175798915643707;
+static const float MIDI_0_FREQ = 8.1757989156f;
 
 inline Scale evenTemperament12NoteScale() {
-    std::vector<double> v(12);
-    for (int i = 0; i < 12; ++i) v[i] = (double)i / 12.0;
-    return Scale(v);
+    Scale s(12);
+    for (int i = 0; i < 12; ++i) s[i] = float(i) / 12.0f;
+    return s;
 }
 
 inline Scale parseSCLData(const std::string&) { return evenTemperament12NoteScale(); }
+inline KeyboardMapping parseKBMData(const std::string&) { return KeyboardMapping{}; }
+inline KeyboardMapping startScaleOnAndTuneNoteTo(int, int, float) { return KeyboardMapping{}; }
 
-inline KeyboardMapping parseKBMData(const std::string&) { 
-    return KeyboardMapping(128, 0); 
-}
+} // namespace Tunings
+#pragma once
+#include <vector>
+#include <stdexcept>
 
-inline KeyboardMapping startScaleOnAndTuneNoteTo(int, int, double) { 
-    return KeyboardMapping(128, 0); 
-}
+namespace Tunings {
+
+using Scale = std::vector<double>;
+using KeyboardMapping = std::vector<int>;
+
+inline constexpr double MIDI_0_FREQ = 8.175798915643707; // A reasonable default (C-1)
+
+struct TuningError : public std::runtime_error { TuningError(const std::string& s): std::runtime_error(s){} };
+
+struct Tuning {
+    Scale scale;
+    KeyboardMapping mapping;
+    Tuning() = default;
+    Tuning(const Scale& s, const KeyboardMapping& m): scale(s), mapping(m) {}
+};
+
+inline Scale evenTemperament12NoteScale() { return Scale(12, 0.0); }
+inline Scale parseSCLData(const std::string&) { return Scale(12, 0.0); }
+inline KeyboardMapping startScaleOnAndTuneNoteTo(int /*start*/, int /*refPitch*/, double /*refFreq*/) { return KeyboardMapping(128, 0); }
+inline KeyboardMapping parseKBMData(const std::string&) { return KeyboardMapping(128, 0); }
 
 } // namespace Tunings

@@ -20,6 +20,10 @@ public:
     bool initializeAsync(const char* selector, std::function<void(bool)> onComplete);
     bool isInitialized() const { return mDevice != nullptr; }
 
+    // Helpers used by the WebGPU C callbacks (keeps internals private)
+    void assignDevice(WGPUDevice device);
+    void notifyComplete(bool success);
+
     void resize(int width, int height);
     
     // Render Pass Management

@@ -9,7 +9,9 @@
 // We'll use short-lived static pointers so callbacks can update our instance members.
 static WebGPUContext* s_contextPtr = nullptr;
 static WGPUAdapter* s_adapterPtr = nullptr;
-static WGPUDevice*  s_devicePtr = nullptr;
+
+// Forward-declare the device callback so it's visible when used from the adapter callback
+void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * userdata2);
 
 void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata, void * userdata2) {
     if (status == WGPURequestAdapterStatus_Success) {
@@ -19,9 +21,7 @@ void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPU
             WGPUDeviceDescriptor deviceDesc = {};
             WGPURequestDeviceCallbackInfo deviceCb = {};
             deviceCb.callback = onDeviceRequest;
-            s_devicePtr = &s_contextPtr->mDevice;
             wgpuAdapterRequestDevice(adapter, &deviceDesc, deviceCb);
-            s_devicePtr = nullptr; // Clear shortly; onDeviceRequest sets via pointer
         }
     } else {
         std::cerr << "WebGPU Adapter Error: ";
@@ -33,15 +33,13 @@ void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPU
 
 void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * userdata2) {
     if (status == WGPURequestDeviceStatus_Success) {
-        if (s_devicePtr) *s_devicePtr = device;
-        if (s_contextPtr) {
-            s_contextPtr->onDeviceReady();
-        }
+        if (s_contextPtr)
+            s_contextPtr->assignDevice(device);
     } else {
         std::cerr << "WebGPU Device Error: ";
         if (message.data) std::cerr.write(message.data, message.length);
         std::cerr << std::endl;
-        if (s_contextPtr && s_contextPtr->mOnComplete) s_contextPtr->mOnComplete(false);
+        if (s_contextPtr) s_contextPtr->notifyComplete(false);
     }
 }
 // -------------------------
@@ -89,7 +87,8 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
 
     wgpuInstanceRequestAdapter(mInstance, &adapterOpts, adapterCb);
 
-    // Don't clear s_contextPtr / s_adapterPtr here; callbacks use them.
+    // Don't clear s_contextPtr / s_adapterPtr here; callbacks use them until the
+    // asynchronous flow completes (callbacks will call notifyComplete()).
     // Return 'true' to indicate the async request was started.
     return true;
 }
@@ -109,6 +108,17 @@ void WebGPUContext::onDeviceReady() {
     resize((int)w, (int)h);
 
     if (mOnComplete) mOnComplete(true);
+}
+
+void WebGPUContext::assignDevice(WGPUDevice device)
+{
+    mDevice = device;
+    onDeviceReady();
+}
+
+void WebGPUContext::notifyComplete(bool success)
+{
+    if (mOnComplete) mOnComplete(success);
 }
 
 void WebGPUContext::resize(int width, int height) {

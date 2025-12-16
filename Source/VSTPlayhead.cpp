@@ -26,20 +26,35 @@
 #include "VSTPlayhead.h"
 #include "Transport.h"
 
-bool VSTPlayhead::getCurrentPosition(juce::AudioPlayHead::CurrentPositionInfo& result)
+std::optional<juce::AudioPlayHead::CurrentPositionInfo> VSTPlayhead::getPosition() const
 {
-    // Clear the structure to default values
-    result.resetToDefault();
-    
-    // In JUCE 6, you populate the 'result' struct directly.
-    // Since we are in a WASM/Bespoke context, we map whatever data we have.
-    // If you don't have access to the real host data here, returning 'false' 
-    // is a safe fallback (meaning "position unknown").
-    
-    // Example: if you have a variable 'mCurrentBpm', set it:
-    // result.bpm = mCurrentBpm;
-    // result.isPlaying = mIsPlaying;
+   juce::AudioPlayHead::CurrentPositionInfo pos;
 
-    // For now, return false to satisfy the compiler and avoid crashes.
-    return false; 
+   // Fill basic fields from Transport
+   pos.bpm = TheTransport->GetTempo();
+   pos.timeSigNumerator = TheTransport->GetTimeSigTop();
+   pos.timeSigDenominator = TheTransport->GetTimeSigBottom();
+
+   pos.timeInSamples = static_cast<int64_t>(gTime * gSampleRateMs);
+   pos.timeInSeconds = gTime / 1000.0;
+
+   // Compute ppq positions similar to the original logic
+   double tsRatio = 4.0;
+   if (pos.timeSigNumerator > 0)
+      tsRatio = 1.0 * pos.timeSigNumerator / pos.timeSigDenominator * 4.0;
+
+   pos.ppqPosition = (TheTransport->GetMeasureTime(gTime)) * tsRatio;
+   pos.ppqPositionOfLastBarStart = floor(TheTransport->GetMeasureTime(gTime)) * tsRatio;
+
+   // Loop points (best-effort mapping)
+   pos.ppqLoopStart = 0;
+   pos.ppqLoopEnd = 480 * pos.timeSigDenominator; // approximate equivalent to original behavior
+
+   pos.isPlaying = true;
+   pos.isRecording = false;
+   pos.isLooping = false;
+
+   pos.frameRate = juce::AudioPlayHead::FrameRate(juce::AudioPlayHead::fps60);
+
+   return pos;
 }
