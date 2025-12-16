@@ -53,7 +53,7 @@ namespace VSTLookup
    void GetRecentPlugins(std::vector<juce::PluginDescription>& recentPlugins, int num);
 }
 
-class VSTPlugin : public IAudioProcessor, public INoteReceiver, public IDrawableModule, public IDropdownListener, public IFloatSliderListener, public IIntSliderListener, public IButtonListener, public juce::AudioProcessorListener
+class VSTPlugin : public IAudioProcessor, public INoteReceiver, public IDropdownListener, public IFloatSliderListener, public IIntSliderListener, public IButtonListener, public juce::AudioProcessorListener
 {
 public:
    VSTPlugin();
