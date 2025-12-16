@@ -74,6 +74,13 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/SDL2AudioBackend.cpp
     ${BESPOKE_WASM_DIR}/src/WasmBridge.cpp
     ${BESPOKE_WASM_DIR}/src/Knob.cpp
+
+    # --- JUCE module wrappers (implementations) ---
+    ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_core/juce_core.cpp
+    ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_audio_basics/juce_audio_basics.cpp
+    ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_events/juce_events.cpp
+    ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_graphics/juce_graphics.cpp
+    ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_data_structures/juce_data_structures.cpp
 )
 
 # Collect core synth sources (subset for WASM - audio processing core)
