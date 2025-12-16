@@ -1,22 +1,20 @@
 #pragma once
 #include <cmath>
 
-// Define the opaque struct expected by the code
-struct MTS_Client;
+// Forward declare the class exactly as Scale.h does
+class MTSClient;
 
-// KEY FIX: Define the alias so 'MTSClient' and 'MTS_Client' are treated as the same type
-// This bridges the gap between different versions of the library usage.
-typedef struct MTS_Client MTSClient; 
+// Use 'MTSClient*' in all functions to match the variable types in Scale.cpp
 
-inline MTS_Client* MTS_RegisterClient() { return nullptr; }
+inline MTSClient* MTS_RegisterClient() { return nullptr; }
 
-inline void MTS_DeregisterClient(MTS_Client*) {}
+inline void MTS_DeregisterClient(MTSClient*) {}
 
-inline bool MTS_HasMaster(MTS_Client*) { return false; }
+inline bool MTS_HasMaster(MTSClient*) { return false; }
 
-inline double MTS_NoteToFrequency(MTS_Client*, int note, int) { 
+inline double MTS_NoteToFrequency(MTSClient*, int note, int) { 
     // Standard A440 tuning formula: f = 440 * 2^((note-69)/12)
     return 440.0 * std::pow(2.0, (note - 69) / 12.0); 
 }
 
-inline bool MTS_ShouldFilterNote(MTS_Client*, int, int) { return false; }
+inline bool MTS_ShouldFilterNote(MTSClient*, int, int) { return false; }
