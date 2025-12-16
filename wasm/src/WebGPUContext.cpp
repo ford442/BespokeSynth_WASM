@@ -57,8 +57,11 @@ bool WebGPUContext::initialize(const char* selector) {
     WGPURequestAdapterOptions adapterOpts = {};
     adapterOpts.compatibleSurface = mSurface;
 
-    // Request adapter using function-pointer-style callback (works with current Emscripten/Dawn headers)
-    wgpuInstanceRequestAdapter(mInstance, &adapterOpts, onAdapterRequest, &adapter);
+    WGPURequestAdapterCallbackInfo adapterCb = {};
+    adapterCb.callback = onAdapterRequest;
+    adapterCb.userdata = &adapter; // header uses 'userdata' (lowercase)
+
+    wgpuInstanceRequestAdapter(mInstance, &adapterOpts, adapterCb);
 
     if (!adapter) {
         std::cerr << "Failed to obtain WebGPU Adapter" << std::endl;
@@ -67,8 +70,11 @@ bool WebGPUContext::initialize(const char* selector) {
 
     // 4. Device
     WGPUDeviceDescriptor deviceDesc = {};
-    // Request device using function-pointer-style callback
-    wgpuAdapterRequestDevice(adapter, &deviceDesc, onDeviceRequest, &mDevice);
+    WGPURequestDeviceCallbackInfo deviceCb = {};
+    deviceCb.callback = onDeviceRequest;
+    deviceCb.userdata = &mDevice; // header uses 'userdata' (lowercase)
+
+    wgpuAdapterRequestDevice(adapter, &deviceDesc, deviceCb);
 
     if (!mDevice) {
         std::cerr << "Failed to obtain WebGPU Device" << std::endl;

@@ -111,6 +111,8 @@ target_include_directories(BespokeSynthWASM PRIVATE
     ${BESPOKE_WASM_DIR}/src
     ${BESPOKE_WASM_DIR}/include
     ${BESPOKE_LIBS_DIR}/nanovg/src
+    ${BESPOKE_LIBS_DIR}/nanovg
+    ${BESPOKE_LIBS_DIR}/leathers
     ${BESPOKE_LIBS_DIR}/json/jsoncpp/include
 )
 
