@@ -33,5 +33,5 @@
 class VSTPlayhead : public juce::AudioPlayHead
 {
 public:
-std::optional<juce::AudioPlayHead::PositionInfo> getPosition() const override;
+bool getCurrentPosition(juce::AudioPlayHead::CurrentPositionInfo& result) override;
 };
