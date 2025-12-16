@@ -26,9 +26,9 @@
 #include "VSTPlayhead.h"
 #include "Transport.h"
 
-std::optional<juce::AudioPlayHead::CurrentPositionInfo> VSTPlayhead::getPosition() const
+std::optional<juce::AudioPlayHead::PositionInfo> VSTPlayhead::getPosition() const
 {
-   juce::AudioPlayHead::CurrentPositionInfo pos;
+   juce::AudioPlayHead::PositionInfo pos;
 
    // Fill basic fields from Transport
    pos.bpm = TheTransport->GetTempo();
