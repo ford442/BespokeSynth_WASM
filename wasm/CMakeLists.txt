@@ -142,7 +142,7 @@ set(EMSCRIPTEN_LINK_FLAGS
 # Add WebGPU support
 if(BESPOKE_WASM_WEBGPU)
     list(APPEND EMSCRIPTEN_LINK_FLAGS
-        "-sUSE_WEBGPU=1"
+        "--use-port=emdawnwebgpu"
     )
 endif()
 
