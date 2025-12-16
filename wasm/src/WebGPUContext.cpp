@@ -21,6 +21,7 @@ void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPU
             WGPUDeviceDescriptor deviceDesc = {};
             WGPURequestDeviceCallbackInfo deviceCb = {};
             deviceCb.callback = onDeviceRequest;
+            deviceCb.mode = WGPUCallbackMode_AllowProcessEvents; // ensure valid mode
             wgpuAdapterRequestDevice(adapter, &deviceDesc, deviceCb);
         }
     } else {
@@ -80,6 +81,7 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
 
     WGPURequestAdapterCallbackInfo adapterCb = {};
     adapterCb.callback = onAdapterRequest;
+    adapterCb.mode = WGPUCallbackMode_AllowProcessEvents; // ensure a valid callback mode
 
     // Set static helpers so callbacks can update our members
     s_contextPtr = this;
