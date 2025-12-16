@@ -73,10 +73,12 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
     
     // Initialize WebGPU context (asynchronous)
     gContext = std::make_unique<WebGPUContext>();
+    printf("WasmBridge: starting async WebGPU initialization (selector=#canvas)\n");
 
     bool started = gContext->initializeAsync("#canvas", [] (bool success) {
         if (!success) {
             printf("BespokeSynth WASM: Failed to initialize WebGPU\n");
+            printf("WasmBridge: notifying JS of init failure (-1)\n");
             // Notify JS that initialization failed
             emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-1);");
             return;
@@ -89,6 +91,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
         gRenderer = std::make_unique<WebGPURenderer>(*gContext);
         if (!gRenderer->initialize()) {
             printf("BespokeSynth WASM: Failed to initialize renderer\n");
+            printf("WasmBridge: notifying JS of init failure (-2)\n");
             emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-2);");
             return;
         }
@@ -97,6 +100,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
         gAudioBackend = std::make_unique<SDL2AudioBackend>();
         if (!gAudioBackend->initialize(44100, 512, 2, 0)) {
             printf("BespokeSynth WASM: Failed to initialize audio\n");
+            printf("WasmBridge: notifying JS of init failure (-3)\n");
             emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-3);");
             return;
         }
@@ -144,6 +148,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
 
         gInitialized = true;
         printf("BespokeSynth WASM: Initialization complete\n");
+        printf("WasmBridge: notifying JS of init complete (0)\n");
 
         // Notify JS that initialization finished successfully
         emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(0);");

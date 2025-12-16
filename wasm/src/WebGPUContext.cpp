@@ -1,5 +1,6 @@
 #include "WebGPUContext.h"
 #include <iostream>
+#include <cstdio>
 #include <emscripten/html5.h>
 #include <cstring>
 #include <cassert>
@@ -14,10 +15,12 @@ static WGPUAdapter* s_adapterPtr = nullptr;
 void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * userdata2);
 
 void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata, void * userdata2) {
+    printf("WebGPUContext: onAdapterRequest called, status=%d\n", (int)status);
     if (status == WGPURequestAdapterStatus_Success) {
         if (s_adapterPtr) *s_adapterPtr = adapter;
         // Immediately request a device once an adapter is available
         if (s_contextPtr && adapter) {
+            printf("WebGPUContext: Adapter found, requesting device\n");
             WGPUDeviceDescriptor deviceDesc = {};
             WGPURequestDeviceCallbackInfo deviceCb = {};
             deviceCb.callback = onDeviceRequest;
@@ -33,7 +36,9 @@ void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPU
 }
 
 void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * userdata2) {
+    printf("WebGPUContext: onDeviceRequest called, status=%d\n", (int)status);
     if (status == WGPURequestDeviceStatus_Success) {
+        printf("WebGPUContext: Device acquired, assigning to context\n");
         if (s_contextPtr)
             s_contextPtr->assignDevice(device);
     } else {
@@ -87,6 +92,7 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
     s_contextPtr = this;
     s_adapterPtr = &mAdapter;
 
+    printf("WebGPUContext: initializeAsync started with selector=%s\n", selector ? selector : "(null)");
     wgpuInstanceRequestAdapter(mInstance, &adapterOpts, adapterCb);
 
     // Don't clear s_contextPtr / s_adapterPtr here; callbacks use them until the
@@ -96,6 +102,7 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
 }
 
 void WebGPUContext::onDeviceReady() {
+    printf("WebGPUContext: onDeviceReady\n");
     // Device (mDevice) is already set by the callback
     if (!mDevice) {
         if (mOnComplete) mOnComplete(false);
@@ -114,12 +121,14 @@ void WebGPUContext::onDeviceReady() {
 
 void WebGPUContext::assignDevice(WGPUDevice device)
 {
+    printf("WebGPUContext: assignDevice called\n");
     mDevice = device;
     onDeviceReady();
 }
 
 void WebGPUContext::notifyComplete(bool success)
 {
+    printf("WebGPUContext: notifyComplete success=%d\n", success ? 1 : 0);
     if (mOnComplete) mOnComplete(success);
 }
 
