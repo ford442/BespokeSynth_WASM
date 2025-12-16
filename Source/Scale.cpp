@@ -478,7 +478,7 @@ void Scale::Poll()
          prompt += (button == mLoadSCLButton) ? "SCL" : "KBM";
          std::string pat = (button == mLoadSCLButton) ? "*.scl;*.SCL" : "*.kbm;*.KBM";
          juce::FileChooser chooser(prompt, juce::File(""), pat, true, false, TheSynth->GetFileChooserParent());
-   if (false /* chooser.browseForFileToOpen() */ )
+  // if (false /* chooser.browseForFileToOpen() */ )
    //   {
      //       auto file = chooser.getResult();
       //      std::cout << file.getFullPathName().toStdString() << std::endl;
@@ -491,7 +491,7 @@ void Scale::Poll()
        //        mKbmContents = file.loadFileAsString().toStdString();
        //     }
        //     UpdateTuningTable();
-       }
+    //   }
       }
    }
 }
@@ -993,6 +993,7 @@ int ScalePitches::GetToneFromPitch(int pitch) const
 
    return tone;
 }
+
 
 
 
