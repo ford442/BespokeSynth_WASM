@@ -485,7 +485,7 @@ void Scale::Poll()
       //      if (button == mLoadSCLButton)
       //      {
        //        mSclContents = file.loadFileAsString().toStdString();
-       / //    }
+        //    }
        //     else
        //     {
        //        mKbmContents = file.loadFileAsString().toStdString();
@@ -993,5 +993,6 @@ int ScalePitches::GetToneFromPitch(int pitch) const
 
    return tone;
 }
+
 
 
