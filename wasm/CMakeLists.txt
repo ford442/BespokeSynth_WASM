@@ -144,6 +144,8 @@ set(EMSCRIPTEN_LINK_FLAGS
     "-sINITIAL_MEMORY=134217728"  # 128MB initial
     "-sSTACK_SIZE=1048576"  # 1MB stack
     "--shell-file=${BESPOKE_WASM_DIR}/shell.html"
+    "-sMODULARIZE=1"
+    "-sEXPORT_NAME='createBespokeSynth'"
 )
 
 # Add WebGPU support

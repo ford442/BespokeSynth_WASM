@@ -8,12 +8,31 @@
 import './styles.css';
 
 // Load WASM module script dynamically
-const loadWasmModule = async (): Promise<any> => {
+const loadWasmModule = async (canvas?: HTMLCanvasElement): Promise<any> => {
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
     script.src = 'wasm/BespokeSynthWASM.js';
-    script.onload = () => {
-      // Wait for Module to be initialized
+    script.onload = async () => {
+      // If the build was modularized, a factory function will be exposed
+      const factory = (window as any).createBespokeSynth;
+      if (typeof factory === 'function') {
+        const config = {
+          canvas: canvas ?? document.getElementById('canvas'),
+          print: (text: any) => console.log(text),
+          printErr: (text: any) => console.error(text),
+        };
+
+        try {
+          const instance = await factory(config);
+          resolve(instance);
+          return;
+        } catch (err) {
+          reject(err);
+          return;
+        }
+      }
+
+      // Fallback for non-modularized builds (legacy global Module)
       if ((window as any).Module?.calledRun) {
         resolve((window as any).Module);
       } else {
