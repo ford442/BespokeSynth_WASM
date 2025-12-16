@@ -93,6 +93,22 @@ class BespokeSynthApp {
         this.setupEventListeners();
         this.startRenderLoop();
         console.log('BespokeSynth initialized successfully');
+      } else if (result === 1) {
+        // Initialization is pending asynchronously. Wait for the WASM callback.
+        await new Promise<void>((resolve, reject) => {
+          (window as any).__bespoke_on_init_complete = (status: number) => {
+            delete (window as any).__bespoke_on_init_complete;
+            if (status === 0) resolve();
+            else reject(new Error(`Initialization failed with code: ${status}`));
+          };
+        });
+
+        // Now initialization completed successfully
+        this.isInitialized = true;
+        this.showStatus('Ready!');
+        this.setupEventListeners();
+        this.startRenderLoop();
+        console.log('BespokeSynth initialized successfully (async)');
       } else {
         throw new Error(`Initialization failed with code: ${result}`);
       }

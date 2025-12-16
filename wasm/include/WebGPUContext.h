@@ -8,13 +8,16 @@ struct Uniforms {
     float color[4];
 };
 
+#include <functional>
+
 class WebGPUContext {
 public:
     WebGPUContext();
     ~WebGPUContext();
 
-    // Renamed from 'init' to match existing code usage
-    bool initialize(const char* selector);
+    // Start asynchronous initialization. The provided callback will be invoked
+    // on completion with 'true' for success or 'false' for failure.
+    bool initializeAsync(const char* selector, std::function<void(bool)> onComplete);
     bool isInitialized() const { return mDevice != nullptr; }
 
     void resize(int width, int height);
@@ -30,11 +33,16 @@ public:
     Uniforms mCurrentState;
 
 private:
+    // Called when the device request completes successfully
+    void onDeviceReady();
+
     WGPUInstance mInstance = nullptr;
+    WGPUAdapter mAdapter = nullptr;
     WGPUDevice mDevice = nullptr;
     WGPUQueue mQueue = nullptr;
     WGPUSurface mSurface = nullptr;
     WGPUTextureFormat mFormat = WGPUTextureFormat_BGRA8Unorm;
+    std::function<void(bool)> mOnComplete;
     
     // Current frame state
     WGPUCommandEncoder mCurrentEncoder = nullptr;
