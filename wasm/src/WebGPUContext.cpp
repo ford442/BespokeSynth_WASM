@@ -27,7 +27,7 @@ void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPU
         std::cerr << "WebGPU Adapter Error: ";
         if (message.data) std::cerr.write(message.data, message.length);
         std::cerr << std::endl;
-        if (s_contextPtr && s_contextPtr->mOnComplete) s_contextPtr->mOnComplete(false);
+        if (s_contextPtr) s_contextPtr->notifyComplete(false);
     }
 }
 
