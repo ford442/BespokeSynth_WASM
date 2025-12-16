@@ -5,10 +5,15 @@
 #include <cassert>
 
 // --- Callback Wrappers ---
-// Use function-pointer-style callbacks (compatible with Emscripten/Dawn C shims)
-void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata) {
+// The Dawn/Emscripten webgpu shim expects callbacks with two user-data pointers.
+// Some header versions don't provide a userdata field in the callback-info struct,
+// so we use short-lived static pointers to pass state into the callback safely.
+static WGPUAdapter* s_adapterPtr = nullptr;
+static WGPUDevice*  s_devicePtr = nullptr;
+
+void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata, void * userdata2) {
     if (status == WGPURequestAdapterStatus_Success) {
-        *(WGPUAdapter*)userdata = adapter;
+        if (s_adapterPtr) *s_adapterPtr = adapter;
     } else {
         std::cerr << "WebGPU Adapter Error: ";
         if (message.data) std::cerr.write(message.data, message.length);
@@ -16,9 +21,9 @@ void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPU
     }
 }
 
-void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata) {
+void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * userdata2) {
     if (status == WGPURequestDeviceStatus_Success) {
-        *(WGPUDevice*)userdata = device;
+        if (s_devicePtr) *s_devicePtr = device;
     } else {
         std::cerr << "WebGPU Device Error: ";
         if (message.data) std::cerr.write(message.data, message.length);

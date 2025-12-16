@@ -110,6 +110,7 @@ target_include_directories(BespokeSynthWASM PRIVATE
     ${BESPOKE_SOURCE_DIR}
     ${BESPOKE_WASM_DIR}/src
     ${BESPOKE_WASM_DIR}/include
+    ${BESPOKE_LIBS_DIR}
     ${BESPOKE_LIBS_DIR}/nanovg/src
     ${BESPOKE_LIBS_DIR}/nanovg
     ${BESPOKE_LIBS_DIR}/leathers
