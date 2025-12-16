@@ -5,8 +5,8 @@
 #include <cassert>
 
 // --- Callback Wrappers ---
-// Note: We ignore the last 'userdata2' argument often present in newer shim headers
-void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata, void *) {
+// Use function-pointer-style callbacks (compatible with Emscripten/Dawn C shims)
+void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata) {
     if (status == WGPURequestAdapterStatus_Success) {
         *(WGPUAdapter*)userdata = adapter;
     } else {
@@ -16,7 +16,7 @@ void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPU
     }
 }
 
-void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void *) {
+void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata) {
     if (status == WGPURequestDeviceStatus_Success) {
         *(WGPUDevice*)userdata = device;
     } else {
@@ -57,15 +57,8 @@ bool WebGPUContext::initialize(const char* selector) {
     WGPURequestAdapterOptions adapterOpts = {};
     adapterOpts.compatibleSurface = mSurface;
 
-    WGPURequestAdapterCallbackInfo adapterCb = {};
-    adapterCb.callback = onAdapterRequest;
-    // FIX: Try 'userData' (camelCase) if 'userdata' failed. 
-    // If this still fails, we'll cast the struct to void* and offset manually, but camelCase is the likely fix.
-    // However, some headers use 'nextInChain' logic for data. 
-    // Let's assume standard C header behavior which often allows 'userData'.
-    adapterCb.userData = &adapter; 
-    
-    wgpuInstanceRequestAdapter(mInstance, &adapterOpts, adapterCb);
+    // Request adapter using function-pointer-style callback (works with current Emscripten/Dawn headers)
+    wgpuInstanceRequestAdapter(mInstance, &adapterOpts, onAdapterRequest, &adapter);
 
     if (!adapter) {
         std::cerr << "Failed to obtain WebGPU Adapter" << std::endl;
@@ -74,11 +67,8 @@ bool WebGPUContext::initialize(const char* selector) {
 
     // 4. Device
     WGPUDeviceDescriptor deviceDesc = {};
-    WGPURequestDeviceCallbackInfo deviceCb = {};
-    deviceCb.callback = onDeviceRequest;
-    deviceCb.userData = &mDevice; // FIX: camelCase
-
-    wgpuAdapterRequestDevice(adapter, &deviceDesc, deviceCb);
+    // Request device using function-pointer-style callback
+    wgpuAdapterRequestDevice(adapter, &deviceDesc, onDeviceRequest, &mDevice);
 
     if (!mDevice) {
         std::cerr << "Failed to obtain WebGPU Device" << std::endl;

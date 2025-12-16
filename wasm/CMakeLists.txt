@@ -48,6 +48,8 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/JUCE/modules")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/JUCE/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/nanovg/src") # NanoVG
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs")             # For 'leathers'
+include_directories("${BESPOKE_LIBS_DIR}/leathers")                      # ensure nested leathers headers are visible
+include_directories("${BESPOKE_LIBS_DIR}/nanovg")                        # allow includes like "nanovg/nanovg.h"
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/nanovg_fix")
 # WASM-specific options
 option(BESPOKE_WASM_WEBGPU "Enable WebGPU rendering backend" ON)
