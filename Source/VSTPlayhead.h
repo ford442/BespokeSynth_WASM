@@ -26,9 +26,12 @@
 #pragma once
 
 #include "juce_audio_basics/juce_audio_basics.h"
+#include "juce_compat.h"
+
+#include <optional>
 
 class VSTPlayhead : public juce::AudioPlayHead
 {
 public:
-   juce::Optional<AudioPlayHead::PositionInfo> getPosition() const override;
+   std::optional<juce::AudioPlayHead::CurrentPositionInfo> getPosition() const override;
 };

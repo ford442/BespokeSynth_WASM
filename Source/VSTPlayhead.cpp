@@ -26,47 +26,35 @@
 #include "VSTPlayhead.h"
 #include "Transport.h"
 
-juce::Optional<juce::AudioPlayHead::PositionInfo> VSTPlayhead::getPosition() const
+std::optional<juce::AudioPlayHead::CurrentPositionInfo> VSTPlayhead::getPosition() const
 {
-   PositionInfo pos;
-   juce::AudioPlayHead::TimeSignature timeSignature;
-   juce::AudioPlayHead::LoopPoints loopPoint;
-   timeSignature.numerator = TheTransport->GetTimeSigTop();
-   timeSignature.denominator = TheTransport->GetTimeSigBottom();
+   juce::AudioPlayHead::CurrentPositionInfo pos;
 
-   juce::Optional<juce::AudioPlayHead::TimeSignature> posTM = pos.getTimeSignature();
+   // Fill basic fields from Transport
+   pos.bpm = TheTransport->GetTempo();
+   pos.timeSigNumerator = TheTransport->GetTimeSigTop();
+   pos.timeSigDenominator = TheTransport->GetTimeSigBottom();
 
-   loopPoint.ppqStart = 0;
-   loopPoint.ppqEnd = 480;
+   pos.timeInSamples = static_cast<int64_t>(gTime * gSampleRateMs);
+   pos.timeInSeconds = gTime / 1000.0;
 
-   if (posTM)
-   {
-      loopPoint.ppqEnd *= posTM->denominator;
-   }
+   // Compute ppq positions similar to the original logic
+   double tsRatio = 4.0;
+   if (pos.timeSigNumerator > 0)
+      tsRatio = 1.0 * pos.timeSigNumerator / pos.timeSigDenominator * 4.0;
 
-   pos.setBpm(TheTransport->GetTempo());
-   pos.setTimeSignature(timeSignature);
-   pos.setTimeInSamples(int64_t(gTime * gSampleRateMs));
-   pos.setTimeInSeconds(gTime / 1000);
+   pos.ppqPosition = (TheTransport->GetMeasureTime(gTime)) * tsRatio;
+   pos.ppqPositionOfLastBarStart = floor(TheTransport->GetMeasureTime(gTime)) * tsRatio;
 
-   /*
-   * getMeasureTime is a float of how many measures we are through with fractional
-   * measures. We want to know the number of quarter notes from the epoch which is
-   * just the tsRatio times measure count, and for start of measure we simply floor
-   * the measure time
-   */
+   // Loop points (best-effort mapping)
+   pos.ppqLoopStart = 0;
+   pos.ppqLoopEnd = 480 * pos.timeSigDenominator; // approximate equivalent to original behavior
 
-   double tsRatio = 4;
-   if (pos.getTimeSignature()->numerator > 0)
-      tsRatio = 1.0 * pos.getTimeSignature()->numerator / pos.getTimeSignature()->denominator * 4;
-   pos.setPpqPosition((TheTransport->GetMeasureTime(gTime)) * tsRatio);
-   pos.setPpqPositionOfLastBarStart(floor(TheTransport->GetMeasureTime(gTime)) * tsRatio);
+   pos.isPlaying = true;
+   pos.isRecording = false;
+   pos.isLooping = false;
 
-   pos.setIsPlaying(true);
-   pos.setIsRecording(false);
-   pos.setIsLooping(false);
-   pos.setLoopPoints(loopPoint);
-   pos.setFrameRate(juce::AudioPlayHead::fps60);
+   pos.frameRate = juce::AudioPlayHead::FrameRate(juce::AudioPlayHead::fps60);
 
    return pos;
 }

@@ -257,7 +257,11 @@ inline static int DeterministicRandom(int seed, int index)
 
 inline static float DeterministicRandomFloat01(int seed, int index)
 {
-   return float(DeterministicRandomInt64(seed, index)) / UINT64_MAX;
+   // Avoid implicit narrowing warnings by doing the division in double precision
+   // then cast to float.
+   double numer = static_cast<double>(DeterministicRandomInt64(seed, index));
+   double denom = static_cast<double>(std::numeric_limits<uint64_t>::max());
+   return static_cast<float>(numer / denom);
 }
 
 inline static std::string GetPathSeparator()

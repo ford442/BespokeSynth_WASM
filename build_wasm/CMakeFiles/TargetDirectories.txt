@@ -1,0 +1,4 @@
+/workspaces/BespokeSynth_WASM/build_wasm/CMakeFiles/BespokeSynthWASM.dir
+/workspaces/BespokeSynth_WASM/build_wasm/CMakeFiles/BespokeSynthWASM_test.dir
+/workspaces/BespokeSynth_WASM/build_wasm/CMakeFiles/edit_cache.dir
+/workspaces/BespokeSynth_WASM/build_wasm/CMakeFiles/rebuild_cache.dir

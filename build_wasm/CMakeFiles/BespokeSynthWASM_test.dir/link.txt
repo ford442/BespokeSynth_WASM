@@ -1,0 +1,1 @@
+/workspaces/emsdk/upstream/emscripten/em++ -sWASM=1 -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap'] -sUSE_SDL=2 --use-port=emdawnwebgpu -sALLOW_MEMORY_GROWTH=1 -sASSERTIONS=1 @CMakeFiles/BespokeSynthWASM_test.dir/objects1.rsp -o BespokeSynthWASM_test.html 
