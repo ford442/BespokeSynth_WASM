@@ -58,3 +58,14 @@ std::optional<juce::AudioPlayHead::CurrentPositionInfo> VSTPlayhead::getPosition
 
    return pos;
 }
+
+bool VSTPlayhead::getCurrentPosition (juce::AudioPlayHead::CurrentPositionInfo& result)
+{
+   auto p = getPosition();
+   if (p)
+   {
+      result = *p;
+      return true;
+   }
+   return false;
+}
