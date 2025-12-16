@@ -8,7 +8,7 @@ namespace exprtk {
 template<typename T>
 struct expression {
     T value() const { return T(0); }
-    void register_symbol_table(void*) {}
+    void register_symbol_table(const symbol_table<T>&) {}
 };
 
 template<typename T>

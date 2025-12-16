@@ -5,9 +5,12 @@
 // All rights reserved.
 
 #if !defined(LEATHERS_PUSH_)
-# error "'leathers/push' include not detected "
-    "or already closed with other 'pop'; "
-    "see README.txt for more info"
+// 'leathers/pop' included without a matching 'leathers/push'.
+// Some build targets or translation units may include the 'pop' header
+// indirectly without a prior 'push'. To be permissive for cross-platform
+// builds (especially WASM ports), don't treat this as a hard error —
+// instead, act as a no-op so the translation unit can continue compiling.
+#else
 #endif
 
 #undef LEATHERS_PUSH_

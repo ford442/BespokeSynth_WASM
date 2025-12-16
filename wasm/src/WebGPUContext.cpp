@@ -64,9 +64,13 @@ bool WebGPUContext::initialize(const char* selector) {
 
     WGPURequestAdapterCallbackInfo adapterCb = {};
     adapterCb.callback = onAdapterRequest;
-    adapterCb.userdata = &adapter; // header uses 'userdata' (lowercase)
+    // Use static pointer helper (s_adapterPtr) so we don't rely on a 'userdata' field
+    s_adapterPtr = &adapter;
 
     wgpuInstanceRequestAdapter(mInstance, &adapterOpts, adapterCb);
+
+    // clear helper pointer in case the adapter request failed synchronously
+    s_adapterPtr = nullptr;
 
     if (!adapter) {
         std::cerr << "Failed to obtain WebGPU Adapter" << std::endl;
@@ -77,9 +81,13 @@ bool WebGPUContext::initialize(const char* selector) {
     WGPUDeviceDescriptor deviceDesc = {};
     WGPURequestDeviceCallbackInfo deviceCb = {};
     deviceCb.callback = onDeviceRequest;
-    deviceCb.userdata = &mDevice; // header uses 'userdata' (lowercase)
+    // Use static pointer helper (s_devicePtr) so we don't rely on a 'userdata' field
+    s_devicePtr = &mDevice;
 
     wgpuAdapterRequestDevice(adapter, &deviceDesc, deviceCb);
+
+    // clear helper pointer in case the device request failed synchronously
+    s_devicePtr = nullptr;
 
     if (!mDevice) {
         std::cerr << "Failed to obtain WebGPU Device" << std::endl;
