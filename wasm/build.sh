@@ -19,7 +19,6 @@ echo -e "${GREEN}=== BespokeSynth WASM Build ===${NC}"
 
 source ../../emsdk/emsdk_env.sh
 
-
 # Check for Emscripten
 if ! command -v emcc &> /dev/null; then
     echo -e "${RED}Error: Emscripten (emcc) not found${NC}"
@@ -43,7 +42,7 @@ emcmake cmake "$SCRIPT_DIR" \
 
 # Build
 echo -e "${YELLOW}Building...${NC}"
-cmake --build . --parallel $(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+cmake --build . --parallel 55
 
 # Copy output files
 echo -e "${YELLOW}Copying output files...${NC}"
