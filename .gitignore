@@ -50,6 +50,7 @@ DerivedData/
 *.perspectivev3
 !default.perspectivev3
 xcuserdata/
+emsdk
 
 ## Other
 *.moved-aside
