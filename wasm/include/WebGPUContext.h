@@ -21,6 +21,7 @@ public:
     bool isInitialized() const { return mDevice != nullptr; }
 
     // Helpers used by the WebGPU C callbacks (keeps internals private)
+    void assignAdapter(WGPUAdapter adapter);
     void assignDevice(WGPUDevice device);
     void notifyComplete(bool success);
 
