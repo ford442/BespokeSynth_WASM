@@ -16,12 +16,9 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}=== BespokeSynth WASM Build ===${NC}"
-# Use relative path or rely on PATH if sourced
-if [ -f "emsdk/emsdk_env.sh" ]; then
-    source emsdk/emsdk_env.sh
-elif [ -f "../emsdk/emsdk_env.sh" ]; then
-    source ../emsdk/emsdk_env.sh
-fi
+
+source ../emsdk/emsdk_env.sh
+
 
 # Check for Emscripten
 if ! command -v emcc &> /dev/null; then
