@@ -17,7 +17,7 @@ NC='\033[0m' # No Color
 
 echo -e "${GREEN}=== BespokeSynth WASM Build ===${NC}"
 
-source ../emsdk/emsdk_env.sh
+source ../../emsdk/emsdk_env.sh
 
 
 # Check for Emscripten
