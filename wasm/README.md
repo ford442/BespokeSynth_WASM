@@ -18,6 +18,8 @@ This directory contains the WebAssembly port of BespokeSynth with WebGPU renderi
 - CMake 3.16 or later
 - A modern C++ compiler (for host tools)
 
+> **Note:** Recent Emscripten releases deprecated the `-sUSE_WEBGPU=1` flag. This project now uses the `emdawnwebgpu` port (enabled with `--use-port=emdawnwebgpu`); please use a current Emscripten SDK (3.1+ recommended) when building the WASM target.
+
 ### For Running
 
 - A WebGPU-capable browser:

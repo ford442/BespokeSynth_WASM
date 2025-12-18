@@ -20,6 +20,17 @@
   ==============================================================================
 */
 
+#if defined(__EMSCRIPTEN__)
+ #include <emscripten/emscripten.h>
+#else
+ #include <chrono>
+ static inline double emscripten_get_now()
+ {
+     using namespace std::chrono;
+     return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
+ }
+#endif
+
 namespace juce
 {
 

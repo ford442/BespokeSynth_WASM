@@ -8,18 +8,43 @@
 import './styles.css';
 
 // Load WASM module script dynamically
-const loadWasmModule = async (): Promise<any> => {
+const loadWasmModule = async (canvas?: HTMLCanvasElement): Promise<any> => {
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
     script.src = 'wasm/BespokeSynthWASM.js';
-    script.onload = () => {
-      // Wait for Module to be initialized
+    script.onload = async () => {
+      console.log('loadWasmModule: script loaded');
+      // If the build was modularized, a factory function will be exposed
+      const factory = (window as any).createBespokeSynth;
+      console.log('loadWasmModule: factory type =', typeof factory);
+      if (typeof factory === 'function') {
+        const config = {
+          canvas: canvas ?? document.getElementById('canvas'),
+          print: (text: any) => console.log(text),
+          printErr: (text: any) => console.error(text),
+        };
+
+        try {
+          console.log('loadWasmModule: invoking factory to create module instance');
+          const instance = await factory(config);
+          console.log('loadWasmModule: factory resolved an instance');
+          resolve(instance);
+          return;
+        } catch (err) {
+          console.error('loadWasmModule: factory threw error', err);
+          reject(err);
+          return;
+        }
+      }
+
+      // Fallback for non-modularized builds (legacy global Module)
       if ((window as any).Module?.calledRun) {
         resolve((window as any).Module);
       } else {
         (window as any).Module = {
           ...(window as any).Module,
           onRuntimeInitialized: () => {
+            console.log('loadWasmModule: onRuntimeInitialized called — resolving Module');
             resolve((window as any).Module);
           },
         };
@@ -74,6 +99,24 @@ class BespokeSynthApp {
         this.setupEventListeners();
         this.startRenderLoop();
         console.log('BespokeSynth initialized successfully');
+      } else if (result === 1) {
+        // Initialization is pending asynchronously. Wait for the WASM callback.
+        await new Promise<void>((resolve, reject) => {
+          console.log('Setting __bespoke_on_init_complete to receive async init completion');
+          (window as any).__bespoke_on_init_complete = (status: number) => {
+            console.log('Resolving __bespoke_on_init_complete with status', status);
+            delete (window as any).__bespoke_on_init_complete;
+            if (status === 0) resolve();
+            else reject(new Error(`Initialization failed with code: ${status}`));
+          };
+        });
+
+        // Now initialization completed successfully
+        this.isInitialized = true;
+        this.showStatus('Ready!');
+        this.setupEventListeners();
+        this.startRenderLoop();
+        console.log('BespokeSynth initialized successfully (async)');
       } else {
         throw new Error(`Initialization failed with code: ${result}`);
       }

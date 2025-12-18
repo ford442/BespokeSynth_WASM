@@ -71,74 +71,96 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
     gWidth = width;
     gHeight = height;
     
-    // Initialize WebGPU context
+    // Initialize WebGPU context (asynchronous)
     gContext = std::make_unique<WebGPUContext>();
-    if (!gContext->initialize("#canvas")) {
-        printf("BespokeSynth WASM: Failed to initialize WebGPU\n");
+    printf("WasmBridge: starting async WebGPU initialization (selector=#canvas)\n");
+
+    bool started = gContext->initializeAsync("#canvas", [] (bool success) {
+        if (!success) {
+            printf("BespokeSynth WASM: Failed to initialize WebGPU\n");
+            printf("WasmBridge: notifying JS of init failure (-1)\n");
+            // Notify JS that initialization failed
+            emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-1);");
+            return;
+        }
+
+        // Continue remaining initialization on success
+        gContext->resize(gWidth, gHeight);
+
+        // Initialize renderer
+        gRenderer = std::make_unique<WebGPURenderer>(*gContext);
+        if (!gRenderer->initialize()) {
+            printf("BespokeSynth WASM: Failed to initialize renderer\n");
+            printf("WasmBridge: notifying JS of init failure (-2)\n");
+            emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-2);");
+            return;
+        }
+
+        // Initialize audio backend
+        gAudioBackend = std::make_unique<SDL2AudioBackend>();
+        if (!gAudioBackend->initialize(44100, 512, 2, 0)) {
+            printf("BespokeSynth WASM: Failed to initialize audio\n");
+            printf("WasmBridge: notifying JS of init failure (-3)\n");
+            emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-3);");
+            return;
+        }
+
+        gAudioBackend->setCallback(audioCallback);
+
+        // Create some demo knobs
+        gKnobs.clear();
+
+        auto knob1 = std::make_unique<Knob>("Frequency", 0.5f);
+        knob1->setRange(0.0f, 1.0f);
+        knob1->setStyle(KnobStyle::Classic);
+        knob1->setColors(
+            Color(0.25f, 0.25f, 0.28f, 1.0f),
+            Color(0.7f, 0.7f, 0.75f, 1.0f),
+            Color(0.4f, 0.8f, 0.5f, 1.0f)
+        );
+        gKnobs.push_back(std::move(knob1));
+
+        auto knob2 = std::make_unique<Knob>("Volume", 0.7f);
+        knob2->setRange(0.0f, 1.0f);
+        knob2->setStyle(KnobStyle::Modern);
+        knob2->setColors(
+            Color(0.2f, 0.2f, 0.22f, 1.0f),
+            Color(0.6f, 0.6f, 0.65f, 1.0f),
+            Color(0.3f, 0.7f, 0.9f, 1.0f)
+        );
+        gKnobs.push_back(std::move(knob2));
+
+        auto knob3 = std::make_unique<Knob>("Filter", 0.3f);
+        knob3->setRange(0.0f, 1.0f);
+        knob3->setStyle(KnobStyle::LED);
+        knob3->setColors(
+            Color(0.15f, 0.15f, 0.18f, 1.0f),
+            Color(0.5f, 0.5f, 0.55f, 1.0f),
+            Color(0.9f, 0.4f, 0.2f, 1.0f)
+        );
+        gKnobs.push_back(std::move(knob3));
+
+        auto knob4 = std::make_unique<Knob>("Pan", 0.5f);
+        knob4->setRange(0.0f, 1.0f);
+        knob4->setBipolar(true);
+        knob4->setStyle(KnobStyle::Vintage);
+        gKnobs.push_back(std::move(knob4));
+
+        gInitialized = true;
+        printf("BespokeSynth WASM: Initialization complete\n");
+        printf("WasmBridge: notifying JS of init complete (0)\n");
+
+        // Notify JS that initialization finished successfully
+        emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(0);");
+    });
+
+    if (!started) {
+        printf("BespokeSynth WASM: Failed to start WebGPU initialization\n");
         return -1;
     }
-    
-    gContext->resize(width, height);
-    
-    // Initialize renderer
-    gRenderer = std::make_unique<WebGPURenderer>(*gContext);
-    if (!gRenderer->initialize()) {
-        printf("BespokeSynth WASM: Failed to initialize renderer\n");
-        return -2;
-    }
-    
-    // Initialize audio backend
-    gAudioBackend = std::make_unique<SDL2AudioBackend>();
-    if (!gAudioBackend->initialize(sampleRate, bufferSize, 2, 0)) {
-        printf("BespokeSynth WASM: Failed to initialize audio\n");
-        return -3;
-    }
-    
-    gAudioBackend->setCallback(audioCallback);
-    
-    // Create some demo knobs
-    gKnobs.clear();
-    
-    auto knob1 = std::make_unique<Knob>("Frequency", 0.5f);
-    knob1->setRange(0.0f, 1.0f);
-    knob1->setStyle(KnobStyle::Classic);
-    knob1->setColors(
-        Color(0.25f, 0.25f, 0.28f, 1.0f),
-        Color(0.7f, 0.7f, 0.75f, 1.0f),
-        Color(0.4f, 0.8f, 0.5f, 1.0f)
-    );
-    gKnobs.push_back(std::move(knob1));
-    
-    auto knob2 = std::make_unique<Knob>("Volume", 0.7f);
-    knob2->setRange(0.0f, 1.0f);
-    knob2->setStyle(KnobStyle::Modern);
-    knob2->setColors(
-        Color(0.2f, 0.2f, 0.22f, 1.0f),
-        Color(0.6f, 0.6f, 0.65f, 1.0f),
-        Color(0.3f, 0.7f, 0.9f, 1.0f)
-    );
-    gKnobs.push_back(std::move(knob2));
-    
-    auto knob3 = std::make_unique<Knob>("Filter", 0.3f);
-    knob3->setRange(0.0f, 1.0f);
-    knob3->setStyle(KnobStyle::LED);
-    knob3->setColors(
-        Color(0.15f, 0.15f, 0.18f, 1.0f),
-        Color(0.5f, 0.5f, 0.55f, 1.0f),
-        Color(0.9f, 0.4f, 0.2f, 1.0f)
-    );
-    gKnobs.push_back(std::move(knob3));
-    
-    auto knob4 = std::make_unique<Knob>("Pan", 0.5f);
-    knob4->setRange(0.0f, 1.0f);
-    knob4->setBipolar(true);
-    knob4->setStyle(KnobStyle::Vintage);
-    gKnobs.push_back(std::move(knob4));
-    
-    gInitialized = true;
-    printf("BespokeSynth WASM: Initialization complete\n");
-    
-    return 0;
+
+    // Indicate initialization started asynchronously
+    return 1;
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_shutdown(void) {

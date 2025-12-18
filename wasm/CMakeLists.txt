@@ -74,6 +74,13 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/SDL2AudioBackend.cpp
     ${BESPOKE_WASM_DIR}/src/WasmBridge.cpp
     ${BESPOKE_WASM_DIR}/src/Knob.cpp
+
+    # --- JUCE module wrappers (implementations) ---
+    ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_core/juce_core.cpp
+    ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_audio_basics/juce_audio_basics.cpp
+    ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_events/juce_events.cpp
+    ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_graphics/juce_graphics.cpp
+    ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_data_structures/juce_data_structures.cpp
 )
 
 # Collect core synth sources (subset for WASM - audio processing core)
@@ -137,12 +144,14 @@ set(EMSCRIPTEN_LINK_FLAGS
     "-sINITIAL_MEMORY=134217728"  # 128MB initial
     "-sSTACK_SIZE=1048576"  # 1MB stack
     "--shell-file=${BESPOKE_WASM_DIR}/shell.html"
+    "-sMODULARIZE=1"
+    "-sEXPORT_NAME='createBespokeSynth'"
 )
 
 # Add WebGPU support
 if(BESPOKE_WASM_WEBGPU)
     list(APPEND EMSCRIPTEN_LINK_FLAGS
-        "-sUSE_WEBGPU=1"
+        "--use-port=emdawnwebgpu"
     )
 endif()
 
