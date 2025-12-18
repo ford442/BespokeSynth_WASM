@@ -6,24 +6,25 @@
 #include <cassert>
 
 // --- Callback Wrappers ---
-// The Dawn/Emscripten webgpu shim expects callbacks with two user-data pointers.
-// We'll use short-lived static pointers so callbacks can update our instance members.
-static WebGPUContext* s_contextPtr = nullptr;
-static WGPUAdapter* s_adapterPtr = nullptr;
 
 // Forward-declare the device callback so it's visible when used from the adapter callback
 void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * userdata2);
 
 void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata, void * userdata2) {
     printf("WebGPUContext: onAdapterRequest called, status=%d\n", (int)status);
+    WebGPUContext* context = static_cast<WebGPUContext*>(userdata);
+
     if (status == WGPURequestAdapterStatus_Success) {
-        if (s_adapterPtr) *s_adapterPtr = adapter;
+        if (context) context->assignAdapter(adapter);
+
         // Immediately request a device once an adapter is available
-        if (s_contextPtr && adapter) {
+        if (context && adapter) {
             printf("WebGPUContext: Adapter found, requesting device\n");
             WGPUDeviceDescriptor deviceDesc = {};
             WGPURequestDeviceCallbackInfo deviceCb = {};
             deviceCb.callback = onDeviceRequest;
+            deviceCb.userdata1 = context;
+            deviceCb.userdata2 = nullptr;
             deviceCb.mode = WGPUCallbackMode_AllowProcessEvents; // ensure valid mode
             wgpuAdapterRequestDevice(adapter, &deviceDesc, deviceCb);
         }
@@ -31,21 +32,23 @@ void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPU
         std::cerr << "WebGPU Adapter Error: ";
         if (message.data) std::cerr.write(message.data, message.length);
         std::cerr << std::endl;
-        if (s_contextPtr) s_contextPtr->notifyComplete(false);
+        if (context) context->notifyComplete(false);
     }
 }
 
 void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * userdata2) {
     printf("WebGPUContext: onDeviceRequest called, status=%d\n", (int)status);
+    WebGPUContext* context = static_cast<WebGPUContext*>(userdata);
+
     if (status == WGPURequestDeviceStatus_Success) {
         printf("WebGPUContext: Device acquired, assigning to context\n");
-        if (s_contextPtr)
-            s_contextPtr->assignDevice(device);
+        if (context)
+            context->assignDevice(device);
     } else {
         std::cerr << "WebGPU Device Error: ";
         if (message.data) std::cerr.write(message.data, message.length);
         std::cerr << std::endl;
-        if (s_contextPtr) s_contextPtr->notifyComplete(false);
+        if (context) context->notifyComplete(false);
     }
 }
 // -------------------------
@@ -86,17 +89,13 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
 
     WGPURequestAdapterCallbackInfo adapterCb = {};
     adapterCb.callback = onAdapterRequest;
+    adapterCb.userdata1 = this;
+    adapterCb.userdata2 = nullptr;
     adapterCb.mode = WGPUCallbackMode_AllowProcessEvents; // ensure a valid callback mode
-
-    // Set static helpers so callbacks can update our members
-    s_contextPtr = this;
-    s_adapterPtr = &mAdapter;
 
     printf("WebGPUContext: initializeAsync started with selector=%s\n", selector ? selector : "(null)");
     wgpuInstanceRequestAdapter(mInstance, &adapterOpts, adapterCb);
 
-    // Don't clear s_contextPtr / s_adapterPtr here; callbacks use them until the
-    // asynchronous flow completes (callbacks will call notifyComplete()).
     // Return 'true' to indicate the async request was started.
     return true;
 }
@@ -117,6 +116,12 @@ void WebGPUContext::onDeviceReady() {
     resize((int)w, (int)h);
 
     if (mOnComplete) mOnComplete(true);
+}
+
+void WebGPUContext::assignAdapter(WGPUAdapter adapter)
+{
+    printf("WebGPUContext: assignAdapter called\n");
+    mAdapter = adapter;
 }
 
 void WebGPUContext::assignDevice(WGPUDevice device)
