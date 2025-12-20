@@ -62,6 +62,8 @@ python -m http.server 8000
 
 Then open `http://localhost:8000/` in your browser.
 
+Note: The `shell.html` template includes a default JavaScript handler that will automatically call `Module._bespoke_init` when the Emscripten runtime is ready and will display helpful UI messages if WebGPU initialization fails or times out.
+
 ## Project Structure
 
 ```
