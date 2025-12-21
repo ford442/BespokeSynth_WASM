@@ -46,7 +46,10 @@ void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStri
             context->assignDevice(device);
     } else {
         std::cerr << "WebGPU Device Error: ";
-        if (message.data) std::cerr.write(message.data, message.length);
+        if (message.data) {
+            std::string msg(message.data, message.length);
+            std::cerr << msg;
+        }
         std::cerr << std::endl;
         if (context) context->notifyComplete(false);
     }
@@ -82,6 +85,13 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
     WGPUSurfaceDescriptor surfaceDesc = {};
     surfaceDesc.nextInChain = (WGPUChainedStruct*)&canvasSource;
     mSurface = wgpuInstanceCreateSurface(mInstance, &surfaceDesc);
+    if (!mSurface) {
+        std::cerr << "WebGPUContext: Failed to create surface for selector: ";
+        if (selector) std::cerr << selector;
+        std::cerr << std::endl;
+        if (mOnComplete) mOnComplete(false);
+        return false;
+    }
 
     // 3. Adapter request (asynchronous)
     WGPURequestAdapterOptions adapterOpts = {};
