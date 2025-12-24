@@ -201,7 +201,12 @@ WGPURenderPassEncoder WebGPUContext::beginFrame() {
     colorAttachment.view = mCurrentView;
     colorAttachment.loadOp = WGPULoadOp_Clear;
     colorAttachment.storeOp = WGPUStoreOp_Store;
-    colorAttachment.clearValue = {0.1, 0.1, 0.1, 1.0}; 
+    colorAttachment.clearValue = {0.1, 0.1, 0.1, 1.0};
+#ifdef WGPU_DEPTH_SLICE_UNDEFINED
+    colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+#else
+    colorAttachment.depthSlice = 0xFFFFFFFF;
+#endif
 
     WGPURenderPassDescriptor passDesc = {};
     passDesc.colorAttachmentCount = 1;
