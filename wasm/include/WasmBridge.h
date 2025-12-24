@@ -16,6 +16,7 @@ extern "C" {
 
 // Initialization
 EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int bufferSize);
+EMSCRIPTEN_KEEPALIVE void bespoke_process_events(void);
 EMSCRIPTEN_KEEPALIVE void bespoke_shutdown(void);
 
 // Audio processing
@@ -62,6 +63,11 @@ EMSCRIPTEN_KEEPALIVE float bespoke_get_tempo(void);
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_version(void);
 EMSCRIPTEN_KEEPALIVE float bespoke_get_cpu_load(void);
 EMSCRIPTEN_KEEPALIVE int bespoke_get_module_count(void);
+
+// Panel management
+EMSCRIPTEN_KEEPALIVE void bespoke_set_panel(int panelIndex);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_panel(void);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_panel_count(void);
 
 #ifdef __cplusplus
 }
