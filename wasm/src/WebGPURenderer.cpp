@@ -593,8 +593,42 @@ void WebGPURenderer::fontFace(const char* name) {
 }
 
 void WebGPURenderer::text(float x, float y, const char* string) {
-    // TODO: Implement text rendering using font atlas
-    // For now, just skip text rendering in WebGPU version
+    // Simple box-based text rendering as placeholder
+    // Each character is a small box with approximate spacing
+    if (!string || string[0] == '\0') return;
+    
+    float charWidth = mFontSize * kCharacterWidthRatio;
+    float charHeight = mFontSize;
+    float charSpacing = charWidth * 0.2f;
+    
+    Color textColor = mCurrentState.fillColor;
+    Color dimColor(textColor.r * 0.3f, textColor.g * 0.3f, textColor.b * 0.3f, textColor.a);
+    
+    float currentX = x;
+    size_t len = strlen(string);
+    for (size_t i = 0; i < len; i++) {
+        char c = string[i];
+        
+        // Skip spaces but add spacing
+        if (c == ' ') {
+            currentX += charWidth + charSpacing;
+            continue;
+        }
+        
+        // Draw character as a small box with a line to represent the glyph
+        fillColor(dimColor);
+        rect(currentX, y - charHeight * 0.8f, charWidth * 0.9f, charHeight * 0.9f);
+        fill();
+        
+        // Add a simple line pattern to distinguish letters
+        strokeColor(textColor);
+        strokeWidth(1.0f);
+        float centerX = currentX + charWidth * 0.45f;
+        float centerY = y - charHeight * 0.4f;
+        line(centerX, centerY - charHeight * 0.2f, centerX, centerY + charHeight * 0.2f);
+        
+        currentX += charWidth + charSpacing;
+    }
 }
 
 float WebGPURenderer::textWidth(const char* string) {
