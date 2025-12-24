@@ -441,20 +441,23 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void) {
             // Draw step sequencer grid
             float gridX = seqX;
             float gridY = seqY + 50;
-            float stepW = 35;
-            float stepH = 30;
-            int numSteps = 16;
-            int numRows = 4;
+            
+            // Sequencer grid constants
+            const float STEP_WIDTH = 35.0f;
+            const float STEP_HEIGHT = 30.0f;
+            const int NUM_STEPS = 16;
+            const int NUM_ROWS = 4;
+            const int STEP_PATTERN_INTERVAL = 3;  // Pattern interval for demo
             
             gRenderer->text(gridX, gridY - 10, "Step Sequencer (16 steps x 4 notes)");
             
-            for (int row = 0; row < numRows; row++) {
-                for (int step = 0; step < numSteps; step++) {
-                    float sx = gridX + step * stepW;
-                    float sy = gridY + row * stepH;
+            for (int row = 0; row < NUM_ROWS; row++) {
+                for (int step = 0; step < NUM_STEPS; step++) {
+                    float sx = gridX + step * STEP_WIDTH;
+                    float sy = gridY + row * STEP_HEIGHT;
                     
                     // Alternate pattern for demo
-                    bool active = (step + row) % 3 == 0;
+                    bool active = (step + row) % STEP_PATTERN_INTERVAL == 0;
                     
                     if (active) {
                         gRenderer->fillColor(Color(0.4f, 0.7f, 0.5f, 1.0f));
@@ -462,12 +465,12 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void) {
                         gRenderer->fillColor(Color(0.15f, 0.15f, 0.17f, 1.0f));
                     }
                     
-                    gRenderer->rect(sx, sy, stepW - 2, stepH - 2);
+                    gRenderer->rect(sx, sy, STEP_WIDTH - 2, STEP_HEIGHT - 2);
                     gRenderer->fill();
                     
                     gRenderer->strokeColor(Color(0.3f, 0.3f, 0.35f, 1.0f));
                     gRenderer->strokeWidth(1.0f);
-                    gRenderer->rect(sx, sy, stepW - 2, stepH - 2);
+                    gRenderer->rect(sx, sy, STEP_WIDTH - 2, STEP_HEIGHT - 2);
                     gRenderer->stroke();
                 }
             }

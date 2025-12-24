@@ -595,7 +595,7 @@ void WebGPURenderer::fontFace(const char* name) {
 void WebGPURenderer::text(float x, float y, const char* string) {
     // Simple box-based text rendering as placeholder
     // Each character is a small box with approximate spacing
-    if (!string || strlen(string) == 0) return;
+    if (!string || string[0] == '\0') return;
     
     float charWidth = mFontSize * kCharacterWidthRatio;
     float charHeight = mFontSize;
@@ -605,7 +605,8 @@ void WebGPURenderer::text(float x, float y, const char* string) {
     Color dimColor(textColor.r * 0.3f, textColor.g * 0.3f, textColor.b * 0.3f, textColor.a);
     
     float currentX = x;
-    for (size_t i = 0; i < strlen(string); i++) {
+    size_t len = strlen(string);
+    for (size_t i = 0; i < len; i++) {
         char c = string[i];
         
         // Skip spaces but add spacing
