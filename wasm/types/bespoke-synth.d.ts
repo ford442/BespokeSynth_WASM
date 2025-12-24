@@ -58,6 +58,12 @@ export interface BespokeSynthModule extends EmscriptenModule {
     _bespoke_get_version(): number;
     _bespoke_get_cpu_load(): number;
     _bespoke_get_module_count(): number;
+
+    // Panel management
+    _bespoke_process_events(): void;
+    _bespoke_set_panel(panelIndex: number): void;
+    _bespoke_get_panel(): number;
+    _bespoke_get_panel_count(): number;
 }
 
 /**
@@ -78,6 +84,15 @@ export enum MouseButton {
     Left = 0,
     Middle = 1,
     Right = 2
+}
+
+/**
+ * Panel types
+ */
+export enum PanelType {
+    Mixer = 0,
+    Effects = 1,
+    Sequencer = 2
 }
 
 /**
@@ -218,6 +233,36 @@ export class BespokeSynth {
      */
     getModuleCount(): number {
         return this.module._bespoke_get_module_count();
+    }
+
+    /**
+     * Set the active panel
+     * @param panelIndex - Panel index (0=Mixer, 1=Effects, 2=Sequencer)
+     */
+    setPanel(panelIndex: number): void {
+        this.module._bespoke_set_panel(panelIndex);
+    }
+
+    /**
+     * Get the currently active panel index
+     * @returns Panel index (0=Mixer, 1=Effects, 2=Sequencer)
+     */
+    getPanel(): number {
+        return this.module._bespoke_get_panel();
+    }
+
+    /**
+     * Get the total number of panels
+     */
+    getPanelCount(): number {
+        return this.module._bespoke_get_panel_count();
+    }
+
+    /**
+     * Process WebGPU events (for async initialization)
+     */
+    processEvents(): void {
+        this.module._bespoke_process_events();
     }
 
     /**
