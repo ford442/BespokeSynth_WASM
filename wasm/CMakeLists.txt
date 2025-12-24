@@ -139,13 +139,15 @@ set(EMSCRIPTEN_LINK_FLAGS
     "-sUSE_SDL=2"
     "--use-port=emdawnwebgpu"     # NEW: Replacement for -sUSE_WEBGPU=1
     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
-    "-sEXPORTED_FUNCTIONS=['_main','_bespoke_init','_bespoke_process_audio','_bespoke_render']"
+    "-sEXPORTED_FUNCTIONS=['_main','_bespoke_init','_bespoke_process_audio','_bespoke_render','_bespoke_process_events']"
     "-sALLOW_MEMORY_GROWTH=1"
     "-sINITIAL_MEMORY=134217728"  # 128MB initial
     "-sSTACK_SIZE=1048576"  # 1MB stack
     "--shell-file=${BESPOKE_WASM_DIR}/shell.html"
     "-sMODULARIZE=1"
     "-sEXPORT_NAME='createBespokeSynth'"
+    "-sASYNCIFY=1"  # Enable async operations
+    "-sASYNCIFY_STACK_SIZE=65536"  # 64KB async stack
 )
 
 # Add WebGPU support

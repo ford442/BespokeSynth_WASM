@@ -103,14 +103,24 @@ class BespokeSynthApp {
         // Initialization is pending asynchronously. Wait for the WASM callback.
         await new Promise<void>((resolve, reject) => {
           console.log('Setting __bespoke_on_init_complete to receive async init completion');
-          let initTimeout = window.setTimeout(() => {
+          const initTimeout = window.setTimeout(() => {
             delete (window as any).__bespoke_on_init_complete;
+            if (pollInterval) clearInterval(pollInterval);
+            console.error('Initialization timed out after 30 seconds waiting for WASM to complete');
             reject(new Error('Initialization timed out waiting for WASM to complete'));
-          }, 10000);
+          }, 30000); // Increased from 10000 to 30000 (30 seconds)
+
+          // Poll for WebGPU events to ensure async callbacks are processed
+          const pollInterval = window.setInterval(() => {
+            if (this.module._bespoke_process_events) {
+              this.module._bespoke_process_events();
+            }
+          }, 100); // Poll every 100ms
 
           (window as any).__bespoke_on_init_complete = (status: number) => {
             console.log('Resolving __bespoke_on_init_complete with status', status);
             window.clearTimeout(initTimeout);
+            if (pollInterval) clearInterval(pollInterval);
             delete (window as any).__bespoke_on_init_complete;
             if (status === 0) resolve();
             else reject(new Error(`Initialization failed with code: ${status}`));

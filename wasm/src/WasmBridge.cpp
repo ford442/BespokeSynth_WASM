@@ -163,6 +163,13 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
     return 1;
 }
 
+EMSCRIPTEN_KEEPALIVE void bespoke_process_events(void) {
+    // Process pending WebGPU events to allow async callbacks to fire
+    if (gContext) {
+        gContext->processEvents();
+    }
+}
+
 EMSCRIPTEN_KEEPALIVE void bespoke_shutdown(void) {
     printf("BespokeSynth WASM: Shutting down\n");
     
@@ -201,7 +208,13 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_buffer_size(void) {
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_render(void) {
-    if (!gInitialized || !gRenderer) return;
+    if (!gInitialized || !gRenderer) {
+        // During initialization, process events to allow WebGPU callbacks
+        if (gContext) {
+            gContext->processEvents();
+        }
+        return;
+    }
     
     gRenderer->beginFrame(gWidth, gHeight, 1.0f);
     

@@ -1,6 +1,7 @@
 #include "WebGPUContext.h"
 #include <iostream>
 #include <cstdio>
+#include <emscripten.h>
 #include <emscripten/html5.h>
 #include <cstring>
 #include <cassert>
@@ -25,7 +26,7 @@ void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPU
             deviceCb.callback = onDeviceRequest;
             deviceCb.userdata1 = context;
             deviceCb.userdata2 = nullptr;
-            deviceCb.mode = WGPUCallbackMode_AllowProcessEvents; // ensure valid mode
+            deviceCb.mode = WGPUCallbackMode_AllowProcessEvents;
             wgpuAdapterRequestDevice(adapter, &deviceDesc, deviceCb);
         }
     } else {
@@ -101,13 +102,22 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
     adapterCb.callback = onAdapterRequest;
     adapterCb.userdata1 = this;
     adapterCb.userdata2 = nullptr;
-    adapterCb.mode = WGPUCallbackMode_AllowProcessEvents; // ensure a valid callback mode
+    adapterCb.mode = WGPUCallbackMode_AllowProcessEvents;
 
     printf("WebGPUContext: initializeAsync started with selector=%s\n", selector ? selector : "(null)");
     wgpuInstanceRequestAdapter(mInstance, &adapterOpts, adapterCb);
 
+    // Process pending WebGPU events to trigger callbacks
+    wgpuInstanceProcessEvents(mInstance);
+
     // Return 'true' to indicate the async request was started.
     return true;
+}
+
+void WebGPUContext::processEvents() {
+    if (mInstance) {
+        wgpuInstanceProcessEvents(mInstance);
+    }
 }
 
 void WebGPUContext::onDeviceReady() {

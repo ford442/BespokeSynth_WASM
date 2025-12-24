@@ -136,6 +136,21 @@ The project includes TypeScript definitions for the WASM module in `wasm/types/b
 - Source maps are enabled in development mode
 - Console logs show initialization and error messages
 
+### Troubleshooting WebGPU Initialization
+
+If you see "Initialization timed out waiting for WASM to complete":
+
+1. **Check WebGPU support**: Ensure your browser supports WebGPU (Chrome 113+, Edge 113+)
+2. **Enable WebGPU**: Some browsers require enabling WebGPU in flags (e.g., `chrome://flags/#enable-unsafe-webgpu`)
+3. **Check console logs**: Look for "WebGPUContext: onAdapterRequest called" - if missing, WebGPU async callbacks aren't firing
+4. **Verify CORS headers**: If loading from a CDN, ensure proper CORS headers are set
+5. **Check hosted files**: Verify both `.js` and `.wasm` files are accessible and match versions
+
+The initialization uses async WebGPU callbacks with event polling. The web app polls `_bespoke_process_events()` every 100ms to ensure callbacks fire. If initialization still fails after 30 seconds, check:
+- Browser console for WebGPU errors
+- Network tab for failed resource loads
+- Whether WebGPU is available: `navigator.gpu !== undefined`
+
 ## Building WASM Module
 
 If you want to rebuild the WASM module from source:
