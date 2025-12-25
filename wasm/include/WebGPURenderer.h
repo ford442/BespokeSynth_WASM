@@ -12,6 +12,7 @@
 #include <vector>
 #include <string>
 #include <cstdint>
+#include <map>
 
 namespace bespoke {
 namespace wasm {
@@ -35,6 +36,42 @@ struct Vertex2D {
     Color color;
 };
 
+// Shader Pipelines storage
+struct Pipelines {
+    WGPURenderPipeline solid;
+    WGPURenderPipeline textured;
+    WGPURenderPipeline knob_highlight;
+    WGPURenderPipeline wire_glow;
+    WGPURenderPipeline vu_meter;
+    WGPURenderPipeline connection_pulse;
+    WGPURenderPipeline slider_track;
+    WGPURenderPipeline slider_fill;
+    WGPURenderPipeline slider_handle;
+    WGPURenderPipeline button;
+    WGPURenderPipeline button_hover;
+    WGPURenderPipeline toggle_switch;
+    WGPURenderPipeline toggle_thumb;
+    WGPURenderPipeline adsr_envelope;
+    WGPURenderPipeline adsr_grid;
+    WGPURenderPipeline waveform;
+    WGPURenderPipeline waveform_filled;
+    WGPURenderPipeline spectrum_bar;
+    WGPURenderPipeline spectrum_peak;
+    WGPURenderPipeline panel_background;
+    WGPURenderPipeline panel_bordered;
+    WGPURenderPipeline text_glow;
+    WGPURenderPipeline text_shadow;
+    WGPURenderPipeline progress_bar;
+    WGPURenderPipeline scope_display;
+    WGPURenderPipeline scope_grid;
+    WGPURenderPipeline led_indicator;
+    WGPURenderPipeline led_off;
+    WGPURenderPipeline dial_ticks;
+    WGPURenderPipeline fader_groove;
+    WGPURenderPipeline fader_cap;
+    WGPURenderPipeline mod_wheel;
+};
+
 /**
  * WebGPU-based 2D renderer
  * Provides NanoVG-like API for drawing UI elements
@@ -48,7 +85,7 @@ public:
     bool initialize();
     
     // Begin/end frame
-    void beginFrame(int width, int height, float pixelRatio);
+    void beginFrame(int width, int height, float pixelRatio, float time = 0.0f);
     void endFrame();
     
     // State management
@@ -105,17 +142,34 @@ public:
     void drawSlider(float x, float y, float w, float h, float value, const Color& bgColor, const Color& fgColor);
     void drawVUMeter(float x, float y, float w, float h, float level, const Color& lowColor, const Color& highColor);
 
+    // New UI elements
+    void drawButton(float x, float y, float w, float h, const char* label, bool pressed, bool hover);
+    void drawToggle(float x, float y, float w, float h, bool state);
+    void drawFader(float x, float y, float w, float h, float value);
+    void drawModWheel(float x, float y, float w, float h, float value);
+    void drawADSR(float x, float y, float w, float h, float a, float d, float s, float r);
+    void drawWaveform(float x, float y, float w, float h, const float* data, int count, bool filled);
+    void drawSpectrum(float x, float y, float w, float h, const float* data, int count);
+    void drawScope(float x, float y, float w, float h, const float* data, int count);
+    void drawPanel(float x, float y, float w, float h, bool bordered);
+    void drawLED(float x, float y, float w, float h, bool on);
+    void drawProgressBar(float x, float y, float w, float h, float value);
+
 private:
     void createPipelines();
     void createBuffers();
     void flushBatch();
+    void setPipeline(WGPURenderPipeline pipeline);
     void pushVertex(float x, float y, float u, float v, const Color& color);
     void transformPoint(float& x, float& y);
+    void drawQuad(float x, float y, float w, float h, WGPURenderPipeline pipeline);
     
     WebGPUContext& mContext;
     
-    WGPURenderPipeline mFillPipeline = nullptr;
-    WGPURenderPipeline mStrokePipeline = nullptr;
+    Pipelines mPipelines;
+    WGPURenderPipeline mCurrentPipeline = nullptr;
+    WGPURenderPipeline mStrokePipeline = nullptr; // Kept separate for lines
+
     WGPUBuffer mVertexBuffer = nullptr;
     WGPUBuffer mUniformBuffer = nullptr;
     WGPUBindGroup mBindGroup = nullptr;
@@ -147,6 +201,7 @@ private:
     int mWidth = 0;
     int mHeight = 0;
     float mPixelRatio = 1.0f;
+    float mTime = 0.0f;
     bool mFrameStarted = false;
 };
 
