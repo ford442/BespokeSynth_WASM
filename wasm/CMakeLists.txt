@@ -17,16 +17,19 @@ project(BespokeSynthWASM)
 
 # --- CRITICAL FIX START ---
 
-# 1. Force Emscripten to make SDL2 and WebGPU headers available
+# 1. Force Emscripten to make SDL2 available
+# NOTE: the WebGPU port flag should be a linker-only flag to avoid passing
+# it to clang++ (which doesn't accept the option). Keep it in link options
+# and EMSCRIPTEN_LINK_FLAGS instead.
 add_compile_options(
-    "-sUSE_SDL=2" 
-    "--use-port=emdawnwebgpu"     # NEW: Replacement for -sUSE_WEBGPU=1
+    "-sUSE_SDL=2"
 )
 
 # 2. Linker options
 add_link_options(
     "-sUSE_SDL=2" 
-    "--use-port=emdawnwebgpu"     # NEW: Replacement for -sUSE_WEBGPU=1
+    "-sUSE_WEBGPU=1"              # Ensure webgpu runtime is linked in
+    "--use-port=emdawnwebgpu"     # Also request the emdawnwebgpu port
     "-sALLOW_MEMORY_GROWTH=1"
     "-sASSERTIONS=1"
 )
@@ -137,7 +140,8 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
 set(EMSCRIPTEN_LINK_FLAGS
     "-sWASM=1"
     "-sUSE_SDL=2"
-    "--use-port=emdawnwebgpu"     # NEW: Replacement for -sUSE_WEBGPU=1
+    "-sUSE_WEBGPU=1"              # Ensure Emscripten includes the WebGPU runtime
+    "--use-port=emdawnwebgpu"     # Keep the emdawnwebgpu port for extra functionality
     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
     "-sEXPORTED_FUNCTIONS=['_main','_bespoke_init','_bespoke_process_audio','_bespoke_render','_bespoke_process_events']"
     "-sALLOW_MEMORY_GROWTH=1"

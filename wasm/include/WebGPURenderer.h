@@ -173,6 +173,7 @@ private:
     WGPUBuffer mVertexBuffer = nullptr;
     WGPUBuffer mUniformBuffer = nullptr;
     WGPUBindGroup mBindGroup = nullptr;
+    WGPUBindGroupLayout mBindGroupLayout = nullptr; // Cached layout used even when pipelines are null
     
     std::vector<Vertex2D> mVertices;
     

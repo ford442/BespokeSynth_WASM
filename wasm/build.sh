@@ -17,7 +17,14 @@ NC='\033[0m' # No Color
 
 echo -e "${GREEN}=== BespokeSynth WASM Build ===${NC}"
 
-source ../../emsdk/emsdk_env.sh
+# Source emsdk environment if available (support multiple layouts)
+if [ -f "$PROJECT_ROOT/emsdk/emsdk_env.sh" ]; then
+    source "$PROJECT_ROOT/emsdk/emsdk_env.sh"
+elif [ -f "../../emsdk/emsdk_env.sh" ]; then
+    source "../../emsdk/emsdk_env.sh"
+else
+    echo -e "${YELLOW}Warning: emsdk_env.sh not found; assume Emscripten is already on PATH${NC}"
+fi
 
 # Check for Emscripten
 if ! command -v emcc &> /dev/null; then
