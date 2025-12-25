@@ -1,6 +1,11 @@
 // BespokeSynth WASM - 2D Rendering Shader
 // WebGPU Shading Language (WGSL)
 
+// Mathematical constants
+const PI: f32 = 3.14159265;
+const TWO_PI: f32 = 6.28318530;
+const HALF_PI: f32 = 1.57079632;
+
 struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) texcoord: vec2<f32>,
@@ -321,10 +326,10 @@ fn fs_toggle_thumb(input: VertexOutput) -> @location(0) vec4<f32> {
 @fragment
 fn fs_adsr_envelope(input: VertexOutput) -> @location(0) vec4<f32> {
     // Envelope visualization - filled area below curve
-    // texcoord.y represents envelope value at this point
+    // texcoord.x represents position along envelope, texcoord.y represents the envelope curve value at that position
     let envValue = input.texcoord.y;
     
-    // Gradient fill from bottom
+    // Gradient fill from bottom - brighter near the envelope curve
     let fillGradient = smoothstep(0.0, 1.0, input.texcoord.y);
     
     var color = input.color;
@@ -332,11 +337,13 @@ fn fs_adsr_envelope(input: VertexOutput) -> @location(0) vec4<f32> {
     color.g = color.g * (0.5 + fillGradient * 0.5);
     color.b = color.b * (0.5 + fillGradient * 0.5);
     
-    // Brighter at top edge of envelope
-    let edgeBrightness = smoothstep(0.02, 0.0, abs(envValue - 0.5));
-    color.r = min(1.0, color.r + edgeBrightness * 0.3);
-    color.g = min(1.0, color.g + edgeBrightness * 0.3);
-    color.b = min(1.0, color.b + edgeBrightness * 0.3);
+    // Brighter at the envelope curve edge (where y approaches the actual envelope value)
+    // The envelope value is passed via the v texture coordinate, highlight pixels near that boundary
+    let curveEdge = 1.0 - envValue; // distance from top of fill to top of screen
+    let edgeBrightness = smoothstep(0.04, 0.0, curveEdge);
+    color.r = min(1.0, color.r + edgeBrightness * 0.4);
+    color.g = min(1.0, color.g + edgeBrightness * 0.4);
+    color.b = min(1.0, color.b + edgeBrightness * 0.4);
     
     return color;
 }
@@ -718,14 +725,14 @@ fn fs_dial_ticks(input: VertexOutput) -> @location(0) vec4<f32> {
     
     // Draw tick marks around the dial
     let numTicks = 11.0;
-    let tickAngle = 3.14159265 * 2.0 / numTicks;
+    let tickAngle = TWO_PI / numTicks;
     
     // Only draw in valid angle range (270 degrees, from 135 to 405 degrees)
-    let startAngle = 0.75 * 3.14159265;
-    let validRange = step(startAngle, angle + 3.14159265) * step(angle + 3.14159265, 2.25 * 3.14159265);
+    let startAngle = 0.75 * PI;
+    let validRange = step(startAngle, angle + PI) * step(angle + PI, 2.25 * PI);
     
     // Tick positions
-    let tickPos = fract((angle + 3.14159265) / tickAngle);
+    let tickPos = fract((angle + PI) / tickAngle);
     let tickWidth = 0.05;
     let tick = smoothstep(tickWidth, 0.0, abs(tickPos - 0.5) * 2.0 - (1.0 - tickWidth));
     
@@ -781,14 +788,14 @@ fn fs_fader_cap(input: VertexOutput) -> @location(0) vec4<f32> {
     }
     
     // Metallic horizontal gradient
-    let metallic = sin(input.texcoord.x * 3.14159265) * 0.15 + 0.85;
+    let metallic = sin(input.texcoord.x * PI) * 0.15 + 0.85;
     
     // Vertical highlight at top
     let highlight = (1.0 - smoothstep(0.0, 0.3, input.texcoord.y)) * 0.25;
     
     // Grip lines (horizontal ridges)
     let gripSpacing = 0.12;
-    let gripLine = sin(input.texcoord.y / gripSpacing * 3.14159265 * 2.0) * 0.05;
+    let gripLine = sin(input.texcoord.y / gripSpacing * TWO_PI) * 0.05;
     
     var color = input.color;
     color.r = min(1.0, color.r * metallic + highlight + gripLine);
@@ -804,10 +811,10 @@ fn fs_fader_cap(input: VertexOutput) -> @location(0) vec4<f32> {
 fn fs_mod_wheel(input: VertexOutput) -> @location(0) vec4<f32> {
     // Wheel texture with horizontal ridges
     let ridgeSpacing = 0.04;
-    let ridge = sin(input.texcoord.y / ridgeSpacing * 3.14159265) * 0.5 + 0.5;
+    let ridge = sin(input.texcoord.y / ridgeSpacing * PI) * 0.5 + 0.5;
     
     // Curve effect for 3D cylinder appearance
-    let curveX = sin(input.texcoord.x * 3.14159265);
+    let curveX = sin(input.texcoord.x * PI);
     let lighting = 0.6 + curveX * 0.4;
     
     var color = input.color;
