@@ -63,6 +63,15 @@ void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStri
     onDeviceRequest_compat(status, device, msg.c_str(), userdata);
 }
 #endif
+
+// Uncaptured device error callback to catch shader compilation/validation messages at runtime
+#ifdef WGPUDeviceSetUncapturedErrorCallback
+static void deviceUncapturedErrorCallback(WGPUErrorType type, WGPUStringView message, void* userdata) {
+    const std::string msg = (message.data ? std::string(message.data, message.length) : std::string());
+    printf("WebGPU Device Error (type=%d): %s\n", (int)type, msg.c_str());
+}
+#endif
+
 // -------------------------
 
 WebGPUContext::WebGPUContext() {
@@ -156,6 +165,13 @@ void WebGPUContext::onDeviceReady() {
     }
 
     mQueue = wgpuDeviceGetQueue(mDevice);
+
+    // Register uncaptured device error callback (if available) to catch shader compile/validation messages
+#ifdef WGPUDeviceSetUncapturedErrorCallback
+    wgpuDeviceSetUncapturedErrorCallback(mDevice, deviceUncapturedErrorCallback, this);
+#else
+    printf("WebGPUContext: Warning - device uncaptured error callback unavailable in this header\n");
+#endif
 
     // Get current canvas size and configure surface
     double w, h;
