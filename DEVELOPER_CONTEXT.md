@@ -2,112 +2,83 @@
 
 ## 1. High-Level Architecture & Intent
 
-**Bespoke Synth** is a modular software synthesizer designed for live patching and composition.
+**Core Purpose**
+Bespoke Synth is a software modular synthesizer designed for live-patching and personalized workflow construction. Unlike traditional DAWs, it treats the canvas as a free-form "patchboard" where modules (oscillators, effects, sequencers) are connected visually and logically.
 
-### Core Purpose
-To provide a highly customizable, canvas-based modular synthesis environment where "everything connects to everything." It supports DSP modules, VST/LV2 hosting, and Python live-coding.
-
-### Tech Stack
-*   **Language:** C++17 (Standard).
-*   **Framework:** JUCE (Application shell, Audio Device management, VST hosting).
-*   **Build System:** CMake.
-*   **Scripting:** Python 3 (embedded via `pybind11`).
+**Tech Stack**
+*   **Language:** C++17
+*   **Frameworks:**
+    *   **Desktop:** JUCE (handles windowing, audio device I/O, VST hosting).
+    *   **WASM:** Emscripten, WebGPU (rendering), SDL2 (audio backend).
 *   **Graphics:**
-    *   **Desktop:** OpenGL 3.2+ with [NanoVG](https://github.com/memononen/nanovg) for vector drawing.
-    *   **WASM:** WebGPU with a custom C++ renderer emulating an immediate-mode 2D API.
-*   **WASM Toolchain:** Emscripten (emsdk).
+    *   **Desktop:** NanoVG (vector graphics library) wrapped for JUCE.
+    *   **WASM:** Custom WebGPU renderer implementing a subset of the drawing API.
+*   **Scripting:** Python (embedded for live-coding modules).
+*   **Build System:** CMake.
 
-### Design Patterns
-*   **God Object:** `ModularSynth` (in `Source/ModularSynth.cpp`) is the central singleton that manages the audio graph, UI state, inputs, and file I/O.
-*   **Module Pattern:** All modules inherit from `IDrawableModule` (UI) and interfaces like `IAudioSource`, `IAudioReceiver`, `INoteReceiver`.
-*   **Factory Pattern:** `ModuleFactory` uses a registry map to instantiate modules by string name (key for saving/loading).
-*   **Immediate Mode GUI:** The UI is redrawn every frame (or on demand) using `Draw()` methods in each module, rather than retained widgets.
+**Design Patterns**
+*   **God Object / Mediator:** `ModularSynth` acts as the central hub managing all modules, global state, and the main event loop.
+*   **Factory Pattern:** `ModuleFactory` handles the instantiation of all synth modules by string ID.
+*   **Observer/Listener:** Extensive use of listener interfaces (e.g., `IAudioSource`, `IAudioReceiver`, `INoteReceiver`) for inter-module communication.
+*   **Polymorphism:** All modules inherit from `IDrawableModule`, which combines UI (`DrawModule`) and logic.
 
----
+## 2. Feature Map
 
-## 2. Feature Map (The "General Points")
+| Feature | Description | Entry Point / Key File |
+| :--- | :--- | :--- |
+| **Core Engine** | Manages the main loop, audio callbacks, and module graph. | `Source/ModularSynth.cpp` |
+| **Module System** | Base class for all synth modules. Handles common UI and state. | `Source/IDrawableModule.cpp` |
+| **Audio Processing** | Interface for anything that produces sound. | `Source/IAudioSource.h` |
+| **Module Creation** | Registry and spawner for all available modules. | `Source/ModuleFactory.cpp` |
+| **Save/Load** | JSON-based state persistence. | `Source/SaveStateLoader.cpp`, `ofxJSONElement` |
+| **Python Scripting** | Embedded Python environment for custom scripts. | `Source/ScriptModule.cpp` |
+| **VST Hosting** | Hosting VST2/VST3 plugins. | `Source/VSTPlugin.cpp` |
+| **WASM Bridge** | Separate entry point for the web version. | `wasm/src/WasmBridge.cpp` |
 
-### Desktop Application (`Source/`)
-*   **Entry Point:** `Source/Main.cpp` (JUCE application startup) -> `Source/MainComponent.cpp` (Window & Audio callback).
-*   **Core Engine:** `Source/ModularSynth.cpp`. This is the "brain."
-*   **Module System:** `Source/IDrawableModule.h` defines the base class. Modules are in `Source/` (e.g., `Oscillator.cpp`, `FilterButterworth24db.cpp`).
-*   **Python Scripting:** `Source/ScriptModule.cpp`. Embeds a Python interpreter to allow live-coding modules.
-*   **VST Hosting:** `Source/VSTPlugin.cpp`. Wraps JUCE's VST hosting capabilities.
+## 3. Complexity Hotspots
 
-### WebAssembly Port (`wasm/`)
-*   **Status:** **Experimental / Demo.** It is *not* a full port of the Desktop app yet.
-*   **Entry Point:** `wasm/src/WasmMain.cpp` (HTML5 event listeners).
-*   **Bridge:** `wasm/src/WasmBridge.cpp` exposes C functions to JavaScript and manages the demo state (it does *not* instantiate `ModularSynth`).
-*   **Rendering:** `wasm/src/WebGPURenderer.cpp`. A custom-built 2D renderer using WebGPU pipelines to draw shapes, text, and gradients, mimicking the NanoVG API used on desktop.
-*   **Audio:** `wasm/src/SDL2AudioBackend.cpp` uses SDL2 to get an audio callback in the browser.
+### A. Thread Safety & Audio Locking
+*   **Context:** The application runs a high-priority audio thread and a lower-priority UI thread.
+*   **Mechanism:** `NamedMutex mAudioThreadMutex` protects shared resources.
+*   **Danger:** Touching the module graph (adding/removing modules) during audio processing will crash the synth. `ModularSynth::LockRender(true)` is used to pause audio processing during graph mutations.
+*   **Agent Note:** *Never* modify `mModules` or connection pointers without holding the render lock. Verify thread context before calling audio functions.
 
----
+### B. Circular Dependency Detection
+*   **Context:** Feedback loops in audio connections can cause infinite recursion or blown filters.
+*   **Mechanism:** `FindCircularDependencies()` traverses the audio graph to detect loops.
+*   **Complexity:** It involves a graph traversal algorithm that must run efficiently to update UI feedback (cables turning red).
 
-## 3. Complexity Hotspots (The "Complex Parts")
-
-### The `ModularSynth` God Class
-*   **File:** `Source/ModularSynth.cpp` / `.h`
-*   **Why:** It handles *everything*: audio callbacks, mouse/keyboard events, file loading, dependency sorting (to prevent feedback loops), and global state.
-*   **Agent Note:** Be extremely careful when modifying this file. Changes here ripple through the entire application. Avoid adding more logic here if it can be encapsulated elsewhere.
-
-### Audio Thread Synchronization
-*   **Mechanism:** `mAudioThreadMutex` and `LockRender()`.
-*   **Why:** The UI thread (rendering) and Audio thread (DSP) access the same module data.
-*   **Danger:** Touching audio graph structures (like adding/removing modules or cables) without locking the audio thread will cause hard crashes.
-*   **Agent Note:** Always check thread context. If modifying graph topology, ensure the audio thread is paused or locked.
-
-### WASM WebGPU Renderer
-*   **File:** `wasm/src/WebGPURenderer.cpp`
-*   **Why:** It manually constructs vertex buffers and manages WebGPU pipelines to draw 2D vector graphics (arcs, beziers, fills). It embeds WGSL shaders as strings.
-*   **Gotchas:**
-    *   **Zero-initialization:** WebGPU structures (like `WGPURenderPassColorAttachment`) must be strictly initialized. Missing fields (like `depthSlice: WGPU_DEPTH_SLICE_UNDEFINED`) cause validation errors.
-    *   **Shader embedding:** Shaders are C++ string constants (`kRender2DShader`). Changes require recompiling the C++ code.
-
-### Python Integration
-*   **File:** `Source/ScriptModule.cpp`
-*   **Why:** Embeds a full Python interpreter. Data marshalling between C++ and Python (via `pybind11`) can be tricky regarding memory ownership and GIL (Global Interpreter Lock).
-
----
+### C. The Desktop vs. WASM Split
+*   **Context:** The project maintains two distinct rendering and system backends.
+*   **Complexity:**
+    *   **Desktop** uses `MainComponent.cpp` and NanoVG.
+    *   **WASM** uses `WasmBridge.cpp`, `WebGPURenderer.cpp`, and does **not** compile the full `ModularSynth` class yet. It runs a simplified "demo" architecture in the current state.
+*   **Agent Note:** Do not assume changes in `Source/` automatically apply to the WASM build. The WASM build is currently a distinct architectural branch.
 
 ## 4. Inherent Limitations & "Here be Dragons"
 
-### WASM Limitations
-*   **Incomplete Port:** The WASM build (`BespokeSynthWASM`) currently compiles only a subset of core DSP files (Oscillators, Envelopes). It **does not** run the full `ModularSynth` engine. It runs a hardcoded demo defined in `WasmBridge.cpp`.
-*   **No NanoVG:** The WASM build cannot use NanoVG directly due to OpenGL/WebGPU differences, hence the custom `WebGPURenderer`.
+### Known Issues
+*   **WASM Parity:** The WASM build is significantly behind the desktop build. It is architecturally decoupled and currently serves as a proof-of-concept/demo.
+*   **VST Support:** VST hosting is platform-dependent and often fragile due to the closed-source nature of many plugins.
 
 ### Technical Debt
-*   **Raw Pointers:** The codebase uses raw pointers (`IDrawableModule*`) extensively for the module graph. Ownership is generally managed by `ModuleContainer`, but be wary of dangling pointers.
-*   **Immediate Mode UI Efficiency:** The UI redraws frequently. Complex paths or too many UI elements can degrade performance, especially in the WebGPU implementation which has to rebuild vertex buffers every frame.
+*   **`ModularSynth` Size:** The `ModularSynth` class is massive (thousands of lines). It handles too many responsibilities (UI events, audio routing, file I/O). Refactoring this is high-risk.
+*   **Raw Pointers:** The codebase uses many raw pointers for module inter-connections. Ownership is generally handled by the `ModuleContainer`, but dangling pointers are a risk during module deletion.
 
 ### Hard Constraints
-*   **Save Format:** `.bsk` files are JSON-based. Breaking backward compatibility with old save files is a major issue. Generally, add new optional fields rather than changing existing ones.
-*   **Audio Callback:** The audio callback must remain lock-free (or wait-free) ideally. `ModularSynth` uses a mutex, which is suboptimal but deeply ingrained. Do not introduce *new* locks in the audio path if possible.
-
----
+*   **Legacy Layouts:** Support for loading older `.bsk` (JSON) files must be maintained. Do not change JSON serialization keys for existing modules.
 
 ## 5. Dependency Graph & Key Flows
 
-### Desktop Audio Flow
-1.  **Driver:** `MainComponent::audioDeviceIOCallback` (Audio Thread)
-2.  **Engine:** `ModularSynth::AudioOut`
-    *   Acquires `mAudioThreadMutex`.
-    *   advances `gTime`.
-3.  **Graph:** Iterates `mSources` (sorted list of `IAudioSource`).
-4.  **Module:** `IAudioSource::Process()` -> calls `Process()` on upstream modules recursively or pulls from buffer.
-5.  **Output:** Sums to `mOutputBuffers` -> Driver.
+### Critical Path: Audio Generation
+1.  **Hardware Callback:** `ModularSynth::AudioOut` is called by the audio device.
+2.  **Output Buffers:** Iterates through `mOutputBuffers`.
+3.  **Graph Traversal:** `IAudioSource::GetSample` is called recursively up the chain.
+4.  **Processing:** Each module computes its sample (or retrieves a cached one for the current buffer index).
 
-### Desktop UI Flow
-1.  **Loop:** `MainComponent::render` (on Timer/Vsync).
-2.  **State:** `ModularSynth::Poll()` (Updates physics, LFOs, UI state).
-3.  **Draw:** `ModularSynth::Draw(NanoVG context)`
-    *   Iterates `mModuleContainer`.
-    *   Calls `IDrawableModule::DrawModule()` for each visible module.
-
-### WASM Flow (Current Demo)
-1.  **Entry:** `bespoke_init` (called from JS).
-2.  **Loop:** `bespoke_render` (called from JS `requestAnimationFrame`).
-    *   Calls `WebGPURenderer::beginFrame`.
-    *   Manually draws demo UI (Knobs, Panels) via `gRenderer`.
-    *   Calls `WebGPURenderer::endFrame` -> `wgpuQueueSubmit`.
-3.  **Audio:** `SDL2AudioBackend` callback -> `audioCallback` (in `WasmBridge.cpp`).
-    *   Generates Sine wave based on global `gKnobs` state.
+### Critical Path: User Interaction
+1.  **Input:** `MainComponent` receives mouse/keyboard events from JUCE.
+2.  **Dispatch:** Events are forwarded to `ModularSynth`.
+3.  **Routing:** `ModularSynth` checks which module is under the cursor or has focus.
+4.  **Module Action:** `IDrawableModule::OnMouse*` methods are triggered.
+5.  **State Change:** Module updates internal parameters (often atomic or mutex-protected).
