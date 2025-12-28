@@ -28,8 +28,7 @@ add_compile_options(
 # 2. Linker options
 add_link_options(
     "-sUSE_SDL=2" 
-    "-sUSE_WEBGPU=1"              # Ensure webgpu runtime is linked in
-    "--use-port=emdawnwebgpu"     # Also request the emdawnwebgpu port
+    "--use-port=emdawnwebgpu"     # Use the new emdawnwebgpu port (replaces old -sUSE_WEBGPU=1)
     "-sALLOW_MEMORY_GROWTH=1"
     "-sASSERTIONS=1"
 )
@@ -140,8 +139,7 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
 set(EMSCRIPTEN_LINK_FLAGS
     "-sWASM=1"
     "-sUSE_SDL=2"
-    "-sUSE_WEBGPU=1"              # Ensure Emscripten includes the WebGPU runtime
-    "--use-port=emdawnwebgpu"     # Keep the emdawnwebgpu port for extra functionality
+    "--use-port=emdawnwebgpu"     # Use the new emdawnwebgpu port (replaces old -sUSE_WEBGPU=1)
     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
     "-sEXPORTED_FUNCTIONS=['_main','_bespoke_init','_bespoke_process_audio','_bespoke_render','_bespoke_process_events']"
     "-sALLOW_MEMORY_GROWTH=1"
