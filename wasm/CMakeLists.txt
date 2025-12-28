@@ -18,17 +18,13 @@ project(BespokeSynthWASM)
 # --- CRITICAL FIX START ---
 
 # 1. Force Emscripten to make SDL2 available
-# NOTE: the WebGPU port flag should be a linker-only flag to avoid passing
-# it to clang++ (which doesn't accept the option). Keep it in link options
-# and EMSCRIPTEN_LINK_FLAGS instead.
+# SDL2 and WebGPU are added conditionally below based on BESPOKE_WASM_* options
 add_compile_options(
     "-sUSE_SDL=2"
 )
 
 # 2. Linker options
 add_link_options(
-    "-sUSE_SDL=2" 
-    "--use-port=emdawnwebgpu"     # Use the new emdawnwebgpu port (replaces old -sUSE_WEBGPU=1)
     "-sALLOW_MEMORY_GROWTH=1"
     "-sASSERTIONS=1"
 )
@@ -138,8 +134,6 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
 # Emscripten linker flags
 set(EMSCRIPTEN_LINK_FLAGS
     "-sWASM=1"
-    "-sUSE_SDL=2"
-    "--use-port=emdawnwebgpu"     # Use the new emdawnwebgpu port (replaces old -sUSE_WEBGPU=1)
     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
     "-sEXPORTED_FUNCTIONS=['_main','_bespoke_init','_bespoke_process_audio','_bespoke_render','_bespoke_process_events']"
     "-sALLOW_MEMORY_GROWTH=1"
