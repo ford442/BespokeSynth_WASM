@@ -18,7 +18,9 @@ project(BespokeSynthWASM)
 # --- CRITICAL FIX START ---
 
 # 1. Force Emscripten to make SDL2 available
-# SDL2 and WebGPU are added conditionally below based on BESPOKE_WASM_* options
+# SDL2 compile option is unconditional because SDL2AudioBackend.h is included
+# by WasmBridge.cpp which is always compiled. The linker flag for SDL2 audio
+# backend is added conditionally below based on BESPOKE_WASM_SDL2_AUDIO option.
 add_compile_options(
     "-sUSE_SDL=2"
 )
