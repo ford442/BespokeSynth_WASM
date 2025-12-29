@@ -14,27 +14,11 @@ static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatu
 // Helper to handle device request response
 static void handleDeviceRequest(WebGPUContext* context, WGPURequestDeviceStatus status, WGPUDevice device, const char* message);
 
-// --- Callback Wrappers (compat shims for different webgpu headers) ---
+// --- Callback Wrappers (5-argument callbacks) ---
 
-// 4-argument device callback (older emscripten/dawn headers)
-static void onDeviceRequest_compat(WGPURequestDeviceStatus status, WGPUDevice device, const char* message, void * userdata) {
-    handleDeviceRequest(static_cast<WebGPUContext*>(userdata), status, device, message);
-}
-
-// 4-argument adapter callback (older emscripten/dawn headers)
-static void onAdapterRequest_compat(WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message, void * userdata) {
-    handleAdapterRequest(static_cast<WebGPUContext*>(userdata), status, adapter, message);
-}
-
-// 5-argument callbacks (newer emscripten/dawn headers with userdata2 and WGPUStringView)
-#if defined(WGPUStringView) || defined(WGPU_STRING_VIEW_INIT)
-// Forward declarations
-static void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * userdata2);
-static void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata, void * userdata2);
-
+// 5-argument adapter callback (newer emscripten/dawn headers with userdata2 and WGPUStringView)
 static void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata, void * userdata2) {
     // Convert WGPUStringView to C string or std::string if needed, or pass nullptr if empty
-    // For now, we just handle the message if it has data.
     std::string msg;
     if (message.data && message.length > 0) {
         msg = std::string(message.data, message.length);
@@ -42,6 +26,7 @@ static void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapte
     handleAdapterRequest(static_cast<WebGPUContext*>(userdata), status, adapter, msg.c_str());
 }
 
+// 5-argument device callback (newer emscripten/dawn headers with userdata2 and WGPUStringView)
 static void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * userdata2) {
     std::string msg;
     if (message.data && message.length > 0) {
@@ -49,7 +34,6 @@ static void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, W
     }
     handleDeviceRequest(static_cast<WebGPUContext*>(userdata), status, device, msg.c_str());
 }
-#endif
 
 // Uncaptured device error callback to catch shader compilation/validation messages at runtime
 #ifdef WGPUDeviceSetUncapturedErrorCallback
@@ -87,12 +71,8 @@ static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatu
             printf("WebGPUContext: Adapter found, requesting device\n");
             WGPUDeviceDescriptor deviceDesc = {};
 
-            // Use the correct callback based on available API
-#if defined(WGPUStringView) || defined(WGPU_STRING_VIEW_INIT)
+            // Force use of 5-argument callback
             wgpuAdapterRequestDevice(adapter, &deviceDesc, onDeviceRequest, context);
-#else
-            wgpuAdapterRequestDevice(adapter, &deviceDesc, onDeviceRequest_compat, context);
-#endif
         }
     } else {
         std::cerr << "WebGPU Adapter Error: ";
@@ -155,12 +135,8 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
 
     printf("WebGPUContext: initializeAsync started with selector=%s\n", selector ? selector : "(null)");
 
-    // Use the correct callback based on available API
-#if defined(WGPUStringView) || defined(WGPU_STRING_VIEW_INIT)
+    // Force use of 5-argument callback
     wgpuInstanceRequestAdapter(mInstance, &adapterOpts, onAdapterRequest, this);
-#else
-    wgpuInstanceRequestAdapter(mInstance, &adapterOpts, onAdapterRequest_compat, this);
-#endif
 
 #ifdef __EMSCRIPTEN__
     // In Emscripten builds, `wgpuInstanceProcessEvents` is unsupported and will

@@ -16,16 +16,9 @@ namespace bespoke {
 namespace wasm {
 
 // Helper for StringViews / entry point helpers
-#if defined(WGPUStringView) || defined(WGPU_STRING_VIEW_INIT)
 WGPUStringView s(const char* str) {
     return WGPUStringView{str, strlen(str)};
 }
-#else
-// Fallback: return plain C string when WGPUStringView isn't available in headers
-const char* s(const char* str) {
-    return str;
-}
-#endif
 
 // Constants for 2D rendering
 static const int kArcTessellationFactor = 4;  // Arc subdivisions per radius unit
