@@ -71,8 +71,14 @@ static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatu
             printf("WebGPUContext: Adapter found, requesting device\n");
             WGPUDeviceDescriptor deviceDesc = {};
 
-            // Force use of 5-argument callback
-            wgpuAdapterRequestDevice(adapter, &deviceDesc, onDeviceRequest, context);
+            // Use new callback info structure
+            WGPURequestDeviceCallbackInfo deviceCallbackInfo = {};
+            deviceCallbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+            deviceCallbackInfo.callback = onDeviceRequest;
+            deviceCallbackInfo.userdata1 = context;
+            deviceCallbackInfo.userdata2 = nullptr;
+            
+            wgpuAdapterRequestDevice(adapter, &deviceDesc, deviceCallbackInfo);
         }
     } else {
         std::cerr << "WebGPU Adapter Error: ";
@@ -135,8 +141,14 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
 
     printf("WebGPUContext: initializeAsync started with selector=%s\n", selector ? selector : "(null)");
 
-    // Force use of 5-argument callback
-    wgpuInstanceRequestAdapter(mInstance, &adapterOpts, onAdapterRequest, this);
+    // Use new callback info structure
+    WGPURequestAdapterCallbackInfo callbackInfo = {};
+    callbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+    callbackInfo.callback = onAdapterRequest;
+    callbackInfo.userdata1 = this;
+    callbackInfo.userdata2 = nullptr;
+    
+    wgpuInstanceRequestAdapter(mInstance, &adapterOpts, callbackInfo);
 
 #ifdef __EMSCRIPTEN__
     // In Emscripten builds, `wgpuInstanceProcessEvents` is unsupported and will

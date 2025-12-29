@@ -51,7 +51,11 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs")             # For 'le
 include_directories("${BESPOKE_LIBS_DIR}/leathers")                      # ensure nested leathers headers are visible
 include_directories("${BESPOKE_LIBS_DIR}/nanovg")                        # allow includes like "nanovg/nanovg.h"
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/nanovg_fix")
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/webgpu-headers") # WebGPU headers
+
+# Note: WebGPU headers are provided by Emscripten's emdawnwebgpu port
+# They are automatically included when using --use-port=emdawnwebgpu
+# Include path: <webgpu/webgpu.h>
+
 # WASM-specific options
 option(BESPOKE_WASM_WEBGPU "Enable WebGPU rendering backend" ON)
 option(BESPOKE_WASM_SDL2_AUDIO "Enable SDL2 audio backend" ON)
@@ -151,6 +155,10 @@ set(EMSCRIPTEN_LINK_FLAGS
 
 # Add WebGPU support
 if(BESPOKE_WASM_WEBGPU)
+    # Add compile flag to enable WebGPU headers from emdawnwebgpu port
+    target_compile_options(BespokeSynthWASM PRIVATE
+        "SHELL:--use-port=emdawnwebgpu"
+    )
     list(APPEND EMSCRIPTEN_LINK_FLAGS
         "--use-port=emdawnwebgpu"
     )
