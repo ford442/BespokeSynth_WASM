@@ -51,6 +51,7 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs")             # For 'le
 include_directories("${BESPOKE_LIBS_DIR}/leathers")                      # ensure nested leathers headers are visible
 include_directories("${BESPOKE_LIBS_DIR}/nanovg")                        # allow includes like "nanovg/nanovg.h"
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/nanovg_fix")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/webgpu-headers") # WebGPU headers
 # WASM-specific options
 option(BESPOKE_WASM_WEBGPU "Enable WebGPU rendering backend" ON)
 option(BESPOKE_WASM_SDL2_AUDIO "Enable SDL2 audio backend" ON)

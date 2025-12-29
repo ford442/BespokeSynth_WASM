@@ -1,6 +1,6 @@
 #pragma once
 
-#include <webgpu/webgpu.h>
+#include <webgpu.h>
 #include <vector>
 
 struct Uniforms {

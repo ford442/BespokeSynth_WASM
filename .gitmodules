@@ -23,3 +23,6 @@
 	path = libs/exprtk
 	url = https://github.com/ArashPartow/exprtk.git
 	branch = cmake
+[submodule "libs/webgpu-headers"]
+	path = libs/webgpu-headers
+	url = https://github.com/webgpu-native/webgpu-headers.git
