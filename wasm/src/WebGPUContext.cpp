@@ -6,12 +6,63 @@
 #include <cstring>
 #include <cassert>
 
+// --- Helper methods for unified logic ---
+
+// Helper to handle adapter request response
+static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message);
+
+// Helper to handle device request response
+static void handleDeviceRequest(WebGPUContext* context, WGPURequestDeviceStatus status, WGPUDevice device, const char* message);
+
 // --- Callback Wrappers (compat shims for different webgpu headers) ---
 
-// Adapter/device callback using the Emscripten-provided signature (const char* message)
+// 4-argument device callback (older emscripten/dawn headers)
 static void onDeviceRequest_compat(WGPURequestDeviceStatus status, WGPUDevice device, const char* message, void * userdata) {
-    printf("WebGPUContext: onDeviceRequest called, status=%d\n", (int)status);
-    WebGPUContext* context = static_cast<WebGPUContext*>(userdata);
+    handleDeviceRequest(static_cast<WebGPUContext*>(userdata), status, device, message);
+}
+
+// 4-argument adapter callback (older emscripten/dawn headers)
+static void onAdapterRequest_compat(WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message, void * userdata) {
+    handleAdapterRequest(static_cast<WebGPUContext*>(userdata), status, adapter, message);
+}
+
+// 5-argument callbacks (newer emscripten/dawn headers with userdata2 and WGPUStringView)
+#if defined(WGPUStringView) || defined(WGPU_STRING_VIEW_INIT)
+// Forward declarations
+static void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * userdata2);
+static void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata, void * userdata2);
+
+static void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata, void * userdata2) {
+    // Convert WGPUStringView to C string or std::string if needed, or pass nullptr if empty
+    // For now, we just handle the message if it has data.
+    std::string msg;
+    if (message.data && message.length > 0) {
+        msg = std::string(message.data, message.length);
+    }
+    handleAdapterRequest(static_cast<WebGPUContext*>(userdata), status, adapter, msg.c_str());
+}
+
+static void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * userdata2) {
+    std::string msg;
+    if (message.data && message.length > 0) {
+        msg = std::string(message.data, message.length);
+    }
+    handleDeviceRequest(static_cast<WebGPUContext*>(userdata), status, device, msg.c_str());
+}
+#endif
+
+// Uncaptured device error callback to catch shader compilation/validation messages at runtime
+#ifdef WGPUDeviceSetUncapturedErrorCallback
+static void deviceUncapturedErrorCallback(WGPUErrorType type, WGPUStringView message, void* userdata) {
+    const std::string msg = (message.data ? std::string(message.data, message.length) : std::string());
+    printf("WebGPU Device Error (type=%d): %s\n", (int)type, msg.c_str());
+}
+#endif
+
+// --- Implementation of Logic ---
+
+static void handleDeviceRequest(WebGPUContext* context, WGPURequestDeviceStatus status, WGPUDevice device, const char* message) {
+    printf("WebGPUContext: handleDeviceRequest called, status=%d\n", (int)status);
 
     if (status == WGPURequestDeviceStatus_Success) {
         printf("WebGPUContext: Device acquired, assigning to context\n");
@@ -25,9 +76,8 @@ static void onDeviceRequest_compat(WGPURequestDeviceStatus status, WGPUDevice de
     }
 }
 
-static void onAdapterRequest_compat(WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message, void * userdata) {
-    printf("WebGPUContext: onAdapterRequest called, status=%d\n", (int)status);
-    WebGPUContext* context = static_cast<WebGPUContext*>(userdata);
+static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message) {
+    printf("WebGPUContext: handleAdapterRequest called, status=%d\n", (int)status);
 
     if (status == WGPURequestAdapterStatus_Success) {
         if (context) context->assignAdapter(adapter);
@@ -36,8 +86,13 @@ static void onAdapterRequest_compat(WGPURequestAdapterStatus status, WGPUAdapter
         if (context && adapter) {
             printf("WebGPUContext: Adapter found, requesting device\n");
             WGPUDeviceDescriptor deviceDesc = {};
-            // Use the simple callback-based API available in older headers
+
+            // Use the correct callback based on available API
+#if defined(WGPUStringView) || defined(WGPU_STRING_VIEW_INIT)
+            wgpuAdapterRequestDevice(adapter, &deviceDesc, onDeviceRequest, context);
+#else
             wgpuAdapterRequestDevice(adapter, &deviceDesc, onDeviceRequest_compat, context);
+#endif
         }
     } else {
         std::cerr << "WebGPU Adapter Error: ";
@@ -46,31 +101,6 @@ static void onAdapterRequest_compat(WGPURequestAdapterStatus status, WGPUAdapter
         if (context) context->notifyComplete(false);
     }
 }
-
-// If the newer 'info' style callbacks are available in headers, keep wrappers to them
-#ifdef WGPUStringView
-// Forward-declare the device callback so it's visible when used from the adapter callback
-void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * userdata2);
-
-void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata, void * userdata2) {
-    // Adapt to our compat handler by copying the string
-    const std::string msg = (message.data ? std::string(message.data, message.length) : std::string());
-    onAdapterRequest_compat(status, adapter, msg.c_str(), userdata);
-}
-
-void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * userdata2) {
-    const std::string msg = (message.data ? std::string(message.data, message.length) : std::string());
-    onDeviceRequest_compat(status, device, msg.c_str(), userdata);
-}
-#endif
-
-// Uncaptured device error callback to catch shader compilation/validation messages at runtime
-#ifdef WGPUDeviceSetUncapturedErrorCallback
-static void deviceUncapturedErrorCallback(WGPUErrorType type, WGPUStringView message, void* userdata) {
-    const std::string msg = (message.data ? std::string(message.data, message.length) : std::string());
-    printf("WebGPU Device Error (type=%d): %s\n", (int)type, msg.c_str());
-}
-#endif
 
 // -------------------------
 
@@ -125,8 +155,12 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
 
     printf("WebGPUContext: initializeAsync started with selector=%s\n", selector ? selector : "(null)");
 
-    // Use the callback-based API available in current emscripten headers.
+    // Use the correct callback based on available API
+#if defined(WGPUStringView) || defined(WGPU_STRING_VIEW_INIT)
+    wgpuInstanceRequestAdapter(mInstance, &adapterOpts, onAdapterRequest, this);
+#else
     wgpuInstanceRequestAdapter(mInstance, &adapterOpts, onAdapterRequest_compat, this);
+#endif
 
 #ifdef __EMSCRIPTEN__
     // In Emscripten builds, `wgpuInstanceProcessEvents` is unsupported and will

@@ -16,7 +16,7 @@ namespace bespoke {
 namespace wasm {
 
 // Helper for StringViews / entry point helpers
-#ifdef WGPUStringView
+#if defined(WGPUStringView) || defined(WGPU_STRING_VIEW_INIT)
 WGPUStringView s(const char* str) {
     return WGPUStringView{str, strlen(str)};
 }
