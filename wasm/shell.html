@@ -167,6 +167,49 @@
             border-radius: 4px;
         }
         
+        /* Panel status display */
+        #panel-status {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            font-size: 11px;
+            color: #aaa;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #3a3a40;
+            max-width: 250px;
+        }
+        
+        #panel-status .status-title {
+            font-weight: bold;
+            color: #4080c0;
+            margin-bottom: 6px;
+        }
+        
+        #panel-status .panel-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 3px 0;
+            padding: 2px 0;
+        }
+        
+        #panel-status .panel-name {
+            color: #ccc;
+        }
+        
+        #panel-status .panel-indicator {
+            font-size: 10px;
+        }
+        
+        #panel-status .panel-indicator.loaded {
+            color: #4080c0;
+        }
+        
+        #panel-status .panel-indicator.running {
+            color: #40c080;
+        }
+        
         /* WebGPU not supported message */
         #webgpu-check {
             position: absolute;
@@ -236,6 +279,12 @@
             <div id="error">
                 <h2>Error</h2>
                 <p id="error-message"></p>
+            </div>
+            
+            <!-- Panel status display -->
+            <div id="panel-status" style="display: none;">
+                <div class="status-title">Panel Status</div>
+                <div id="panel-status-content"></div>
             </div>
             
             <!-- Default JS handler for async WASM initialization -->
@@ -434,6 +483,56 @@
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
         
+        // Panel status update loop
+        function updatePanelStatus() {
+            // Check if panel status functions are available
+            if (Module._bespoke_get_panel_count && 
+                Module._bespoke_get_panel_name &&
+                Module._bespoke_is_panel_loaded &&
+                Module._bespoke_is_panel_running &&
+                Module._bespoke_get_panel_frame_count) {
+                
+                var panelStatusEl = document.getElementById('panel-status');
+                var panelStatusContent = document.getElementById('panel-status-content');
+                
+                if (panelStatusEl && panelStatusContent) {
+                    // Show the panel status display
+                    panelStatusEl.style.display = 'block';
+                    
+                    var panelCount = Module._bespoke_get_panel_count();
+                    var html = '';
+                    
+                    for (var i = 0; i < panelCount; i++) {
+                        var name = Module.ccall('bespoke_get_panel_name', 'string', ['number'], [i]);
+                        var loaded = Module._bespoke_is_panel_loaded(i);
+                        var running = Module._bespoke_is_panel_running(i);
+                        var frameCount = Module._bespoke_get_panel_frame_count(i);
+                        
+                        var statusText = '';
+                        var statusClass = '';
+                        
+                        if (running) {
+                            statusText = `✓ Running (${frameCount} frames)`;
+                            statusClass = 'running';
+                        } else if (loaded) {
+                            statusText = '● Loaded';
+                            statusClass = 'loaded';
+                        } else {
+                            statusText = '○ Not Loaded';
+                            statusClass = '';
+                        }
+                        
+                        html += `<div class="panel-item">
+                            <span class="panel-name">${name}:</span>
+                            <span class="panel-indicator ${statusClass}">${statusText}</span>
+                        </div>`;
+                    }
+                    
+                    panelStatusContent.innerHTML = html;
+                }
+            }
+        }
+        
         // Status update loop
         function updateStatus() {
             if (Module._bespoke_get_sample_rate && Module._bespoke_get_buffer_size) {
@@ -444,9 +543,22 @@
                 document.getElementById('status').textContent = 
                     `${sampleRate} Hz | ${bufferSize} samples | CPU: ${(cpuLoad * 100).toFixed(1)}%`;
             }
+            
+            // Update panel status
+            updatePanelStatus();
         }
         
         setInterval(updateStatus, 500);
+        
+        // Log all panel status when clicking on panel status display
+        document.addEventListener('click', function(e) {
+            if (e.target.closest('#panel-status')) {
+                if (Module._bespoke_log_all_panels_status) {
+                    console.log('=== Requesting Panel Status Dump ===');
+                    Module._bespoke_log_all_panels_status();
+                }
+            }
+        });
         
         // Start initialization
         async function init() {

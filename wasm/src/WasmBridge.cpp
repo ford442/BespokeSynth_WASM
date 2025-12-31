@@ -43,6 +43,19 @@ enum PanelType {
 };
 static int gCurrentPanel = PANEL_MIXER;
 
+// Panel status tracking
+struct PanelStatus {
+    bool loaded;
+    bool running;
+    int frameCount;
+    float lastUpdateTime;
+};
+static PanelStatus gPanelStatus[PANEL_COUNT] = {
+    {false, false, 0, 0.0f},  // Mixer
+    {false, false, 0, 0.0f},  // Effects
+    {false, false, 0, 0.0f}   // Sequencer
+};
+
 // Version string
 static const char* kVersion = "1.0.0-wasm";
 
@@ -68,6 +81,46 @@ static void audioCallback(const float* const* input, float* const* output,
         
         for (int ch = 0; ch < numOutputChannels; ch++) {
             output[ch][i] = sample;
+        }
+    }
+}
+
+// Helper function to get panel name
+static const char* getPanelName(int panelIndex) {
+    static const char* panelNames[] = {"Mixer", "Effects", "Sequencer"};
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        return panelNames[panelIndex];
+    }
+    return "Unknown";
+}
+
+// Helper function to log panel status
+static void logPanelStatus(int panelIndex, const char* action) {
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        printf("DEBUG [Panel:%s] %s - Loaded:%s Running:%s Frames:%d\n",
+               getPanelName(panelIndex), action,
+               gPanelStatus[panelIndex].loaded ? "YES" : "NO",
+               gPanelStatus[panelIndex].running ? "YES" : "NO",
+               gPanelStatus[panelIndex].frameCount);
+    }
+}
+
+// Helper function to mark panel as loaded
+static void markPanelLoaded(int panelIndex) {
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        gPanelStatus[panelIndex].loaded = true;
+        gPanelStatus[panelIndex].running = false;
+        gPanelStatus[panelIndex].frameCount = 0;
+        logPanelStatus(panelIndex, "LOADED");
+    }
+}
+
+// Helper function to mark panel as running
+static void markPanelRunning(int panelIndex) {
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        if (!gPanelStatus[panelIndex].running) {
+            gPanelStatus[panelIndex].running = true;
+            logPanelStatus(panelIndex, "STARTED");
         }
     }
 }
@@ -156,6 +209,13 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
         knob4->setStyle(KnobStyle::Vintage);
         gKnobs.push_back(std::move(knob4));
 
+        // Mark all panels as loaded
+        printf("\n=== DEBUG: Panel Initialization ===\n");
+        for (int i = 0; i < PANEL_COUNT; i++) {
+            markPanelLoaded(i);
+        }
+        printf("=== Panel Initialization Complete ===\n\n");
+
         gInitialized = true;
         printf("BespokeSynth WASM: Initialization complete\n");
         printf("WasmBridge: notifying JS of init complete (0)\n");
@@ -227,6 +287,22 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void) {
     }
     
     gTime += 0.016f; // Approximate 60fps
+    
+    // Mark current panel as running and update frame count
+    if (gCurrentPanel >= 0 && gCurrentPanel < PANEL_COUNT) {
+        markPanelRunning(gCurrentPanel);
+        gPanelStatus[gCurrentPanel].frameCount++;
+        gPanelStatus[gCurrentPanel].lastUpdateTime = gTime;
+        
+        // Log panel status every 300 frames (~5 seconds at 60fps)
+        if (gPanelStatus[gCurrentPanel].frameCount % 300 == 0) {
+            printf("DEBUG [Panel:%s] Running - Frames:%d Time:%.1fs\n",
+                   getPanelName(gCurrentPanel),
+                   gPanelStatus[gCurrentPanel].frameCount,
+                   gTime);
+        }
+    }
+    
     gRenderer->beginFrame(gWidth, gHeight, 1.0f, gTime);
     
     // Clear background
@@ -259,11 +335,13 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void) {
         gRenderer->roundedRect(tabX, tabY, tabWidth, tabHeight, 5.0f);
         gRenderer->fill();
         
-        // Draw tab border
-        if (i == gCurrentPanel) {
-            gRenderer->strokeColor(Color(0.4f, 0.7f, 0.9f, 1.0f));
+        // Draw tab border (green if loaded and running, blue if active, default otherwise)
+        if (gPanelStatus[i].loaded && gPanelStatus[i].running) {
+            gRenderer->strokeColor(Color(0.3f, 0.8f, 0.4f, 1.0f));  // Green for running
+        } else if (i == gCurrentPanel) {
+            gRenderer->strokeColor(Color(0.4f, 0.7f, 0.9f, 1.0f));  // Blue for active
         } else {
-            gRenderer->strokeColor(Color(0.3f, 0.3f, 0.35f, 1.0f));
+            gRenderer->strokeColor(Color(0.3f, 0.3f, 0.35f, 1.0f));  // Gray for inactive
         }
         gRenderer->strokeWidth(2.0f);
         gRenderer->roundedRect(tabX, tabY, tabWidth, tabHeight, 5.0f);
@@ -542,8 +620,11 @@ EMSCRIPTEN_KEEPALIVE void bespoke_mouse_down(int x, int y, int button) {
         for (int i = 0; i < PANEL_COUNT; i++) {
             float tabX = 20.0f + i * (tabWidth + tabSpacing);
             if (x >= tabX && x <= tabX + tabWidth) {
+                int prevPanel = gCurrentPanel;
                 gCurrentPanel = i;
-                printf("Switched to panel: %d\n", i);
+                printf("DEBUG [Panel Switch] From:%s To:%s\n", 
+                       getPanelName(prevPanel), getPanelName(i));
+                logPanelStatus(i, "ACTIVATED");
                 return;
             }
         }
@@ -697,8 +778,11 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_module_count(void) {
 
 EMSCRIPTEN_KEEPALIVE void bespoke_set_panel(int panelIndex) {
     if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        int prevPanel = gCurrentPanel;
         gCurrentPanel = panelIndex;
-        printf("BespokeSynth WASM: Switched to panel %d\n", panelIndex);
+        printf("DEBUG [API] Panel switch via bespoke_set_panel: From:%s To:%s\n",
+               getPanelName(prevPanel), getPanelName(panelIndex));
+        logPanelStatus(panelIndex, "ACTIVATED");
     }
 }
 
@@ -708,6 +792,39 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_panel(void) {
 
 EMSCRIPTEN_KEEPALIVE int bespoke_get_panel_count(void) {
     return PANEL_COUNT;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_panel_name(int panelIndex) {
+    return getPanelName(panelIndex);
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_is_panel_loaded(int panelIndex) {
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        return gPanelStatus[panelIndex].loaded ? 1 : 0;
+    }
+    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_is_panel_running(int panelIndex) {
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        return gPanelStatus[panelIndex].running ? 1 : 0;
+    }
+    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_panel_frame_count(int panelIndex) {
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        return gPanelStatus[panelIndex].frameCount;
+    }
+    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_log_all_panels_status(void) {
+    printf("\n=== DEBUG: All Panels Status ===\n");
+    for (int i = 0; i < PANEL_COUNT; i++) {
+        logPanelStatus(i, "STATUS CHECK");
+    }
+    printf("=== End Panel Status ===\n\n");
 }
 
 } // extern "C"
