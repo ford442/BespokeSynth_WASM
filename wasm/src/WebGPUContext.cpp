@@ -128,11 +128,20 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
         return false;
     }
 #else
-    // Emscripten headers do not expose the canvas selector chained struct on this
-    // build; fall back to leaving the surface unset for now. At runtime, JS may
-    // need to create/attach the surface or we can add a compatibility path later.
-    mSurface = nullptr;
-    printf("WebGPUContext: Warning - canvas selector surface not available in headers; mSurface left null\n");
+    // Fallback: try standard WGPUSurfaceDescriptorFromCanvasHTMLSelector
+    // User environment confirms it uses WGPUStringView.
+    WGPUSurfaceDescriptorFromCanvasHTMLSelector canvasSource = {};
+    canvasSource.chain.sType = WGPUSType_SurfaceDescriptorFromCanvasHTMLSelector;
+    canvasSource.selector = WGPUStringView{selector, strlen(selector)};
+
+    WGPUSurfaceDescriptor surfaceDesc = {};
+    surfaceDesc.nextInChain = (WGPUChainedStruct*)&canvasSource;
+    mSurface = wgpuInstanceCreateSurface(mInstance, &surfaceDesc);
+
+    if (!mSurface) {
+        mSurface = nullptr;
+        printf("WebGPUContext: Warning - canvas selector surface creation failed or not supported; mSurface left null\n");
+    }
 #endif
 
     // 3. Adapter request (asynchronous)
