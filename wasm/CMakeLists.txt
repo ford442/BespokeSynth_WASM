@@ -41,7 +41,7 @@ add_compile_definitions(
 )
 
 # Include Paths
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include/BespokeWasm")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../Source")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/JUCE/modules")
@@ -121,7 +121,7 @@ add_executable(BespokeSynthWASM
 target_include_directories(BespokeSynthWASM PRIVATE
     ${BESPOKE_SOURCE_DIR}
     ${BESPOKE_WASM_DIR}/src
-    ${BESPOKE_WASM_DIR}/include
+    ${BESPOKE_WASM_DIR}/include/BespokeWasm
     ${BESPOKE_LIBS_DIR}
     ${BESPOKE_LIBS_DIR}/nanovg/src
     ${BESPOKE_LIBS_DIR}/nanovg
@@ -202,7 +202,7 @@ add_executable(BespokeSynthWASM_test
 )
 
 target_include_directories(BespokeSynthWASM_test PRIVATE
-    ${BESPOKE_WASM_DIR}/include
+    ${BESPOKE_WASM_DIR}/include/BespokeWasm
     ${BESPOKE_WASM_DIR}/src
 )
 
