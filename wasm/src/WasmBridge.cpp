@@ -32,6 +32,7 @@ static std::vector<std::unique_ptr<Knob>> gKnobs;
 static int gWidth = 800;
 static int gHeight = 600;
 static bool gInitialized = false;
+static float gTime = 0.0f;
 
 // Panel selection
 enum PanelType {
@@ -225,7 +226,8 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void) {
         return;
     }
     
-    gRenderer->beginFrame(gWidth, gHeight, 1.0f);
+    gTime += 0.016f; // Approximate 60fps
+    gRenderer->beginFrame(gWidth, gHeight, 1.0f, gTime);
     
     // Clear background
     gRenderer->fillColor(Color(0.12f, 0.12f, 0.14f, 1.0f));
