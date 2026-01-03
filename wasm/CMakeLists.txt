@@ -121,6 +121,7 @@ add_executable(BespokeSynthWASM
 target_include_directories(BespokeSynthWASM PRIVATE
     ${BESPOKE_SOURCE_DIR}
     ${BESPOKE_WASM_DIR}/src
+    ${BESPOKE_WASM_DIR}/include
     ${BESPOKE_WASM_DIR}/include/BespokeWasm
     ${BESPOKE_LIBS_DIR}
     ${BESPOKE_LIBS_DIR}/nanovg/src
