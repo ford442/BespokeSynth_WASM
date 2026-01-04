@@ -112,7 +112,7 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
     }
 
     // 2. Surface
-#ifdef WGPUEmscriptenSurfaceSourceCanvasHTMLSelector
+    // Always use WGPUEmscriptenSurfaceSourceCanvasHTMLSelector as we are using the emdawnwebgpu header
     WGPUEmscriptenSurfaceSourceCanvasHTMLSelector canvasSource = {};
     canvasSource.chain.sType = WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector;
     canvasSource.selector = WGPUStringView{selector, strlen(selector)};
@@ -120,6 +120,7 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
     WGPUSurfaceDescriptor surfaceDesc = {};
     surfaceDesc.nextInChain = (WGPUChainedStruct*)&canvasSource;
     mSurface = wgpuInstanceCreateSurface(mInstance, &surfaceDesc);
+
     if (!mSurface) {
         std::cerr << "WebGPUContext: Failed to create surface for selector: ";
         if (selector) std::cerr << selector;
@@ -127,22 +128,6 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
         if (mOnComplete) mOnComplete(false);
         return false;
     }
-#else
-    // Fallback: try standard WGPUSurfaceDescriptorFromCanvasHTMLSelector
-    // User environment confirms it uses WGPUStringView.
-    WGPUSurfaceDescriptorFromCanvasHTMLSelector canvasSource = {};
-    canvasSource.chain.sType = WGPUSType_SurfaceDescriptorFromCanvasHTMLSelector;
-    canvasSource.selector = WGPUStringView{selector, strlen(selector)};
-
-    WGPUSurfaceDescriptor surfaceDesc = {};
-    surfaceDesc.nextInChain = (WGPUChainedStruct*)&canvasSource;
-    mSurface = wgpuInstanceCreateSurface(mInstance, &surfaceDesc);
-
-    if (!mSurface) {
-        mSurface = nullptr;
-        printf("WebGPUContext: Warning - canvas selector surface creation failed or not supported; mSurface left null\n");
-    }
-#endif
 
     // 3. Adapter request (asynchronous)
     WGPURequestAdapterOptions adapterOpts = {};
