@@ -961,16 +961,30 @@ void WebGPURenderer::createPipelines() {
     vertexBufferLayout.attributeCount = 3;
     vertexBufferLayout.attributes = attributes;
     
-    // Bind group layout (Uniforms at 0)
-    WGPUBindGroupLayoutEntry bindGroupLayoutEntry = {};
-    bindGroupLayoutEntry.binding = 0;
-    bindGroupLayoutEntry.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
-    bindGroupLayoutEntry.buffer.type = WGPUBufferBindingType_Uniform;
-    bindGroupLayoutEntry.buffer.minBindingSize = sizeof(float) * 4; // viewSize(2) + time(1) + padding(1)
+    // Bind group layout (Uniforms at 0, Sampler at 1, Texture at 2)
+    WGPUBindGroupLayoutEntry entries[3] = {};
+
+    // 0: Uniforms
+    entries[0].binding = 0;
+    entries[0].visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+    entries[0].buffer.type = WGPUBufferBindingType_Uniform;
+    entries[0].buffer.minBindingSize = sizeof(float) * 4; // viewSize(2) + time(1) + padding(1)
+
+    // 1: Sampler
+    entries[1].binding = 1;
+    entries[1].visibility = WGPUShaderStage_Fragment;
+    entries[1].sampler.type = WGPUSamplerBindingType_Filtering;
+
+    // 2: Texture
+    entries[2].binding = 2;
+    entries[2].visibility = WGPUShaderStage_Fragment;
+    entries[2].texture.sampleType = WGPUTextureSampleType_Float;
+    entries[2].texture.viewDimension = WGPUTextureViewDimension_2D;
+    entries[2].texture.multisampled = false;
     
     WGPUBindGroupLayoutDescriptor bindGroupLayoutDesc = {};
-    bindGroupLayoutDesc.entryCount = 1;
-    bindGroupLayoutDesc.entries = &bindGroupLayoutEntry;
+    bindGroupLayoutDesc.entryCount = 3;
+    bindGroupLayoutDesc.entries = entries;
 
     // Keep the bind group layout around (cache it) so we can create bind groups even
     // when shader modules/pipelines are unavailable (e.g., due to header limitations).
@@ -1031,7 +1045,7 @@ void WebGPURenderer::createPipelines() {
     // Create all pipelines (only if shaderModule was successfully created)
 #ifdef WGPUSType_ShaderSourceWGSL
     mPipelines.solid = createPipeline("fs_solid");
-    // mPipelines.textured = createPipeline("fs_textured"); // Requires texture bindings, skipping for now
+    mPipelines.textured = createPipeline("fs_textured");
     mPipelines.knob_highlight = createPipeline("fs_knob_highlight");
     mPipelines.wire_glow = createPipeline("fs_wire_glow");
     mPipelines.vu_meter = createPipeline("fs_vu_meter");
@@ -1075,6 +1089,7 @@ void WebGPURenderer::createPipelines() {
     };
 
     checkPipeline(mPipelines.solid, "fs_solid");
+    checkPipeline(mPipelines.textured, "fs_textured");
     checkPipeline(mPipelines.knob_highlight, "fs_knob_highlight");
     checkPipeline(mPipelines.wire_glow, "fs_wire_glow");
     checkPipeline(mPipelines.vu_meter, "fs_vu_meter");
@@ -1137,12 +1152,72 @@ void WebGPURenderer::createBuffers() {
     vertexBufferDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
     mVertexBuffer = wgpuDeviceCreateBuffer(device, &vertexBufferDesc);
     
+    // Create default 1x1 white texture
+    WGPUTextureDescriptor textureDesc = {};
+    textureDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+    textureDesc.dimension = WGPUTextureDimension_2D;
+    textureDesc.size = {1, 1, 1};
+    textureDesc.format = WGPUTextureFormat_RGBA8Unorm;
+    textureDesc.mipLevelCount = 1;
+    textureDesc.sampleCount = 1;
+    textureDesc.viewFormatCount = 0;
+    textureDesc.viewFormats = nullptr;
+
+    WGPUTexture dummyTexture = wgpuDeviceCreateTexture(device, &textureDesc);
+
+    // Upload white pixel
+    uint8_t whitePixel[4] = {255, 255, 255, 255};
+    WGPUTexelCopyTextureInfo destination = {};
+    destination.texture = dummyTexture;
+    destination.mipLevel = 0;
+    destination.origin = {0, 0, 0};
+    destination.aspect = WGPUTextureAspect_All;
+
+    WGPUTexelCopyBufferLayout dataLayout = {};
+    dataLayout.offset = 0;
+    dataLayout.bytesPerRow = 4;
+    dataLayout.rowsPerImage = 1;
+
+    WGPUExtent3D writeSize = {1, 1, 1};
+    wgpuQueueWriteTexture(mContext.getQueue(), &destination, whitePixel, 4, &dataLayout, &writeSize);
+
+    // Create view
+    WGPUTextureViewDescriptor viewDesc = {};
+    viewDesc.format = WGPUTextureFormat_RGBA8Unorm;
+    viewDesc.dimension = WGPUTextureViewDimension_2D;
+    viewDesc.baseMipLevel = 0;
+    viewDesc.mipLevelCount = 1;
+    viewDesc.baseArrayLayer = 0;
+    viewDesc.arrayLayerCount = 1;
+    viewDesc.aspect = WGPUTextureAspect_All;
+    WGPUTextureView dummyView = wgpuTextureCreateView(dummyTexture, &viewDesc);
+
+    // Create default sampler
+    WGPUSamplerDescriptor samplerDesc = {};
+    samplerDesc.addressModeU = WGPUAddressMode_Repeat;
+    samplerDesc.addressModeV = WGPUAddressMode_Repeat;
+    samplerDesc.addressModeW = WGPUAddressMode_Repeat;
+    samplerDesc.magFilter = WGPUFilterMode_Linear;
+    samplerDesc.minFilter = WGPUFilterMode_Linear;
+    samplerDesc.mipmapFilter = WGPUMipmapFilterMode_Linear;
+    WGPUSampler defaultSampler = wgpuDeviceCreateSampler(device, &samplerDesc);
+
     // Create bind group
-    WGPUBindGroupEntry bindGroupEntry = {};
-    bindGroupEntry.binding = 0;
-    bindGroupEntry.buffer = mUniformBuffer;
-    bindGroupEntry.offset = 0;
-    bindGroupEntry.size = sizeof(float) * 4;
+    WGPUBindGroupEntry bgEntries[3] = {};
+
+    // 0: Uniforms
+    bgEntries[0].binding = 0;
+    bgEntries[0].buffer = mUniformBuffer;
+    bgEntries[0].offset = 0;
+    bgEntries[0].size = sizeof(float) * 4;
+
+    // 1: Sampler
+    bgEntries[1].binding = 1;
+    bgEntries[1].sampler = defaultSampler;
+
+    // 2: Texture
+    bgEntries[2].binding = 2;
+    bgEntries[2].textureView = dummyView;
     
     // Use the cached bind group layout if available; otherwise, try to get it
     // from an existing pipeline. This avoids calling into the JS runtime with a
@@ -1163,9 +1238,17 @@ void WebGPURenderer::createBuffers() {
 
     WGPUBindGroupDescriptor bindGroupDesc = {};
     bindGroupDesc.layout = layout;
-    bindGroupDesc.entryCount = 1;
-    bindGroupDesc.entries = &bindGroupEntry;
+    bindGroupDesc.entryCount = 3;
+    bindGroupDesc.entries = bgEntries;
     mBindGroup = wgpuDeviceCreateBindGroup(device, &bindGroupDesc);
+
+    // Release temporary resources (texture and sampler are owned by device/view but we don't need handle anymore if we don't update them)
+    // Note: In a real app we would keep these to update the texture.
+    // Here we just leak the handles effectively (WebGPU ref counting handles it if bound?)
+    // Actually we should release them if we don't store them. The BindGroup holds a reference.
+    wgpuSamplerRelease(defaultSampler);
+    wgpuTextureViewRelease(dummyView);
+    wgpuTextureRelease(dummyTexture);
 
     // If layout was fetched from pipeline, release the temporary reference
     if (!mBindGroupLayout && mPipelines.solid) wgpuBindGroupLayoutRelease(layout);
