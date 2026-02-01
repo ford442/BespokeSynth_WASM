@@ -32,6 +32,29 @@ static std::vector<std::unique_ptr<Knob>> gKnobs;
 static int gWidth = 800;
 static int gHeight = 600;
 static bool gInitialized = false;
+static float gTime = 0.0f;
+
+// Panel selection
+enum PanelType {
+    PANEL_MIXER = 0,
+    PANEL_EFFECTS,
+    PANEL_SEQUENCER,
+    PANEL_COUNT
+};
+static int gCurrentPanel = PANEL_MIXER;
+
+// Panel status tracking
+struct PanelStatus {
+    bool loaded;
+    bool running;
+    int frameCount;
+    float lastUpdateTime;
+};
+static PanelStatus gPanelStatus[PANEL_COUNT] = {
+    {false, false, 0, 0.0f},  // Mixer
+    {false, false, 0, 0.0f},  // Effects
+    {false, false, 0, 0.0f}   // Sequencer
+};
 
 // Version string
 static const char* kVersion = "1.0.0-wasm";
@@ -58,6 +81,46 @@ static void audioCallback(const float* const* input, float* const* output,
         
         for (int ch = 0; ch < numOutputChannels; ch++) {
             output[ch][i] = sample;
+        }
+    }
+}
+
+// Helper function to get panel name
+static const char* getPanelName(int panelIndex) {
+    static const char* panelNames[] = {"Mixer", "Effects", "Sequencer"};
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        return panelNames[panelIndex];
+    }
+    return "Unknown";
+}
+
+// Helper function to log panel status
+static void logPanelStatus(int panelIndex, const char* action) {
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        printf("DEBUG [Panel:%s] %s - Loaded:%s Running:%s Frames:%d\n",
+               getPanelName(panelIndex), action,
+               gPanelStatus[panelIndex].loaded ? "YES" : "NO",
+               gPanelStatus[panelIndex].running ? "YES" : "NO",
+               gPanelStatus[panelIndex].frameCount);
+    }
+}
+
+// Helper function to mark panel as loaded
+static void markPanelLoaded(int panelIndex) {
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        gPanelStatus[panelIndex].loaded = true;
+        gPanelStatus[panelIndex].running = false;
+        gPanelStatus[panelIndex].frameCount = 0;
+        logPanelStatus(panelIndex, "LOADED");
+    }
+}
+
+// Helper function to mark panel as running
+static void markPanelRunning(int panelIndex) {
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        if (!gPanelStatus[panelIndex].running) {
+            gPanelStatus[panelIndex].running = true;
+            logPanelStatus(panelIndex, "STARTED");
         }
     }
 }
@@ -146,6 +209,13 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
         knob4->setStyle(KnobStyle::Vintage);
         gKnobs.push_back(std::move(knob4));
 
+        // Mark all panels as loaded
+        printf("\n=== DEBUG: Panel Initialization ===\n");
+        for (int i = 0; i < PANEL_COUNT; i++) {
+            markPanelLoaded(i);
+        }
+        printf("=== Panel Initialization Complete ===\n\n");
+
         gInitialized = true;
         printf("BespokeSynth WASM: Initialization complete\n");
         printf("WasmBridge: notifying JS of init complete (0)\n");
@@ -161,6 +231,13 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
 
     // Indicate initialization started asynchronously
     return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_process_events(void) {
+    // Process pending WebGPU events to allow async callbacks to fire
+    if (gContext) {
+        gContext->processEvents();
+    }
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_shutdown(void) {
@@ -201,9 +278,32 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_buffer_size(void) {
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_render(void) {
-    if (!gInitialized || !gRenderer) return;
+    if (!gInitialized || !gRenderer) {
+        // During initialization, process events to allow WebGPU callbacks
+        if (gContext) {
+            gContext->processEvents();
+        }
+        return;
+    }
     
-    gRenderer->beginFrame(gWidth, gHeight, 1.0f);
+    gTime += 0.016f; // Approximate 60fps
+    
+    // Mark current panel as running and update frame count
+    if (gCurrentPanel >= 0 && gCurrentPanel < PANEL_COUNT) {
+        markPanelRunning(gCurrentPanel);
+        gPanelStatus[gCurrentPanel].frameCount++;
+        gPanelStatus[gCurrentPanel].lastUpdateTime = gTime;
+        
+        // Log panel status every 300 frames (~5 seconds at 60fps)
+        if (gPanelStatus[gCurrentPanel].frameCount % 300 == 0) {
+            printf("DEBUG [Panel:%s] Running - Frames:%d Time:%.1fs\n",
+                   getPanelName(gCurrentPanel),
+                   gPanelStatus[gCurrentPanel].frameCount,
+                   gTime);
+        }
+    }
+    
+    gRenderer->beginFrame(gWidth, gHeight, 1.0f, gTime);
     
     // Clear background
     gRenderer->fillColor(Color(0.12f, 0.12f, 0.14f, 1.0f));
@@ -215,10 +315,52 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void) {
     gRenderer->fontSize(24.0f);
     gRenderer->text(20, 40, "BespokeSynth WASM - WebGPU Demo");
     
-    // Draw knobs in a row
+    // Draw panel tabs
+    float tabY = 70.0f;
+    float tabHeight = 35.0f;
+    float tabWidth = 150.0f;
+    float tabSpacing = 5.0f;
+    
+    const char* panelNames[] = {"Mixer", "Effects", "Sequencer"};
+    
+    for (int i = 0; i < PANEL_COUNT; i++) {
+        float tabX = 20.0f + i * (tabWidth + tabSpacing);
+        
+        // Draw tab background
+        if (i == gCurrentPanel) {
+            gRenderer->fillColor(Color(0.25f, 0.25f, 0.28f, 1.0f));
+        } else {
+            gRenderer->fillColor(Color(0.18f, 0.18f, 0.2f, 1.0f));
+        }
+        gRenderer->roundedRect(tabX, tabY, tabWidth, tabHeight, 5.0f);
+        gRenderer->fill();
+        
+        // Draw tab border (green if loaded and running, blue if active, default otherwise)
+        if (gPanelStatus[i].loaded && gPanelStatus[i].running) {
+            gRenderer->strokeColor(Color(0.3f, 0.8f, 0.4f, 1.0f));  // Green for running
+        } else if (i == gCurrentPanel) {
+            gRenderer->strokeColor(Color(0.4f, 0.7f, 0.9f, 1.0f));  // Blue for active
+        } else {
+            gRenderer->strokeColor(Color(0.3f, 0.3f, 0.35f, 1.0f));  // Gray for inactive
+        }
+        gRenderer->strokeWidth(2.0f);
+        gRenderer->roundedRect(tabX, tabY, tabWidth, tabHeight, 5.0f);
+        gRenderer->stroke();
+        
+        // Draw tab label
+        if (i == gCurrentPanel) {
+            gRenderer->fillColor(Color(0.9f, 0.9f, 0.95f, 1.0f));
+        } else {
+            gRenderer->fillColor(Color(0.6f, 0.6f, 0.65f, 1.0f));
+        }
+        gRenderer->fontSize(14.0f);
+        gRenderer->text(tabX + 15, tabY + 22, panelNames[i]);
+    }
+    
+    // Draw knobs in a row (common across all panels)
     float knobSize = 80.0f;
     float startX = 100.0f;
-    float startY = 150.0f;
+    float startY = 130.0f;
     float spacing = 120.0f;
     
     for (size_t i = 0; i < gKnobs.size(); i++) {
@@ -244,13 +386,13 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void) {
         );
     }
     
-    // Draw some UI elements
+    // Draw panel based on selection
     float panelX = 50.0f;
-    float panelY = 280.0f;
+    float panelY = 260.0f;
     float panelW = static_cast<float>(gWidth) - 100.0f;
-    float panelH = 200.0f;
+    float panelH = 220.0f;
     
-    // Module panel
+    // Panel background
     gRenderer->fillColor(Color(0.18f, 0.18f, 0.2f, 1.0f));
     gRenderer->roundedRect(panelX, panelY, panelW, panelH, 8.0f);
     gRenderer->fill();
@@ -260,31 +402,161 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void) {
     gRenderer->roundedRect(panelX, panelY, panelW, panelH, 8.0f);
     gRenderer->stroke();
     
-    // Draw sliders
-    float sliderX = panelX + 30;
-    float sliderY = panelY + 50;
+    // Panel title
+    gRenderer->fillColor(Color(0.8f, 0.8f, 0.85f, 1.0f));
+    gRenderer->fontSize(16.0f);
+    gRenderer->text(panelX + 15, panelY + 25, panelNames[gCurrentPanel]);
     
-    gRenderer->drawSlider(sliderX, sliderY, 200, 20, 0.6f,
-        Color(0.25f, 0.25f, 0.28f, 1.0f),
-        Color(0.4f, 0.7f, 0.5f, 1.0f));
-    
-    gRenderer->drawSlider(sliderX, sliderY + 40, 200, 20, 0.3f,
-        Color(0.25f, 0.25f, 0.28f, 1.0f),
-        Color(0.5f, 0.6f, 0.9f, 1.0f));
-    
-    // Draw VU meters
-    float vuX = panelX + panelW - 100;
-    float vuY = panelY + 30;
-    
-    float audioLevel = gAudioBackend ? gAudioBackend->getOutputLevel() : 0.0f;
-    
-    gRenderer->drawVUMeter(vuX, vuY, 20, 140, audioLevel,
-        Color(0.2f, 0.8f, 0.3f, 1.0f),
-        Color(1.0f, 0.2f, 0.1f, 1.0f));
-    
-    gRenderer->drawVUMeter(vuX + 30, vuY, 20, 140, audioLevel * 0.9f,
-        Color(0.2f, 0.8f, 0.3f, 1.0f),
-        Color(1.0f, 0.2f, 0.1f, 1.0f));
+    // Render panel-specific content
+    switch (gCurrentPanel) {
+        case PANEL_MIXER: {
+            // Draw mixer controls - sliders and VU meters
+            float sliderX = panelX + 30;
+            float sliderY = panelY + 50;
+            
+            gRenderer->fillColor(Color(0.5f, 0.5f, 0.55f, 1.0f));
+            gRenderer->fontSize(12.0f);
+            gRenderer->text(sliderX, sliderY - 10, "Channel 1");
+            gRenderer->drawSlider(sliderX, sliderY, 200, 20, 0.6f,
+                Color(0.25f, 0.25f, 0.28f, 1.0f),
+                Color(0.4f, 0.7f, 0.5f, 1.0f));
+            
+            gRenderer->text(sliderX, sliderY + 40, "Channel 2");
+            gRenderer->drawSlider(sliderX, sliderY + 50, 200, 20, 0.3f,
+                Color(0.25f, 0.25f, 0.28f, 1.0f),
+                Color(0.5f, 0.6f, 0.9f, 1.0f));
+            
+            gRenderer->text(sliderX, sliderY + 90, "Master");
+            gRenderer->drawSlider(sliderX, sliderY + 100, 200, 20, 0.8f,
+                Color(0.25f, 0.25f, 0.28f, 1.0f),
+                Color(0.9f, 0.5f, 0.3f, 1.0f));
+            
+            // Draw VU meters
+            float vuX = panelX + panelW - 120;
+            float vuY = panelY + 40;
+            
+            float audioLevel = gAudioBackend ? gAudioBackend->getOutputLevel() : 0.0f;
+            
+            gRenderer->fillColor(Color(0.5f, 0.5f, 0.55f, 1.0f));
+            gRenderer->text(vuX, vuY - 10, "L");
+            gRenderer->drawVUMeter(vuX, vuY, 20, 160, audioLevel,
+                Color(0.2f, 0.8f, 0.3f, 1.0f),
+                Color(1.0f, 0.2f, 0.1f, 1.0f));
+            
+            gRenderer->text(vuX + 40, vuY - 10, "R");
+            gRenderer->drawVUMeter(vuX + 40, vuY, 20, 160, audioLevel * 0.9f,
+                Color(0.2f, 0.8f, 0.3f, 1.0f),
+                Color(1.0f, 0.2f, 0.1f, 1.0f));
+            break;
+        }
+        
+        case PANEL_EFFECTS: {
+            // Draw effects controls
+            float effectX = panelX + 30;
+            float effectY = panelY + 50;
+            
+            gRenderer->fillColor(Color(0.5f, 0.5f, 0.55f, 1.0f));
+            gRenderer->fontSize(12.0f);
+            gRenderer->text(effectX, effectY - 10, "Reverb Mix");
+            gRenderer->drawSlider(effectX, effectY, 250, 20, 0.4f,
+                Color(0.25f, 0.25f, 0.28f, 1.0f),
+                Color(0.6f, 0.3f, 0.8f, 1.0f));
+            
+            gRenderer->text(effectX, effectY + 40, "Delay Time");
+            gRenderer->drawSlider(effectX, effectY + 50, 250, 20, 0.5f,
+                Color(0.25f, 0.25f, 0.28f, 1.0f),
+                Color(0.8f, 0.6f, 0.3f, 1.0f));
+            
+            gRenderer->text(effectX, effectY + 90, "Chorus Depth");
+            gRenderer->drawSlider(effectX, effectY + 100, 250, 20, 0.7f,
+                Color(0.25f, 0.25f, 0.28f, 1.0f),
+                Color(0.3f, 0.8f, 0.8f, 1.0f));
+            
+            gRenderer->text(effectX, effectY + 140, "Distortion");
+            gRenderer->drawSlider(effectX, effectY + 150, 250, 20, 0.2f,
+                Color(0.25f, 0.25f, 0.28f, 1.0f),
+                Color(0.9f, 0.3f, 0.3f, 1.0f));
+            
+            // Draw effect visualizer
+            float vizX = panelX + panelW - 200;
+            float vizY = panelY + 50;
+            float vizW = 180;
+            float vizH = 150;
+            
+            gRenderer->fillColor(Color(0.1f, 0.1f, 0.12f, 1.0f));
+            gRenderer->rect(vizX, vizY, vizW, vizH);
+            gRenderer->fill();
+            
+            gRenderer->strokeColor(Color(0.3f, 0.6f, 0.8f, 0.8f));
+            gRenderer->strokeWidth(2.0f);
+            
+            // Draw waveform visualization
+            for (int i = 0; i < 10; i++) {
+                float x1 = vizX + i * vizW / 10;
+                float x2 = vizX + (i + 1) * vizW / 10;
+                float y1 = vizY + vizH / 2 + sinf(i * 0.5f) * 30;
+                float y2 = vizY + vizH / 2 + sinf((i + 1) * 0.5f) * 30;
+                gRenderer->line(x1, y1, x2, y2);
+            }
+            break;
+        }
+        
+        case PANEL_SEQUENCER: {
+            // Draw sequencer controls
+            float seqX = panelX + 30;
+            float seqY = panelY + 50;
+            
+            gRenderer->fillColor(Color(0.5f, 0.5f, 0.55f, 1.0f));
+            gRenderer->fontSize(12.0f);
+            gRenderer->text(seqX, seqY - 10, "BPM");
+            gRenderer->drawSlider(seqX, seqY, 150, 20, 0.6f,
+                Color(0.25f, 0.25f, 0.28f, 1.0f),
+                Color(0.5f, 0.8f, 0.4f, 1.0f));
+            
+            gRenderer->text(seqX + 200, seqY - 10, "Swing");
+            gRenderer->drawSlider(seqX + 200, seqY, 150, 20, 0.5f,
+                Color(0.25f, 0.25f, 0.28f, 1.0f),
+                Color(0.8f, 0.7f, 0.4f, 1.0f));
+            
+            // Draw step sequencer grid
+            float gridX = seqX;
+            float gridY = seqY + 50;
+            
+            // Sequencer grid constants
+            const float STEP_WIDTH = 35.0f;
+            const float STEP_HEIGHT = 30.0f;
+            const int NUM_STEPS = 16;
+            const int NUM_ROWS = 4;
+            const int STEP_PATTERN_INTERVAL = 3;  // Pattern interval for demo
+            
+            gRenderer->text(gridX, gridY - 10, "Step Sequencer (16 steps x 4 notes)");
+            
+            for (int row = 0; row < NUM_ROWS; row++) {
+                for (int step = 0; step < NUM_STEPS; step++) {
+                    float sx = gridX + step * STEP_WIDTH;
+                    float sy = gridY + row * STEP_HEIGHT;
+                    
+                    // Alternate pattern for demo
+                    bool active = (step + row) % STEP_PATTERN_INTERVAL == 0;
+                    
+                    if (active) {
+                        gRenderer->fillColor(Color(0.4f, 0.7f, 0.5f, 1.0f));
+                    } else {
+                        gRenderer->fillColor(Color(0.15f, 0.15f, 0.17f, 1.0f));
+                    }
+                    
+                    gRenderer->rect(sx, sy, STEP_WIDTH - 2, STEP_HEIGHT - 2);
+                    gRenderer->fill();
+                    
+                    gRenderer->strokeColor(Color(0.3f, 0.3f, 0.35f, 1.0f));
+                    gRenderer->strokeWidth(1.0f);
+                    gRenderer->rect(sx, sy, STEP_WIDTH - 2, STEP_HEIGHT - 2);
+                    gRenderer->stroke();
+                }
+            }
+            break;
+        }
+    }
     
     // Draw status
     gRenderer->fillColor(Color(0.6f, 0.6f, 0.65f, 1.0f));
@@ -292,10 +564,11 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void) {
     
     char statusText[256];
     snprintf(statusText, sizeof(statusText), 
-             "Sample Rate: %d Hz | Buffer: %d | Audio: %s",
+             "Sample Rate: %d Hz | Buffer: %d | Audio: %s | Panel: %s",
              bespoke_get_sample_rate(),
              bespoke_get_buffer_size(),
-             (gAudioBackend && gAudioBackend->isRunning()) ? "Running" : "Stopped");
+             (gAudioBackend && gAudioBackend->isRunning()) ? "Running" : "Stopped",
+             panelNames[gCurrentPanel]);
     
     gRenderer->text(20, static_cast<float>(gHeight) - 20, statusText);
     
@@ -337,10 +610,30 @@ EMSCRIPTEN_KEEPALIVE void bespoke_mouse_down(int x, int y, int button) {
     gMouseX = x;
     gMouseY = y;
     
+    // Check panel tab clicks
+    float tabY = 70.0f;
+    float tabHeight = 35.0f;
+    float tabWidth = 150.0f;
+    float tabSpacing = 5.0f;
+    
+    if (y >= tabY && y <= tabY + tabHeight) {
+        for (int i = 0; i < PANEL_COUNT; i++) {
+            float tabX = 20.0f + i * (tabWidth + tabSpacing);
+            if (x >= tabX && x <= tabX + tabWidth) {
+                int prevPanel = gCurrentPanel;
+                gCurrentPanel = i;
+                printf("DEBUG [Panel Switch] From:%s To:%s\n", 
+                       getPanelName(prevPanel), getPanelName(i));
+                logPanelStatus(i, "ACTIVATED");
+                return;
+            }
+        }
+    }
+    
     // Check knob hit testing
     float knobSize = 80.0f;
     float startX = 100.0f;
-    float startY = 150.0f;
+    float startY = 130.0f;  // Updated to match render
     float spacing = 120.0f;
     
     for (size_t i = 0; i < gKnobs.size(); i++) {
@@ -364,7 +657,7 @@ EMSCRIPTEN_KEEPALIVE void bespoke_mouse_wheel(float deltaX, float deltaY) {
     // Handle scroll on knobs
     float knobSize = 80.0f;
     float startX = 100.0f;
-    float startY = 150.0f;
+    float startY = 130.0f;  // Updated to match render
     float spacing = 120.0f;
     
     for (size_t i = 0; i < gKnobs.size(); i++) {
@@ -481,6 +774,57 @@ EMSCRIPTEN_KEEPALIVE float bespoke_get_cpu_load(void) {
 
 EMSCRIPTEN_KEEPALIVE int bespoke_get_module_count(void) {
     return static_cast<int>(gKnobs.size());
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_panel(int panelIndex) {
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        int prevPanel = gCurrentPanel;
+        gCurrentPanel = panelIndex;
+        printf("DEBUG [API] Panel switch via bespoke_set_panel: From:%s To:%s\n",
+               getPanelName(prevPanel), getPanelName(panelIndex));
+        logPanelStatus(panelIndex, "ACTIVATED");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_panel(void) {
+    return gCurrentPanel;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_panel_count(void) {
+    return PANEL_COUNT;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_panel_name(int panelIndex) {
+    return getPanelName(panelIndex);
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_is_panel_loaded(int panelIndex) {
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        return gPanelStatus[panelIndex].loaded ? 1 : 0;
+    }
+    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_is_panel_running(int panelIndex) {
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        return gPanelStatus[panelIndex].running ? 1 : 0;
+    }
+    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_panel_frame_count(int panelIndex) {
+    if (panelIndex >= 0 && panelIndex < PANEL_COUNT) {
+        return gPanelStatus[panelIndex].frameCount;
+    }
+    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_log_all_panels_status(void) {
+    printf("\n=== DEBUG: All Panels Status ===\n");
+    for (int i = 0; i < PANEL_COUNT; i++) {
+        logPanelStatus(i, "STATUS CHECK");
+    }
+    printf("=== End Panel Status ===\n\n");
 }
 
 } // extern "C"

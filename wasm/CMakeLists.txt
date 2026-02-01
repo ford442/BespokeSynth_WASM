@@ -17,16 +17,16 @@ project(BespokeSynthWASM)
 
 # --- CRITICAL FIX START ---
 
-# 1. Force Emscripten to make SDL2 and WebGPU headers available
+# 1. Force Emscripten to make SDL2 available
+# SDL2 compile option is unconditional because SDL2AudioBackend.h is included
+# by WasmBridge.cpp which is always compiled. The linker flag for SDL2 audio
+# backend is added conditionally below based on BESPOKE_WASM_SDL2_AUDIO option.
 add_compile_options(
-    "-sUSE_SDL=2" 
-    "--use-port=emdawnwebgpu"     # NEW: Replacement for -sUSE_WEBGPU=1
+    "-sUSE_SDL=2"
 )
 
 # 2. Linker options
 add_link_options(
-    "-sUSE_SDL=2" 
-    "--use-port=emdawnwebgpu"     # NEW: Replacement for -sUSE_WEBGPU=1
     "-sALLOW_MEMORY_GROWTH=1"
     "-sASSERTIONS=1"
 )
@@ -41,7 +41,7 @@ add_compile_definitions(
 )
 
 # Include Paths
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include/BespokeWasm")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../Source")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/JUCE/modules")
@@ -51,6 +51,11 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs")             # For 'le
 include_directories("${BESPOKE_LIBS_DIR}/leathers")                      # ensure nested leathers headers are visible
 include_directories("${BESPOKE_LIBS_DIR}/nanovg")                        # allow includes like "nanovg/nanovg.h"
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/nanovg_fix")
+
+# Note: WebGPU headers are provided by Emscripten's emdawnwebgpu port
+# They are automatically included when using --use-port=emdawnwebgpu
+# Include path: <webgpu/webgpu.h>
+
 # WASM-specific options
 option(BESPOKE_WASM_WEBGPU "Enable WebGPU rendering backend" ON)
 option(BESPOKE_WASM_SDL2_AUDIO "Enable SDL2 audio backend" ON)
@@ -117,6 +122,7 @@ target_include_directories(BespokeSynthWASM PRIVATE
     ${BESPOKE_SOURCE_DIR}
     ${BESPOKE_WASM_DIR}/src
     ${BESPOKE_WASM_DIR}/include
+    ${BESPOKE_WASM_DIR}/include/BespokeWasm
     ${BESPOKE_LIBS_DIR}
     ${BESPOKE_LIBS_DIR}/nanovg/src
     ${BESPOKE_LIBS_DIR}/nanovg
@@ -136,20 +142,24 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
 # Emscripten linker flags
 set(EMSCRIPTEN_LINK_FLAGS
     "-sWASM=1"
-    "-sUSE_SDL=2"
-    "--use-port=emdawnwebgpu"     # NEW: Replacement for -sUSE_WEBGPU=1
     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
-    "-sEXPORTED_FUNCTIONS=['_main','_bespoke_init','_bespoke_process_audio','_bespoke_render']"
+    "-sEXPORTED_FUNCTIONS=['_main','_bespoke_init','_bespoke_process_audio','_bespoke_render','_bespoke_process_events']"
     "-sALLOW_MEMORY_GROWTH=1"
     "-sINITIAL_MEMORY=134217728"  # 128MB initial
     "-sSTACK_SIZE=1048576"  # 1MB stack
     "--shell-file=${BESPOKE_WASM_DIR}/shell.html"
     "-sMODULARIZE=1"
     "-sEXPORT_NAME='createBespokeSynth'"
+    "-sASYNCIFY=1"  # Enable async operations
+    "-sASYNCIFY_STACK_SIZE=65536"  # 64KB async stack
 )
 
 # Add WebGPU support
 if(BESPOKE_WASM_WEBGPU)
+    # Add compile flag to enable WebGPU headers from emdawnwebgpu port
+    target_compile_options(BespokeSynthWASM PRIVATE
+        "SHELL:--use-port=emdawnwebgpu"
+    )
     list(APPEND EMSCRIPTEN_LINK_FLAGS
         "--use-port=emdawnwebgpu"
     )
@@ -193,7 +203,7 @@ add_executable(BespokeSynthWASM_test
 )
 
 target_include_directories(BespokeSynthWASM_test PRIVATE
-    ${BESPOKE_WASM_DIR}/include
+    ${BESPOKE_WASM_DIR}/include/BespokeWasm
     ${BESPOKE_WASM_DIR}/src
 )
 

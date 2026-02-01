@@ -62,6 +62,8 @@ python -m http.server 8000
 
 Then open `http://localhost:8000/` in your browser.
 
+Note: The `shell.html` template includes a default JavaScript handler that will automatically call `Module._bespoke_init` when the Emscripten runtime is ready and will display helpful UI messages if WebGPU initialization fails or times out.
+
 ## Project Structure
 
 ```
@@ -85,9 +87,67 @@ wasm/
 ├── types/               # TypeScript definitions
 │   └── bespoke-synth.d.ts
 ├── shaders/             # WebGPU shaders (WGSL)
+│   └── render2d.wgsl    # 2D rendering shaders for UI controls
 └── tests/               # Test files
     └── test_main.cpp
 ```
+
+## WebGPU Shaders
+
+The `shaders/render2d.wgsl` file contains all the WGSL shaders for rendering control panel UI elements:
+
+### Core Shaders
+- `vs_main` - Vertex shader for 2D rendering
+- `fs_solid` - Solid color fragment shader
+- `fs_textured` - Textured rendering with alpha blending
+
+### Knob & Wire Shaders
+- `fs_knob_highlight` - 3D radial gradient for knob controls
+- `fs_wire_glow` - Glowing cable/wire effect
+- `fs_connection_pulse` - Animated pulse along connections
+
+### Slider Shaders
+- `fs_slider_track` - 3D inset slider track
+- `fs_slider_fill` - Animated gradient slider fill
+- `fs_slider_handle` - Metallic slider thumb/handle
+
+### Button Shaders
+- `fs_button` - 3D bevel button with pressed state
+- `fs_button_hover` - Pulsing hover glow effect
+
+### Toggle Switch Shaders
+- `fs_toggle_switch` - Toggle track with rounded ends
+- `fs_toggle_thumb` - 3D toggle handle
+
+### Envelope & Display Shaders
+- `fs_adsr_envelope` - ADSR envelope fill display
+- `fs_adsr_grid` - Grid background for envelope editors
+- `fs_waveform` - Waveform line with glow
+- `fs_waveform_filled` - Filled waveform visualization
+
+### Spectrum Analyzer Shaders
+- `fs_spectrum_bar` - Frequency bar with color gradient
+- `fs_spectrum_peak` - Peak hold indicator
+
+### Panel & Background Shaders
+- `fs_panel_background` - Rounded corner panel with gradient
+- `fs_panel_bordered` - Panel with border highlight
+
+### Text Effect Shaders
+- `fs_text_glow` - Pulsing text glow effect
+- `fs_text_shadow` - Soft text shadow
+
+### Additional Control Shaders
+- `fs_progress_bar` - Animated striped progress bar
+- `fs_scope_display` - CRT-style oscilloscope trace
+- `fs_scope_grid` - Oscilloscope grid overlay
+- `fs_led_indicator` - 3D LED indicator (lit state)
+- `fs_led_off` - LED indicator (off state)
+- `fs_dial_ticks` - Rotary dial tick marks
+- `fs_fader_groove` - Fader slot/groove
+- `fs_fader_cap` - Metallic fader handle
+- `fs_mod_wheel` - Modulation wheel texture
+- `fs_vu_meter` - VU meter segment
 
 ## API Reference
 

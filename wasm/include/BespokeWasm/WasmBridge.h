@@ -1,7 +1,7 @@
 /**
  * BespokeSynth WASM - Bridge API
  * Provides C-compatible API for JavaScript integration
- *
+ * 
  * Copyright (C) 2024
  * Licensed under GNU GPL v3
  */
@@ -68,12 +68,6 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_module_count(void);
 EMSCRIPTEN_KEEPALIVE void bespoke_set_panel(int panelIndex);
 EMSCRIPTEN_KEEPALIVE int bespoke_get_panel(void);
 EMSCRIPTEN_KEEPALIVE int bespoke_get_panel_count(void);
-
-EMSCRIPTEN_KEEPALIVE const char* bespoke_get_panel_name(int panelIndex);
-EMSCRIPTEN_KEEPALIVE int bespoke_is_panel_loaded(int panelIndex);
-EMSCRIPTEN_KEEPALIVE int bespoke_is_panel_running(int panelIndex);
-EMSCRIPTEN_KEEPALIVE int bespoke_get_panel_frame_count(int panelIndex);
-EMSCRIPTEN_KEEPALIVE void bespoke_log_all_panels_status(void);
 
 #ifdef __cplusplus
 }

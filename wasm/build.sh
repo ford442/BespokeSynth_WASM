@@ -16,7 +16,16 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}=== BespokeSynth WASM Build ===${NC}"
-source /content/build_space/emsdk/emsdk_env.sh
+
+# Source emsdk environment if available (support multiple layouts)
+if [ -f "$PROJECT_ROOT/emsdk/emsdk_env.sh" ]; then
+    source "$PROJECT_ROOT/emsdk/emsdk_env.sh"
+elif [ -f "../../emsdk/emsdk_env.sh" ]; then
+    source "../../emsdk/emsdk_env.sh"
+else
+    echo -e "${YELLOW}Warning: emsdk_env.sh not found; assume Emscripten is already on PATH${NC}"
+fi
+
 # Check for Emscripten
 if ! command -v emcc &> /dev/null; then
     echo -e "${RED}Error: Emscripten (emcc) not found${NC}"
@@ -40,7 +49,7 @@ emcmake cmake "$SCRIPT_DIR" \
 
 # Build
 echo -e "${YELLOW}Building...${NC}"
-cmake --build . --parallel $(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+cmake --build . --parallel 55
 
 # Copy output files
 echo -e "${YELLOW}Copying output files...${NC}"

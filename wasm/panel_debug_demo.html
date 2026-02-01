@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Status Debug Demo</title>
+    <style>
+        body {
+            background: #1a1a1e;
+            color: #e0e0e5;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+        }
+        
+        h1 {
+            color: #4080c0;
+        }
+        
+        .section {
+            background: #252528;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border: 1px solid #3a3a40;
+        }
+        
+        .code {
+            background: #1a1a1e;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+        
+        .panel-status-demo {
+            font-size: 11px;
+            color: #aaa;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #3a3a40;
+            max-width: 250px;
+            margin: 20px 0;
+        }
+        
+        .status-title {
+            font-weight: bold;
+            color: #4080c0;
+            margin-bottom: 6px;
+        }
+        
+        .panel-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 3px 0;
+            padding: 2px 0;
+        }
+        
+        .panel-name {
+            color: #ccc;
+        }
+        
+        .panel-indicator {
+            font-size: 10px;
+        }
+        
+        .panel-indicator.loaded {
+            color: #4080c0;
+        }
+        
+        .panel-indicator.running {
+            color: #40c080;
+        }
+        
+        .button {
+            background: #4080c0;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        
+        .button:hover {
+            background: #5090d0;
+        }
+    </style>
+</head>
+<body>
+    <h1>BespokeSynth WASM - Panel Status Debugging</h1>
+    
+    <div class="section">
+        <h2>Overview</h2>
+        <p>This demonstrates the panel status tracking added to BespokeSynth WASM.</p>
+        <p>Three panels are tracked: <strong>Mixer</strong>, <strong>Effects</strong>, and <strong>Sequencer</strong>.</p>
+    </div>
+    
+    <div class="section">
+        <h2>Visual Status Display (Example)</h2>
+        <p>In the actual app, this appears in the top-right corner:</p>
+        <div class="panel-status-demo">
+            <div class="status-title">Panel Status</div>
+            <div class="panel-item">
+                <span class="panel-name">Mixer:</span>
+                <span class="panel-indicator running">✓ Running (1234 frames)</span>
+            </div>
+            <div class="panel-item">
+                <span class="panel-name">Effects:</span>
+                <span class="panel-indicator loaded">● Loaded</span>
+            </div>
+            <div class="panel-item">
+                <span class="panel-name">Sequencer:</span>
+                <span class="panel-indicator loaded">● Loaded</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="section">
+        <h2>Console Debug Messages</h2>
+        <p>During initialization, you'll see:</p>
+        <div class="code">=== DEBUG: Panel Initialization ===
+DEBUG [Panel:Mixer] LOADED - Loaded:YES Running:NO Frames:0
+DEBUG [Panel:Effects] LOADED - Loaded:YES Running:NO Frames:0
+DEBUG [Panel:Sequencer] LOADED - Loaded:YES Running:NO Frames:0
+=== Panel Initialization Complete ===</div>
+
+        <p>When switching panels:</p>
+        <div class="code">DEBUG [Panel Switch] From:Mixer To:Effects
+DEBUG [Panel:Effects] ACTIVATED - Loaded:YES Running:NO Frames:0
+DEBUG [Panel:Effects] STARTED - Loaded:YES Running:YES Frames:1</div>
+
+        <p>Periodic status updates (every ~5 seconds):</p>
+        <div class="code">DEBUG [Panel:Effects] Running - Frames:300 Time:5.0s
+DEBUG [Panel:Effects] Running - Frames:600 Time:10.0s
+DEBUG [Panel:Effects] Running - Frames:900 Time:15.0s</div>
+    </div>
+    
+    <div class="section">
+        <h2>JavaScript API Examples</h2>
+        <p>Query panel status from JavaScript:</p>
+        <div class="code">// Get number of panels
+var count = Module._bespoke_get_panel_count();
+console.log('Panel count:', count); // 3
+
+// Get panel name
+var name = Module.ccall('bespoke_get_panel_name', 'string', ['number'], [0]);
+console.log('Panel 0 name:', name); // "Mixer"
+
+// Check if loaded
+var loaded = Module._bespoke_is_panel_loaded(0);
+console.log('Panel 0 loaded:', loaded); // 1 (true)
+
+// Check if running
+var running = Module._bespoke_is_panel_running(0);
+console.log('Panel 0 running:', running); // 1 if active
+
+// Get frame count
+var frames = Module._bespoke_get_panel_frame_count(0);
+console.log('Panel 0 frames:', frames); // e.g., 1234
+
+// Log all panel status
+Module._bespoke_log_all_panels_status();</div>
+    </div>
+    
+    <div class="section">
+        <h2>Code Features</h2>
+        <ul>
+            <li><strong>Panel State Tracking</strong> - Each panel has loaded/running state</li>
+            <li><strong>Frame Counting</strong> - Tracks how many frames each panel has rendered</li>
+            <li><strong>Visual Indicators</strong> - Panel tabs show green borders when running</li>
+            <li><strong>Status Widget</strong> - Real-time panel status in top-right corner</li>
+            <li><strong>Console Logging</strong> - Detailed debug messages for developers</li>
+            <li><strong>JavaScript API</strong> - Query panel state from browser console</li>
+        </ul>
+    </div>
+    
+    <div class="section">
+        <h2>Interactive Demo</h2>
+        <p>In the real application, you can:</p>
+        <ul>
+            <li>Click panel tabs to switch between Mixer, Effects, and Sequencer</li>
+            <li>Watch the status widget update in real-time</li>
+            <li>Click the status widget to dump full status to console</li>
+            <li>Monitor console for periodic status updates</li>
+        </ul>
+        
+        <button class="button" onclick="simulateLog('init')">Simulate Init Log</button>
+        <button class="button" onclick="simulateLog('switch')">Simulate Switch Log</button>
+        <button class="button" onclick="simulateLog('status')">Simulate Status Log</button>
+        
+        <div id="log-output" class="code" style="margin-top: 20px; display: none;"></div>
+    </div>
+    
+    <script>
+        function simulateLog(type) {
+            const output = document.getElementById('log-output');
+            output.style.display = 'block';
+            
+            if (type === 'init') {
+                output.textContent = `=== DEBUG: Panel Initialization ===
+DEBUG [Panel:Mixer] LOADED - Loaded:YES Running:NO Frames:0
+DEBUG [Panel:Effects] LOADED - Loaded:YES Running:NO Frames:0
+DEBUG [Panel:Sequencer] LOADED - Loaded:YES Running:NO Frames:0
+=== Panel Initialization Complete ===`;
+            } else if (type === 'switch') {
+                output.textContent = `DEBUG [Panel Switch] From:Mixer To:Effects
+DEBUG [Panel:Effects] ACTIVATED - Loaded:YES Running:NO Frames:0
+DEBUG [Panel:Effects] STARTED - Loaded:YES Running:YES Frames:1`;
+            } else if (type === 'status') {
+                output.textContent = `=== DEBUG: All Panels Status ===
+DEBUG [Panel:Mixer] STATUS CHECK - Loaded:YES Running:NO Frames:1234
+DEBUG [Panel:Effects] STATUS CHECK - Loaded:YES Running:YES Frames:5678
+DEBUG [Panel:Sequencer] STATUS CHECK - Loaded:YES Running:NO Frames:0
+=== End Panel Status ===`;
+            }
+        }
+    </script>
+</body>
+</html>

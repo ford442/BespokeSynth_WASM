@@ -20,7 +20,11 @@ public:
     bool initializeAsync(const char* selector, std::function<void(bool)> onComplete);
     bool isInitialized() const { return mDevice != nullptr; }
 
+    // Process pending WebGPU events (for async callbacks)
+    void processEvents();
+
     // Helpers used by the WebGPU C callbacks (keeps internals private)
+    void assignAdapter(WGPUAdapter adapter);
     void assignDevice(WGPUDevice device);
     void notifyComplete(bool success);
 
@@ -33,6 +37,7 @@ public:
     WGPUDevice getDevice() const { return mDevice; }
     WGPUQueue getQueue() const { return mQueue; }
     WGPUTextureFormat getSwapChainFormat() const { return mFormat; }
+    WGPUInstance getInstance() const { return mInstance; }
 
     Uniforms mCurrentState;
 
