@@ -143,7 +143,7 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
 set(EMSCRIPTEN_LINK_FLAGS
     "-sWASM=1"
     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
-    "-sEXPORTED_FUNCTIONS=['_main','_bespoke_init','_bespoke_process_audio','_bespoke_render','_bespoke_process_events']"
+    "-sEXPORTED_FUNCTIONS=['_main','_bespoke_init','_bespoke_process_audio','_bespoke_render','_bespoke_process_events','_bespoke_play','_bespoke_stop','_bespoke_get_sample_rate','_bespoke_get_buffer_size','_bespoke_get_cpu_load','_bespoke_get_panel_count','_bespoke_get_panel_name','_bespoke_is_panel_loaded','_bespoke_is_panel_running','_bespoke_get_panel_frame_count','_bespoke_log_all_panels_status','_bespoke_get_init_state','_bespoke_get_init_error','_bespoke_is_fully_initialized','_bespoke_get_version']"
     "-sALLOW_MEMORY_GROWTH=1"
     "-sINITIAL_MEMORY=134217728"  # 128MB initial
     "-sSTACK_SIZE=1048576"  # 1MB stack

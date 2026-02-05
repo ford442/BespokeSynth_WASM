@@ -176,24 +176,39 @@ void WebGPUContext::onDeviceReady() {
     printf("WebGPUContext: onDeviceReady\n");
     // Device (mDevice) is already set by the callback
     if (!mDevice) {
+        printf("WebGPUContext: ERROR - Device is null in onDeviceReady\n");
         if (mOnComplete) mOnComplete(false);
         return;
     }
 
+    printf("WebGPUContext: Getting device queue...\n");
     mQueue = wgpuDeviceGetQueue(mDevice);
+    if (!mQueue) {
+        printf("WebGPUContext: ERROR - Failed to get device queue\n");
+        if (mOnComplete) mOnComplete(false);
+        return;
+    }
 
     // Register uncaptured device error callback (if available) to catch shader compile/validation messages
 #ifdef WGPUDeviceSetUncapturedErrorCallback
     wgpuDeviceSetUncapturedErrorCallback(mDevice, deviceUncapturedErrorCallback, this);
+    printf("WebGPUContext: Registered uncaptured error callback\n");
 #else
     printf("WebGPUContext: Warning - device uncaptured error callback unavailable in this header\n");
 #endif
 
     // Get current canvas size and configure surface
+    printf("WebGPUContext: Configuring surface...\n");
     double w, h;
     emscripten_get_element_css_size("#canvas", &w, &h);
+    if (w <= 0 || h <= 0) {
+        printf("WebGPUContext: WARNING - Invalid canvas size: %.0fx%.0f, using defaults\n", w, h);
+        w = 800;
+        h = 600;
+    }
     resize((int)w, (int)h);
 
+    printf("WebGPUContext: Device ready, initialization complete\n");
     if (mOnComplete) mOnComplete(true);
 }
 
@@ -242,13 +257,30 @@ void WebGPUContext::resize(int width, int height) {
 WGPURenderPassEncoder WebGPUContext::beginFrame() {
 #ifndef WGPUSurfaceTexture
     // Surface texture types not available in this header -> cannot begin frame
+    printf("WebGPUContext: ERROR - WGPUSurfaceTexture not available in headers\n");
     return nullptr;
 #else
+    if (!mSurface) {
+        printf("WebGPUContext: ERROR - Surface is null in beginFrame\n");
+        return nullptr;
+    }
+    
+    if (!mDevice) {
+        printf("WebGPUContext: ERROR - Device is null in beginFrame\n");
+        return nullptr;
+    }
+
     WGPUSurfaceTexture surfaceTexture;
     wgpuSurfaceGetCurrentTexture(mSurface, &surfaceTexture);
 
     // FIX: Check if texture is valid instead of relying on the Status enum
     if (surfaceTexture.status != 0 && surfaceTexture.texture == nullptr) {
+        printf("WebGPUContext: WARNING - Failed to get surface texture, status=%d\n", surfaceTexture.status);
+        return nullptr;
+    }
+    
+    if (!surfaceTexture.texture) {
+        printf("WebGPUContext: ERROR - Surface texture is null\n");
         return nullptr;
     }
 
@@ -262,9 +294,21 @@ WGPURenderPassEncoder WebGPUContext::beginFrame() {
     viewDesc.aspect = WGPUTextureAspect_All;
     
     mCurrentView = wgpuTextureCreateView(surfaceTexture.texture, &viewDesc);
+    if (!mCurrentView) {
+        printf("WebGPUContext: ERROR - Failed to create texture view\n");
+        return nullptr;
+    }
 
     WGPUCommandEncoderDescriptor encoderDesc = {};
     mCurrentEncoder = wgpuDeviceCreateCommandEncoder(mDevice, &encoderDesc);
+    if (!mCurrentEncoder) {
+        printf("WebGPUContext: ERROR - Failed to create command encoder\n");
+        if (mCurrentView) {
+            wgpuTextureViewRelease(mCurrentView);
+            mCurrentView = nullptr;
+        }
+        return nullptr;
+    }
 
     WGPURenderPassColorAttachment colorAttachment = {};
     colorAttachment.view = mCurrentView;
@@ -283,6 +327,10 @@ WGPURenderPassEncoder WebGPUContext::beginFrame() {
     passDesc.colorAttachments = &colorAttachment;
 
     mCurrentPass = wgpuCommandEncoderBeginRenderPass(mCurrentEncoder, &passDesc);
+    if (!mCurrentPass) {
+        printf("WebGPUContext: ERROR - Failed to begin render pass\n");
+    }
+    
     return mCurrentPass;
 #endif
 }

@@ -908,16 +908,41 @@ WebGPURenderer::~WebGPURenderer() {
 }
 
 bool WebGPURenderer::initialize() {
+    printf("WebGPURenderer: Initializing...\n");
+    
     if (!mContext.isInitialized()) {
+        printf("WebGPURenderer: ERROR - WebGPU context not initialized\n");
         return false;
     }
     
+    WGPUDevice device = mContext.getDevice();
+    if (!device) {
+        printf("WebGPURenderer: ERROR - No valid WebGPU device available\n");
+        return false;
+    }
+    
+    printf("WebGPURenderer: Creating pipelines...\n");
     createPipelines();
+    
+    // Verify at least the solid pipeline was created
+    if (!mPipelines.solid) {
+        printf("WebGPURenderer: ERROR - Failed to create solid pipeline (critical)\n");
+        return false;
+    }
+    
+    printf("WebGPURenderer: Creating buffers...\n");
     createBuffers();
+    
+    // Verify buffers were created
+    if (!mVertexBuffer || !mUniformBuffer) {
+        printf("WebGPURenderer: ERROR - Failed to create required buffers\n");
+        return false;
+    }
     
     // Set default pipeline
     mCurrentPipeline = mPipelines.solid;
-
+    
+    printf("WebGPURenderer: Initialization complete\n");
     return true;
 }
 

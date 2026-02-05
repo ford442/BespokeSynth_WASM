@@ -328,6 +328,12 @@
                         if (webgpuEl) webgpuEl.classList.remove('visible');
                         if (errorEl) errorEl.classList.remove('visible');
                         console.log('BespokeSynth WASM initialization succeeded');
+                        
+                        // Log final state
+                        if (Module._bespoke_get_init_state) {
+                            const initState = Module._bespoke_get_init_state();
+                            console.log('Final init state:', initState);
+                        }
                         return;
                     }
 
@@ -340,6 +346,14 @@
                         showError('Audio backend failed to initialize. Check permissions and browser audio settings.');
                     } else {
                         showError('Initialization failed with code: ' + status);
+                    }
+                    
+                    // Log error message if available
+                    if (Module._bespoke_get_init_error) {
+                        const errorMsg = Module.ccall('bespoke_get_init_error', 'string', [], []);
+                        if (errorMsg) {
+                            console.error('Init error details:', errorMsg);
+                        }
                     }
                 };
 
@@ -356,8 +370,38 @@
                             // Set a fallback timeout in case init callback never fires
                             initTimeout = setTimeout(() => {
                                 console.error('BespokeSynth init timed out waiting for __bespoke_on_init_complete');
+                                
+                                // Query initialization state if available
+                                if (Module._bespoke_get_init_state) {
+                                    const initState = Module._bespoke_get_init_state();
+                                    console.error('Init state at timeout:', initState);
+                                    
+                                    // State meanings: 0=NotStarted, 1=WebGPURequested, 2=WebGPUReady, 
+                                    // 3=RendererReady, 4=AudioReady, 5=FullyInitialized, 6=Failed
+                                    const stateNames = ['NotStarted', 'WebGPURequested', 'WebGPUReady', 
+                                                       'RendererReady', 'AudioReady', 'FullyInitialized', 'Failed'];
+                                    console.error('State name:', stateNames[initState] || 'Unknown');
+                                }
+                                
+                                if (Module._bespoke_get_init_error) {
+                                    const errorMsg = Module.ccall('bespoke_get_init_error', 'string', [], []);
+                                    console.error('Init error:', errorMsg);
+                                }
+                                
                                 showError('Initialization timed out — WebGPU may be blocked or unsupported.');
-                            }, 12000);
+                            }, 15000); // Increased to 15 seconds to allow more time
+                            
+                            // Start periodic health check during init
+                            const healthCheck = setInterval(() => {
+                                if (Module._bespoke_is_fully_initialized && Module._bespoke_is_fully_initialized()) {
+                                    clearInterval(healthCheck);
+                                } else if (Module._bespoke_get_init_state) {
+                                    const state = Module._bespoke_get_init_state();
+                                    const stateNames = ['NotStarted', 'WebGPURequested', 'WebGPUReady', 
+                                                       'RendererReady', 'AudioReady', 'FullyInitialized', 'Failed'];
+                                    console.log('Init progress:', stateNames[state] || 'Unknown');
+                                }
+                            }, 2000); // Check every 2 seconds
                         }
                     } catch (e) {
                         console.error('Error while auto-initializing BespokeSynth:', e);
