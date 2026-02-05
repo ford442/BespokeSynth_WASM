@@ -328,6 +328,12 @@
                         if (webgpuEl) webgpuEl.classList.remove('visible');
                         if (errorEl) errorEl.classList.remove('visible');
                         console.log('BespokeSynth WASM initialization succeeded');
+                        
+                        // Log final state
+                        if (Module._bespoke_get_init_state) {
+                            const initState = Module._bespoke_get_init_state();
+                            console.log('Final init state:', initState);
+                        }
                         return;
                     }
 
@@ -340,6 +346,14 @@
                         showError('Audio backend failed to initialize. Check permissions and browser audio settings.');
                     } else {
                         showError('Initialization failed with code: ' + status);
+                    }
+                    
+                    // Log error message if available
+                    if (Module._bespoke_get_init_error) {
+                        const errorMsg = Module.ccall('bespoke_get_init_error', 'string', [], []);
+                        if (errorMsg) {
+                            console.error('Init error details:', errorMsg);
+                        }
                     }
                 };
 

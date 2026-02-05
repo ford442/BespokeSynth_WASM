@@ -14,12 +14,24 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <atomic>
 
 // Key code constants
 static const int KEY_SHIFT = 16;
 static const int KEY_SPACE = 32;
 
 using namespace bespoke::wasm;
+
+// Initialization state tracking
+enum class InitState {
+    NotStarted,
+    WebGPURequested,
+    WebGPUReady,
+    RendererReady,
+    AudioReady,
+    FullyInitialized,
+    Failed
+};
 
 // Global state
 static std::unique_ptr<WebGPUContext> gContext;
@@ -33,6 +45,11 @@ static int gWidth = 800;
 static int gHeight = 600;
 static bool gInitialized = false;
 static float gTime = 0.0f;
+static InitState gInitState = InitState::NotStarted;
+static std::string gInitErrorMessage;
+
+// Thread safety for audio callback
+static std::atomic<bool> gAudioCallbackActive{false};
 
 // Panel selection
 enum PanelType {
@@ -59,18 +76,23 @@ static PanelStatus gPanelStatus[PANEL_COUNT] = {
 // Version string
 static const char* kVersion = "1.0.0-wasm";
 
-// Audio callback for demo
+// Audio callback for demo (thread-safe)
 static void audioCallback(const float* const* input, float* const* output,
                           int numInputChannels, int numOutputChannels, int numSamples) {
+    // Mark that audio callback is active
+    gAudioCallbackActive.store(true);
+    
     // Simple demo: generate a sine wave with frequency controlled by first knob
     static float phase = 0.0f;
     float frequency = 440.0f;
     
-    if (!gKnobs.empty()) {
+    // Thread-safe read of knob value
+    if (gInitialized && !gKnobs.empty()) {
         frequency = 100.0f + gKnobs[0]->getValue() * 800.0f;  // 100-900 Hz
     }
     
-    float phaseInc = 2.0f * 3.14159265f * frequency / gAudioBackend->getSampleRate();
+    float sampleRate = gAudioBackend ? gAudioBackend->getSampleRate() : 44100;
+    float phaseInc = 2.0f * 3.14159265f * frequency / sampleRate;
     
     for (int i = 0; i < numSamples; i++) {
         float sample = sinf(phase) * 0.3f;  // Low amplitude for safety
@@ -131,8 +153,14 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
     printf("BespokeSynth WASM: Initializing (%dx%d, %dHz, %d samples)\n", 
            width, height, sampleRate, bufferSize);
     
+    if (gInitState != InitState::NotStarted) {
+        printf("BespokeSynth WASM: Already initialized or in progress (state=%d)\n", static_cast<int>(gInitState));
+        return gInitState == InitState::FullyInitialized ? 0 : 1;
+    }
+    
     gWidth = width;
     gHeight = height;
+    gInitState = InitState::WebGPURequested;
     
     // Initialize WebGPU context (asynchronous)
     gContext = std::make_unique<WebGPUContext>();
@@ -142,35 +170,55 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
         if (!success) {
             printf("BespokeSynth WASM: Failed to initialize WebGPU\n");
             printf("WasmBridge: notifying JS of init failure (-1)\n");
+            gInitState = InitState::Failed;
+            gInitErrorMessage = "WebGPU initialization failed";
             // Notify JS that initialization failed
             emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-1);");
             return;
         }
 
+        // WebGPU initialized successfully
+        printf("WasmBridge: WebGPU context ready, proceeding with remaining initialization\n");
+        gInitState = InitState::WebGPUReady;
+        
         // Continue remaining initialization on success
         gContext->resize(gWidth, gHeight);
 
         // Initialize renderer
+        printf("WasmBridge: Initializing renderer...\n");
         gRenderer = std::make_unique<WebGPURenderer>(*gContext);
         if (!gRenderer->initialize()) {
             printf("BespokeSynth WASM: Failed to initialize renderer\n");
             printf("WasmBridge: notifying JS of init failure (-2)\n");
+            gInitState = InitState::Failed;
+            gInitErrorMessage = "Renderer initialization failed";
             emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-2);");
             return;
         }
+        
+        printf("WasmBridge: Renderer initialized successfully\n");
+        gInitState = InitState::RendererReady;
 
         // Initialize audio backend
+        printf("WasmBridge: Initializing audio backend...\n");
         gAudioBackend = std::make_unique<SDL2AudioBackend>();
         if (!gAudioBackend->initialize(44100, 512, 2, 0)) {
             printf("BespokeSynth WASM: Failed to initialize audio\n");
             printf("WasmBridge: notifying JS of init failure (-3)\n");
+            gInitState = InitState::Failed;
+            gInitErrorMessage = "Audio backend initialization failed";
             emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-3);");
             return;
         }
 
+        printf("WasmBridge: Audio backend initialized successfully\n");
+        gInitState = InitState::AudioReady;
+        
+        // Set audio callback
         gAudioBackend->setCallback(audioCallback);
 
         // Create some demo knobs
+        printf("WasmBridge: Creating demo controls...\n");
         gKnobs.clear();
 
         auto knob1 = std::make_unique<Knob>("Frequency", 0.5f);
@@ -216,8 +264,9 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
         }
         printf("=== Panel Initialization Complete ===\n\n");
 
+        gInitState = InitState::FullyInitialized;
         gInitialized = true;
-        printf("BespokeSynth WASM: Initialization complete\n");
+        printf("BespokeSynth WASM: Initialization complete - all subsystems ready\n");
         printf("WasmBridge: notifying JS of init complete (0)\n");
 
         // Notify JS that initialization finished successfully
@@ -226,6 +275,8 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
 
     if (!started) {
         printf("BespokeSynth WASM: Failed to start WebGPU initialization\n");
+        gInitState = InitState::Failed;
+        gInitErrorMessage = "Failed to start async WebGPU initialization";
         return -1;
     }
 
@@ -243,17 +294,33 @@ EMSCRIPTEN_KEEPALIVE void bespoke_process_events(void) {
 EMSCRIPTEN_KEEPALIVE void bespoke_shutdown(void) {
     printf("BespokeSynth WASM: Shutting down\n");
     
+    // Clear controls first
     gKnobs.clear();
     
+    // Stop and cleanup audio
     if (gAudioBackend) {
+        gAudioBackend->stop();
         gAudioBackend->shutdown();
         gAudioBackend.reset();
     }
     
+    // Wait for audio callback to complete if it's running
+    int waitCount = 0;
+    while (gAudioCallbackActive.load() && waitCount < 100) {
+        emscripten_sleep(10);
+        waitCount++;
+    }
+    
+    // Cleanup renderer and context
     gRenderer.reset();
     gContext.reset();
     
+    // Reset state
     gInitialized = false;
+    gInitState = InitState::NotStarted;
+    gInitErrorMessage.clear();
+    
+    printf("BespokeSynth WASM: Shutdown complete\n");
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_process_audio(void) {
@@ -278,11 +345,23 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_buffer_size(void) {
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_render(void) {
-    if (!gInitialized || !gRenderer) {
-        // During initialization, process events to allow WebGPU callbacks
+    // During initialization, process events to allow WebGPU callbacks
+    if (gInitState != InitState::FullyInitialized) {
         if (gContext) {
             gContext->processEvents();
         }
+        return;
+    }
+    
+    // Double-check all subsystems are ready
+    if (!gInitialized || !gRenderer || !gContext) {
+        printf("BespokeSynth WASM: Render called but not fully initialized\n");
+        return;
+    }
+    
+    // Verify WebGPU context is still valid
+    if (!gContext->isInitialized()) {
+        printf("BespokeSynth WASM: WebGPU context lost, cannot render\n");
         return;
     }
     
@@ -825,6 +904,19 @@ EMSCRIPTEN_KEEPALIVE void bespoke_log_all_panels_status(void) {
         logPanelStatus(i, "STATUS CHECK");
     }
     printf("=== End Panel Status ===\n\n");
+}
+
+// New initialization state query functions
+EMSCRIPTEN_KEEPALIVE int bespoke_get_init_state(void) {
+    return static_cast<int>(gInitState);
+}
+
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_init_error(void) {
+    return gInitErrorMessage.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_is_fully_initialized(void) {
+    return (gInitState == InitState::FullyInitialized) ? 1 : 0;
 }
 
 } // extern "C"
