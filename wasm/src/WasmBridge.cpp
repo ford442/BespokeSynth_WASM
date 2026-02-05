@@ -304,11 +304,10 @@ EMSCRIPTEN_KEEPALIVE void bespoke_shutdown(void) {
         gAudioBackend.reset();
     }
     
-    // Wait for audio callback to complete if it's running
-    int waitCount = 0;
-    while (gAudioCallbackActive.load() && waitCount < 100) {
-        emscripten_sleep(10);
-        waitCount++;
+    // Brief delay to allow audio callback to complete
+    // (In WASM, the audio callback should complete quickly after stop)
+    for (int i = 0; i < 10 && gAudioCallbackActive.load(); ++i) {
+        // Just a short busy wait - audio callback should complete within 1-2 buffer periods
     }
     
     // Cleanup renderer and context
