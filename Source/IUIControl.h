@@ -38,7 +38,8 @@ enum AnchorDirection
 {
    kAnchor_Below,
    kAnchor_Right,
-   kAnchor_Right_Padded
+   kAnchor_Right_Padded,
+   kAnchor_Below_Padded
 };
 
 class IUIControl : public IClickable
@@ -46,7 +47,7 @@ class IUIControl : public IClickable
 public:
    IUIControl()
    {}
-   virtual void Delete() { delete this; }
+   virtual void Delete() { mIsDeleted = true; }
    void AddRemoteController() { ++mRemoteControlCount; }
    void RemoveRemoteController() { --mRemoteControlCount; }
    virtual void SetFromMidiCC(float slider, double time, bool setViaModulator) = 0;
@@ -115,6 +116,7 @@ protected:
    bool mNoHover{ false };
    bool mShouldSaveState{ true };
    bool mSnapshotHighlight{ false };
+   bool mIsDeleted{ false };
 
    static IUIControl* sLastHoveredUIControl;
    static bool sLastUIHoverWasSetManually;
