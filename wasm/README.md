@@ -2,6 +2,16 @@
 
 This directory contains the WebAssembly port of BespokeSynth with WebGPU rendering and SDL2 audio backend.
 
+## Recent Updates
+
+**🔧 Initialization Stability Improvements** - The WASM port now includes comprehensive fixes for startup reliability:
+- Explicit initialization state tracking
+- Thread-safe audio callback handling  
+- Enhanced error handling and validation
+- Health monitoring during startup
+
+See [INITIALIZATION_FIXES.md](INITIALIZATION_FIXES.md) for detailed information about the improvements.
+
 ## Features
 
 - **WebGPU Rendering**: Modern GPU-accelerated 2D rendering for smooth UI
