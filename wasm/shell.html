@@ -365,7 +365,17 @@
                             const w = canvas ? canvas.clientWidth : window.innerWidth;
                             const h = canvas ? canvas.clientHeight : window.innerHeight;
                             console.log('Auto-calling Module._bespoke_init with', w, h);
-                            Module._bespoke_init(w, h, 44100, 512);
+                            
+                            // Check WebGPU support first
+                            if (!navigator.gpu) {
+                                console.error('WebGPU not supported in this browser');
+                                showError('WebGPU not supported. Use Chrome/Edge 113+');
+                                return;
+                            }
+                            
+                            // Start initialization
+                            const result = Module._bespoke_init(w, h, 44100, 512);
+                            console.log('bespoke_init returned:', result, '(1=async started, 0=already init, -1=error)');
 
                             // Set a fallback timeout in case init callback never fires
                             initTimeout = setTimeout(() => {
@@ -381,15 +391,40 @@
                                     const stateNames = ['NotStarted', 'WebGPURequested', 'WebGPUReady', 
                                                        'RendererReady', 'AudioReady', 'FullyInitialized', 'Failed'];
                                     console.error('State name:', stateNames[initState] || 'Unknown');
+                                    
+                                    // Provide specific error message based on state
+                                    if (initState === 1) {
+                                        showError('WebGPU adapter request timed out. Check browser compatibility.');
+                                    } else if (initState === 2) {
+                                        showError('Renderer initialization failed. Check console for details.');
+                                    } else if (initState === 3) {
+                                        showError('Audio backend initialization failed.');
+                                    } else {
+                                        showError('Initialization timed out — WebGPU may be blocked or unsupported.');
+                                    }
+                                } else {
+                                    showError('Initialization timed out — WebGPU may be blocked or unsupported.');
                                 }
                                 
                                 if (Module._bespoke_get_init_error) {
                                     const errorMsg = Module.ccall('bespoke_get_init_error', 'string', [], []);
                                     console.error('Init error:', errorMsg);
                                 }
-                                
-                                showError('Initialization timed out — WebGPU may be blocked or unsupported.');
                             }, 15000); // Increased to 15 seconds to allow more time
+                            
+                            // Poll init state every 500ms for debugging
+                            const statePoll = setInterval(() => {
+                                if (Module._bespoke_get_init_state) {
+                                    const state = Module._bespoke_get_init_state();
+                                    if (state >= 5) { // FullyInitialized or Failed
+                                        clearInterval(statePoll);
+                                    } else {
+                                        const stateNames = ['NotStarted', 'WebGPURequested', 'WebGPUReady', 
+                                                           'RendererReady', 'AudioReady', 'FullyInitialized', 'Failed'];
+                                        console.log('Init progress:', stateNames[state] || 'Unknown', `(${state})`);
+                                    }
+                                }
+                            }, 500);
                             
                             // Start periodic health check during init
                             const healthCheck = setInterval(() => {
