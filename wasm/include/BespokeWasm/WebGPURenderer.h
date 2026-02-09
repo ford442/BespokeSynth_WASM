@@ -70,6 +70,23 @@ struct Pipelines {
     WGPURenderPipeline fader_groove;
     WGPURenderPipeline fader_cap;
     WGPURenderPipeline mod_wheel;
+    // New shaders - Enhanced visual effects
+    WGPURenderPipeline neon_wire;
+    WGPURenderPipeline beat_pulse;
+    WGPURenderPipeline gradient_bg;
+    WGPURenderPipeline metallic_knob;
+    WGPURenderPipeline drop_shadow;
+    WGPURenderPipeline spectrum_circular;
+    WGPURenderPipeline active_glow;
+    WGPURenderPipeline lcd_screen;
+    WGPURenderPipeline vintage_vu;
+    WGPURenderPipeline xy_pad;
+    WGPURenderPipeline spectrum_waterfall;
+    WGPURenderPipeline piano_key;
+    WGPURenderPipeline piano_key_pressed;
+    WGPURenderPipeline spectrum_rainbow;
+    WGPURenderPipeline circular_scope;
+    WGPURenderPipeline echo_trail;
 };
 
 /**
@@ -154,6 +171,17 @@ public:
     void drawPanel(float x, float y, float w, float h, bool bordered);
     void drawLED(float x, float y, float w, float h, bool on);
     void drawProgressBar(float x, float y, float w, float h, float value);
+    
+    // New drawing methods
+    void drawXYPad(float x, float y, float w, float h, float cx, float cy);
+    void drawFilterResponse(float x, float y, float w, float h);
+    void drawLFOWaveform(float x, float y, float w, float h);
+    void drawSequencerStep(float x, float y, float w, float h, bool active);
+    void drawSpectrumWaterfall(float x, float y, float w, float h);
+    void drawPianoKey(float x, float y, float w, float h, bool black, bool pressed);
+    void drawSpectrumRainbow(float x, float y, float w, float h, float* data, int count);
+    void drawCircularScope(float x, float y, float w, float h);
+    void drawEchoTrail(float x, float y, float w, float h);
 
 private:
     void createPipelines();
@@ -174,6 +202,7 @@ private:
     WGPUBuffer mUniformBuffer = nullptr;
     WGPUBindGroup mBindGroup = nullptr;
     WGPUBindGroupLayout mBindGroupLayout = nullptr; // Cached layout used even when pipelines are null
+    WGPURenderPassEncoder mCurrentPass = nullptr;
     
     std::vector<Vertex2D> mVertices;
     
