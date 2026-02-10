@@ -6,44 +6,45 @@
 #include <cstring>
 #include <cassert>
 
-// --- Helper methods for unified logic ---
+// --- WebGPU Callbacks ---
+// Using the new-style callback API with WGPUCallbackInfo structs
 
-// Helper to handle adapter request response
+// Forward declarations
+class WebGPUContext;
 static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message);
-
-// Helper to handle device request response
 static void handleDeviceRequest(WebGPUContext* context, WGPURequestDeviceStatus status, WGPUDevice device, const char* message);
 
-// --- Callback Wrappers (5-argument callbacks) ---
-
-// 5-argument adapter callback (newer emscripten/dawn headers with userdata2 and WGPUStringView)
-static void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void * userdata, void * userdata2) {
-    // Convert WGPUStringView to C string or std::string if needed, or pass nullptr if empty
+// Adapter callback - new style with WGPUStringView
+static void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void* userdata1, void* userdata2) {
     std::string msg;
     if (message.data && message.length > 0) {
         msg = std::string(message.data, message.length);
     }
-    handleAdapterRequest(static_cast<WebGPUContext*>(userdata), status, adapter, msg.c_str());
+    printf("WebGPUContext: onAdapterRequest called, status=%d\n", (int)status);
+    handleAdapterRequest(static_cast<WebGPUContext*>(userdata1), status, adapter, msg.c_str());
 }
 
-// 5-argument device callback (newer emscripten/dawn headers with userdata2 and WGPUStringView)
-static void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void * userdata, void * userdata2) {
+// Device callback - new style with WGPUStringView
+static void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void* userdata1, void* userdata2) {
     std::string msg;
     if (message.data && message.length > 0) {
         msg = std::string(message.data, message.length);
     }
-    handleDeviceRequest(static_cast<WebGPUContext*>(userdata), status, device, msg.c_str());
+    printf("WebGPUContext: onDeviceRequest called, status=%d\n", (int)status);
+    handleDeviceRequest(static_cast<WebGPUContext*>(userdata1), status, device, msg.c_str());
 }
 
-// Uncaptured device error callback to catch shader compilation/validation messages at runtime
-#ifdef WGPUDeviceSetUncapturedErrorCallback
-static void deviceUncapturedErrorCallback(WGPUErrorType type, WGPUStringView message, void* userdata) {
-    const std::string msg = (message.data ? std::string(message.data, message.length) : std::string());
+// Device error callback - new style (includes device pointer as first param)
+static void deviceErrorCallback(WGPUDevice const * device, WGPUErrorType type, WGPUStringView message, void* userdata1, void* userdata2) {
+    (void)device; // Unused
+    std::string msg;
+    if (message.data && message.length > 0) {
+        msg = std::string(message.data, message.length);
+    }
     printf("WebGPU Device Error (type=%d): %s\n", (int)type, msg.c_str());
 }
-#endif
 
-// --- Implementation of Logic ---
+// --- Implementation ---
 
 static void handleDeviceRequest(WebGPUContext* context, WGPURequestDeviceStatus status, WGPUDevice device, const char* message) {
     printf("WebGPUContext: handleDeviceRequest called, status=%d\n", (int)status);
@@ -66,12 +67,16 @@ static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatu
     if (status == WGPURequestAdapterStatus_Success) {
         if (context) context->assignAdapter(adapter);
 
-        // Immediately request a device once an adapter is available
         if (context && adapter) {
             printf("WebGPUContext: Adapter found, requesting device\n");
             WGPUDeviceDescriptor deviceDesc = {};
+            
+            // Set up error callback in device descriptor
+            deviceDesc.uncapturedErrorCallbackInfo.callback = deviceErrorCallback;
+            deviceDesc.uncapturedErrorCallbackInfo.userdata1 = context;
+            deviceDesc.uncapturedErrorCallbackInfo.userdata2 = nullptr;
 
-            // Use new callback info structure
+            // Use new callback info structure for device request
             WGPURequestDeviceCallbackInfo deviceCallbackInfo = {};
             deviceCallbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
             deviceCallbackInfo.callback = onDeviceRequest;
@@ -91,10 +96,8 @@ static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatu
 // -------------------------
 
 WebGPUContext::WebGPUContext() {
-    // Identity Matrix
     mCurrentState.transform[0] = 1.0f; mCurrentState.transform[2] = 0.0f; mCurrentState.transform[4] = 0.0f;
     mCurrentState.transform[1] = 0.0f; mCurrentState.transform[3] = 1.0f; mCurrentState.transform[5] = 0.0f;
-    // White Color
     mCurrentState.color[0] = 1.0f; mCurrentState.color[1] = 1.0f; mCurrentState.color[2] = 1.0f; mCurrentState.color[3] = 1.0f;
 }
 
@@ -107,12 +110,13 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
     WGPUInstanceDescriptor instanceDesc = {};
     mInstance = wgpuCreateInstance(&instanceDesc);
     if (!mInstance) {
+        printf("WebGPUContext: ERROR - Failed to create instance\n");
         if (mOnComplete) mOnComplete(false);
         return false;
     }
+    printf("WebGPUContext: Instance created\n");
 
-    // 2. Surface
-    // Always use WGPUEmscriptenSurfaceSourceCanvasHTMLSelector as we are using the emdawnwebgpu header
+    // 2. Surface - use the Emscripten-specific surface source
     WGPUEmscriptenSurfaceSourceCanvasHTMLSelector canvasSource = {};
     canvasSource.chain.sType = WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector;
     canvasSource.selector = WGPUStringView{selector, strlen(selector)};
@@ -128,12 +132,13 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
         if (mOnComplete) mOnComplete(false);
         return false;
     }
+    printf("WebGPUContext: Surface created for selector: %s\n", selector);
 
     // 3. Adapter request (asynchronous)
     WGPURequestAdapterOptions adapterOpts = {};
     adapterOpts.compatibleSurface = mSurface;
 
-    printf("WebGPUContext: initializeAsync started with selector=%s\n", selector ? selector : "(null)");
+    printf("WebGPUContext: Requesting adapter...\n");
 
     // Use new callback info structure
     WGPURequestAdapterCallbackInfo callbackInfo = {};
@@ -144,27 +149,16 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
     
     wgpuInstanceRequestAdapter(mInstance, &adapterOpts, callbackInfo);
 
-#ifdef __EMSCRIPTEN__
-    // In Emscripten builds, `wgpuInstanceProcessEvents` is unsupported and will
-    // abort. The Emscripten WebGPU implementation drives callbacks via the
-    // browser event loop / requestAnimationFrame (see html5.h), so do not call
-    // it here.
-    // If native builds need explicit processing, they will use the call below.
-#else
-    // Process pending WebGPU events to trigger callbacks (non-Emscripten builds)
-    wgpuInstanceProcessEvents(mInstance);
-#endif
-
-    // Return 'true' to indicate the async request was started.
+    printf("WebGPUContext: Adapter request submitted (async)\n");
     return true;
 }
 
 void WebGPUContext::processEvents() {
+    // On Emscripten, yield to allow browser to process WebGPU callbacks
+    // The new callback API with AllowProcessEvents mode should handle this automatically
+    // but we yield just in case
 #ifdef __EMSCRIPTEN__
-    // No-op on Emscripten: the JS WebGPU library handles event processing via
-    // the browser's requestAnimationFrame / microtask scheduling. Calling
-    // wgpuInstanceProcessEvents() here on Emscripten will abort.
-    (void)mInstance;
+    emscripten_sleep(0);
 #else
     if (mInstance) {
         wgpuInstanceProcessEvents(mInstance);
@@ -174,7 +168,6 @@ void WebGPUContext::processEvents() {
 
 void WebGPUContext::onDeviceReady() {
     printf("WebGPUContext: onDeviceReady\n");
-    // Device (mDevice) is already set by the callback
     if (!mDevice) {
         printf("WebGPUContext: ERROR - Device is null in onDeviceReady\n");
         if (mOnComplete) mOnComplete(false);
@@ -189,14 +182,8 @@ void WebGPUContext::onDeviceReady() {
         return;
     }
 
-    // Register uncaptured device error callback (if available) to catch shader compile/validation messages
-#ifdef WGPUDeviceSetUncapturedErrorCallback
-    wgpuDeviceSetUncapturedErrorCallback(mDevice, deviceUncapturedErrorCallback, this);
-    printf("WebGPUContext: Registered uncaptured error callback\n");
-#else
-    printf("WebGPUContext: Warning - device uncaptured error callback unavailable in this header\n");
-#endif
-
+    // Error callback was already set in device descriptor
+    
     // Get current canvas size and configure surface
     printf("WebGPUContext: Configuring surface...\n");
     double w, h;
@@ -212,21 +199,18 @@ void WebGPUContext::onDeviceReady() {
     if (mOnComplete) mOnComplete(true);
 }
 
-void WebGPUContext::assignAdapter(WGPUAdapter adapter)
-{
+void WebGPUContext::assignAdapter(WGPUAdapter adapter) {
     printf("WebGPUContext: assignAdapter called\n");
     mAdapter = adapter;
 }
 
-void WebGPUContext::assignDevice(WGPUDevice device)
-{
+void WebGPUContext::assignDevice(WGPUDevice device) {
     printf("WebGPUContext: assignDevice called\n");
     mDevice = device;
     onDeviceReady();
 }
 
-void WebGPUContext::notifyComplete(bool success)
-{
+void WebGPUContext::notifyComplete(bool success) {
     printf("WebGPUContext: notifyComplete success=%d\n", success ? 1 : 0);
     if (mOnComplete) mOnComplete(success);
 }
@@ -236,7 +220,6 @@ void WebGPUContext::resize(int width, int height) {
     mHeight = height;
     if (!mDevice || !mSurface) return;
 
-#ifdef WGPUSurfaceConfiguration
     WGPUSurfaceConfiguration config = {};
     config.device = mDevice;
     config.format = mFormat;
@@ -247,19 +230,9 @@ void WebGPUContext::resize(int width, int height) {
     config.alphaMode = WGPUCompositeAlphaMode_Auto;
     
     wgpuSurfaceConfigure(mSurface, &config);
-#else
-    // Surface configuration types unavailable in this header; runtime may
-    // require a different code path to configure the canvas surface.
-    printf("WebGPUContext: Warning - surface configuration unavailable in headers; skipping configure\n");
-#endif
 }
 
 WGPURenderPassEncoder WebGPUContext::beginFrame() {
-#ifndef WGPUSurfaceTexture
-    // Surface texture types not available in this header -> cannot begin frame
-    printf("WebGPUContext: ERROR - WGPUSurfaceTexture not available in headers\n");
-    return nullptr;
-#else
     if (!mSurface) {
         printf("WebGPUContext: ERROR - Surface is null in beginFrame\n");
         return nullptr;
@@ -273,7 +246,6 @@ WGPURenderPassEncoder WebGPUContext::beginFrame() {
     WGPUSurfaceTexture surfaceTexture;
     wgpuSurfaceGetCurrentTexture(mSurface, &surfaceTexture);
 
-    // FIX: Check if texture is valid instead of relying on the Status enum
     if (surfaceTexture.status != 0 && surfaceTexture.texture == nullptr) {
         printf("WebGPUContext: WARNING - Failed to get surface texture, status=%d\n", surfaceTexture.status);
         return nullptr;
@@ -315,12 +287,7 @@ WGPURenderPassEncoder WebGPUContext::beginFrame() {
     colorAttachment.loadOp = WGPULoadOp_Clear;
     colorAttachment.storeOp = WGPUStoreOp_Store;
     colorAttachment.clearValue = {0.1, 0.1, 0.1, 1.0};
-
-#ifdef WGPU_DEPTH_SLICE_UNDEFINED
     colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-#else
-    colorAttachment.depthSlice = 0xFFFFFFFF;
-#endif
 
     WGPURenderPassDescriptor passDesc = {};
     passDesc.colorAttachmentCount = 1;
@@ -332,7 +299,6 @@ WGPURenderPassEncoder WebGPUContext::beginFrame() {
     }
     
     return mCurrentPass;
-#endif
 }
 
 void WebGPUContext::endFrame() {

@@ -412,8 +412,13 @@
                                 }
                             }, 15000); // Increased to 15 seconds to allow more time
                             
-                            // Poll init state every 500ms for debugging
+                            // Poll init state every 500ms for debugging and pump events
                             const statePoll = setInterval(() => {
+                                // CRITICAL: Pump WebGPU events during initialization
+                                if (Module._bespoke_process_events) {
+                                    Module._bespoke_process_events();
+                                }
+                                
                                 if (Module._bespoke_get_init_state) {
                                     const state = Module._bespoke_get_init_state();
                                     if (state >= 5) { // FullyInitialized or Failed
@@ -424,7 +429,7 @@
                                         console.log('Init progress:', stateNames[state] || 'Unknown', `(${state})`);
                                     }
                                 }
-                            }, 500);
+                            }, 100); // Check more frequently (100ms) with event pumping
                             
                             // Start periodic health check during init
                             const healthCheck = setInterval(() => {
