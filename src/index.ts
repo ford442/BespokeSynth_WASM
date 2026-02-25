@@ -7,6 +7,25 @@
 
 import './styles.css';
 
+// Initialization step definitions
+interface InitStep {
+  id: string;
+  label: string;
+  weight: number; // Contribution to total progress (0-100)
+}
+
+// Define all initialization steps with their approximate weights
+const INIT_STEPS: InitStep[] = [
+  { id: 'wasm_load', label: 'Loading WebAssembly module', weight: 10 },
+  { id: 'webgpu_instance', label: 'Creating WebGPU instance', weight: 15 },
+  { id: 'webgpu_surface', label: 'Creating WebGPU surface', weight: 10 },
+  { id: 'webgpu_adapter', label: 'Requesting GPU adapter', weight: 15 },
+  { id: 'webgpu_device', label: 'Acquiring GPU device', weight: 15 },
+  { id: 'renderer_pipelines', label: 'Compiling shader pipelines', weight: 20 },
+  { id: 'audio_init', label: 'Initializing audio backend', weight: 10 },
+  { id: 'controls_create', label: 'Creating UI controls', weight: 5 },
+];
+
 // Load WASM module script dynamically
 const loadWasmModule = async (canvas?: HTMLCanvasElement): Promise<any> => {
   return new Promise((resolve, reject) => {
@@ -61,8 +80,13 @@ class BespokeSynthApp {
   private module: any = null;
   private animationFrameId: number | null = null;
   private isInitialized = false;
+  private currentProgress = 0;
+  private completedSteps = new Set<string>();
+  private activeStep: string | null = null;
+  private initStartTime = 0;
 
   async init(): Promise<void> {
+    this.initStartTime = performance.now();
     console.log('Initializing BespokeSynth WASM...');
 
     // Get canvas element
@@ -75,17 +99,25 @@ class BespokeSynthApp {
     this.resizeCanvas();
     window.addEventListener('resize', () => this.resizeCanvas());
 
-    // Show loading screen
-    this.showStatus('Loading WebAssembly module...');
+    // Initialize progress UI
+    this.initializeProgressUI();
 
     try {
-      // Load WASM module
+      // Step 1: Load WASM module
+      this.setActiveStep('wasm_load');
       this.module = await loadWasmModule();
+      this.completeStep('wasm_load');
       console.log('WASM module loaded successfully');
 
-      // Initialize synth
+      // Initialize synth - this will trigger async WebGPU initialization
       const sampleRate = 44100;
       const bufferSize = 512;
+      
+      // Poll for init state updates from C++
+      const statePollInterval = window.setInterval(() => {
+        this.pollInitState();
+      }, 50);
+
       const result = this.module._bespoke_init?.(
         this.canvas.width,
         this.canvas.height,
@@ -94,51 +126,250 @@ class BespokeSynthApp {
       );
 
       if (result === 0) {
+        // Synchronous initialization (rare but possible)
+        clearInterval(statePollInterval);
+        this.completeAllSteps();
         this.isInitialized = true;
-        this.showStatus('Ready!');
+        this.showReadyState();
         this.setupEventListeners();
         this.startRenderLoop();
-        console.log('BespokeSynth initialized successfully');
+        console.log('BespokeSynth initialized successfully (sync)');
       } else if (result === 1) {
-        // Initialization is pending asynchronously. Wait for the WASM callback.
-        await new Promise<void>((resolve, reject) => {
-          console.log('Setting __bespoke_on_init_complete to receive async init completion');
-          const initTimeout = window.setTimeout(() => {
-            delete (window as any).__bespoke_on_init_complete;
-            if (pollInterval) clearInterval(pollInterval);
-            console.error('Initialization timed out after 30 seconds waiting for WASM to complete');
-            reject(new Error('Initialization timed out waiting for WASM to complete'));
-          }, 30000); // Increased from 10000 to 30000 (30 seconds)
-
-          // Poll for WebGPU events to ensure async callbacks are processed
-          const pollInterval = window.setInterval(() => {
-            if (this.module._bespoke_process_events) {
-              this.module._bespoke_process_events();
-            }
-          }, 100); // Poll every 100ms
-
-          (window as any).__bespoke_on_init_complete = (status: number) => {
-            console.log('Resolving __bespoke_on_init_complete with status', status);
-            window.clearTimeout(initTimeout);
-            if (pollInterval) clearInterval(pollInterval);
-            delete (window as any).__bespoke_on_init_complete;
-            if (status === 0) resolve();
-            else reject(new Error(`Initialization failed with code: ${status}`));
-          };
-        });
-
-        // Now initialization completed successfully
-        this.isInitialized = true;
-        this.showStatus('Ready!');
-        this.setupEventListeners();
-        this.startRenderLoop();
-        console.log('BespokeSynth initialized successfully (async)');
+        // Initialization is pending asynchronously
+        await this.waitForAsyncInit(statePollInterval);
       } else {
         throw new Error(`Initialization failed with code: ${result}`);
       }
     } catch (error) {
       console.error('Failed to initialize BespokeSynth:', error);
-      this.showStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.showErrorState(error instanceof Error ? error.message : 'Unknown error');
+    }
+  }
+
+  private initializeProgressUI(): void {
+    const stepsContainer = document.getElementById('init-steps');
+    if (!stepsContainer) return;
+
+    stepsContainer.innerHTML = '';
+    INIT_STEPS.forEach((step, index) => {
+      const stepEl = document.createElement('div');
+      stepEl.className = 'init-step';
+      stepEl.id = `step-${step.id}`;
+      stepEl.innerHTML = `
+        <span class="init-step-icon">○</span>
+        <span class="init-step-text">${step.label}</span>
+      `;
+      stepsContainer.appendChild(stepEl);
+    });
+  }
+
+  private setActiveStep(stepId: string): void {
+    this.activeStep = stepId;
+    
+    // Update UI
+    const stepEl = document.getElementById(`step-${stepId}`);
+    if (stepEl) {
+      stepEl.classList.add('active');
+      stepEl.querySelector('.init-step-icon')!.textContent = '◌';
+    }
+
+    // Calculate progress based on completed steps + current step
+    this.updateProgress();
+    
+    console.log(`[Init] Starting step: ${stepId}`);
+  }
+
+  private completeStep(stepId: string): void {
+    this.completedSteps.add(stepId);
+    this.activeStep = null;
+
+    // Update UI
+    const stepEl = document.getElementById(`step-${stepId}`);
+    if (stepEl) {
+      stepEl.classList.remove('active');
+      stepEl.classList.add('completed');
+      stepEl.querySelector('.init-step-icon')!.textContent = '✓';
+    }
+
+    this.updateProgress();
+    
+    const elapsed = ((performance.now() - this.initStartTime) / 1000).toFixed(2);
+    console.log(`[Init] Completed step: ${stepId} (${elapsed}s)`);
+  }
+
+  private completeAllSteps(): void {
+    INIT_STEPS.forEach(step => this.completeStep(step.id));
+  }
+
+  private updateProgress(): void {
+    let progress = 0;
+    
+    // Add completed steps
+    INIT_STEPS.forEach(step => {
+      if (this.completedSteps.has(step.id)) {
+        progress += step.weight;
+      }
+    });
+
+    // Add partial progress for active step (50% of its weight)
+    if (this.activeStep) {
+      const activeStepData = INIT_STEPS.find(s => s.id === this.activeStep);
+      if (activeStepData) {
+        progress += activeStepData.weight * 0.5;
+      }
+    }
+
+    this.currentProgress = Math.min(100, Math.round(progress));
+    
+    const fillEl = document.getElementById('progress-fill');
+    const textEl = document.getElementById('progress-text');
+    
+    if (fillEl) fillEl.style.width = `${this.currentProgress}%`;
+    if (textEl) textEl.textContent = `${this.currentProgress}%`;
+  }
+
+  private pollInitState(): void {
+    if (!this.module) return;
+
+    // Process WebGPU events
+    if (this.module._bespoke_process_events) {
+      this.module._bespoke_process_events();
+    }
+
+    // Get current init state from C++
+    const state = this.module._bespoke_get_init_state?.() ?? 0;
+    
+    // Map C++ InitState enum to our step IDs
+    const stateToStep: Record<number, string> = {
+      1: 'webgpu_instance',  // WebGPURequested
+      2: 'webgpu_adapter',   // WebGPUReady (adapter acquired)
+      3: 'renderer_pipelines', // RendererReady
+      4: 'audio_init',       // AudioReady
+      5: 'controls_create',  // FullyInitialized
+    };
+
+    // Mark previous steps as completed based on current state
+    const stateOrder = [0, 1, 2, 3, 4, 5];
+    for (const s of stateOrder) {
+      if (s < state && stateToStep[s]) {
+        if (!this.completedSteps.has(stateToStep[s])) {
+          this.completeStep(stateToStep[s]);
+        }
+      }
+    }
+
+    // Set active step for current state
+    if (stateToStep[state] && this.activeStep !== stateToStep[state]) {
+      this.setActiveStep(stateToStep[state]);
+    }
+  }
+
+  private async waitForAsyncInit(statePollInterval: number): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      console.log('Waiting for async initialization...');
+      
+      const initTimeout = window.setTimeout(() => {
+        clearInterval(statePollInterval);
+        clearInterval(pollInterval);
+        delete (window as any).__bespoke_on_init_complete;
+        
+        const elapsed = ((performance.now() - this.initStartTime) / 1000).toFixed(1);
+        console.error(`Initialization timed out after ${elapsed}s`);
+        
+        reject(new Error(`Initialization timed out after ${elapsed}s. Check console for details.`));
+      }, 60000); // 60 second timeout
+
+      // Poll more frequently for better responsiveness
+      const pollInterval = window.setInterval(() => {
+        if (this.module._bespoke_process_events) {
+          this.module._bespoke_process_events();
+        }
+      }, 16); // ~60fps polling
+
+      (window as any).__bespoke_on_init_complete = (status: number) => {
+        console.log('__bespoke_on_init_complete called with status:', status);
+        
+        window.clearTimeout(initTimeout);
+        clearInterval(pollInterval);
+        clearInterval(statePollInterval);
+        delete (window as any).__bespoke_on_init_complete;
+
+        if (status === 0) {
+          this.completeAllSteps();
+          resolve();
+        } else {
+          const errorMsg = this.getInitErrorMessage(status);
+          reject(new Error(`Initialization failed: ${errorMsg} (code: ${status})`));
+        }
+      };
+    }).then(() => {
+      // Initialization completed successfully
+      this.isInitialized = true;
+      this.showReadyState();
+      this.setupEventListeners();
+      this.startRenderLoop();
+      
+      const elapsed = ((performance.now() - this.initStartTime) / 1000).toFixed(2);
+      console.log(`BespokeSynth initialized successfully in ${elapsed}s`);
+    });
+  }
+
+  private getInitErrorMessage(code: number): string {
+    const messages: Record<number, string> = {
+      [-1]: 'WebGPU initialization failed - browser may not support WebGPU',
+      [-2]: 'Renderer initialization failed - shader compilation error',
+      [-3]: 'Audio backend initialization failed',
+      [-4]: 'Failed to start async WebGPU initialization',
+    };
+    return messages[code] || 'Unknown error';
+  }
+
+  private showReadyState(): void {
+    const statusEl = document.getElementById('status');
+    const subheaderEl = statusEl?.querySelector('.status-subheader');
+    
+    if (subheaderEl) {
+      subheaderEl.textContent = 'Ready!';
+    }
+    
+    // Hide status after a short delay
+    setTimeout(() => {
+      if (statusEl) {
+        statusEl.classList.add('hidden');
+      }
+    }, 500);
+  }
+
+  private showErrorState(message: string): void {
+    const statusEl = document.getElementById('status');
+    const headerEl = statusEl?.querySelector('.status-header');
+    const subheaderEl = statusEl?.querySelector('.status-subheader');
+    
+    if (statusEl) statusEl.classList.add('error');
+    if (headerEl) headerEl.textContent = 'Initialization Failed';
+    if (subheaderEl) subheaderEl.textContent = message;
+    
+    // Show error in progress bar
+    const fillEl = document.getElementById('progress-fill');
+    if (fillEl) {
+      fillEl.style.width = '100%';
+      fillEl.style.background = 'linear-gradient(90deg, #f44336, #ff5722)';
+    }
+    
+    const textEl = document.getElementById('progress-text');
+    if (textEl) {
+      textEl.textContent = 'Error';
+      textEl.style.color = '#f44336';
+    }
+    
+    // Mark active step as error
+    if (this.activeStep) {
+      const stepEl = document.getElementById(`step-${this.activeStep}`);
+      if (stepEl) {
+        stepEl.classList.remove('active');
+        stepEl.classList.add('error');
+        stepEl.querySelector('.init-step-icon')!.textContent = '✗';
+      }
     }
   }
 
@@ -189,7 +420,6 @@ class BespokeSynthApp {
     document.addEventListener('keydown', (e) => {
       if (this.module._bespoke_key_down) {
         const modifiers = this.getModifiers(e);
-        // Use e.code for key position, fall back to keyCode for compatibility
         const keyCode = e.code ? e.code.charCodeAt(0) : (e.keyCode || e.which);
         this.module._bespoke_key_down(keyCode, modifiers);
       }
@@ -198,7 +428,6 @@ class BespokeSynthApp {
     document.addEventListener('keyup', (e) => {
       if (this.module._bespoke_key_up) {
         const modifiers = this.getModifiers(e);
-        // Use e.code for key position, fall back to keyCode for compatibility
         const keyCode = e.code ? e.code.charCodeAt(0) : (e.keyCode || e.which);
         this.module._bespoke_key_up(keyCode, modifiers);
       }
@@ -251,20 +480,6 @@ class BespokeSynthApp {
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;
-    }
-  }
-
-  private showStatus(message: string): void {
-    const statusEl = document.getElementById('status');
-    if (statusEl) {
-      statusEl.textContent = message;
-      
-      // Hide status after 3 seconds if it's a success message
-      if (message === 'Ready!') {
-        setTimeout(() => {
-          statusEl.style.opacity = '0';
-        }, 3000);
-      }
     }
   }
 

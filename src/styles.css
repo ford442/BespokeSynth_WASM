@@ -108,16 +108,148 @@ body {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(20, 20, 24, 0.95);
     color: #fff;
-    padding: 20px 40px;
-    border-radius: 8px;
+    padding: 30px 40px;
+    border-radius: 12px;
     font-size: 16px;
     font-weight: 500;
     pointer-events: none;
     transition: opacity 0.3s ease;
     z-index: 1000;
-    animation: pulse 2s ease-in-out infinite;
+    min-width: 400px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    border: 1px solid #3a3a45;
+}
+
+#status.hidden {
+    opacity: 0;
+}
+
+/* Progress Bar Container */
+.progress-container {
+    margin-top: 20px;
+    margin-bottom: 15px;
+}
+
+.progress-bar-bg {
+    width: 100%;
+    height: 8px;
+    background: #2a2a30;
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4CAF50, #8BC34A);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+    position: relative;
+}
+
+.progress-bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+/* Init Steps List */
+.init-steps {
+    margin-top: 15px;
+    font-size: 13px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.init-step {
+    display: flex;
+    align-items: center;
+    padding: 6px 0;
+    color: #888;
+    transition: color 0.3s ease;
+}
+
+.init-step.active {
+    color: #fff;
+}
+
+.init-step.completed {
+    color: #4CAF50;
+}
+
+.init-step.error {
+    color: #f44336;
+}
+
+.init-step-icon {
+    width: 20px;
+    height: 20px;
+    margin-right: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+}
+
+.init-step.active .init-step-icon {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.init-step-text {
+    flex: 1;
+}
+
+/* Status Header */
+.status-header {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 5px;
+    color: #fff;
+}
+
+.status-subheader {
+    font-size: 13px;
+    color: #888;
+    margin-bottom: 15px;
+}
+
+/* Progress Percentage */
+.progress-percentage {
+    text-align: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: #4CAF50;
+    margin-top: 8px;
+}
+
+/* Error State */
+#status.error {
+    border-color: #f44336;
+}
+
+#status.error .progress-bar-fill {
+    background: linear-gradient(90deg, #f44336, #ff5722);
+}
+
+#status.error .progress-percentage {
+    color: #f44336;
 }
 
 /* Footer */

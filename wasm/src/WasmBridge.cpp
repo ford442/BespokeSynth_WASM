@@ -23,15 +23,29 @@ static const int KEY_SPACE = 32;
 using namespace bespoke::wasm;
 
 // Initialization state tracking
+// These values are exposed to JavaScript via bespoke_get_init_state()
 enum class InitState {
-    NotStarted,
-    WebGPURequested,
-    WebGPUReady,
-    RendererReady,
-    AudioReady,
-    FullyInitialized,
-    Failed
+    NotStarted = 0,
+    WebGPURequested = 1,     // Creating WebGPU instance and surface
+    WebGPUReady = 2,         // Adapter and device acquired
+    RendererReady = 3,       // Shader pipelines compiled
+    AudioReady = 4,          // Audio backend initialized
+    FullyInitialized = 5,    // All subsystems ready
+    Failed = -1
 };
+
+// Helper to report progress to JavaScript
+static void reportInitProgress(const char* step, const char* detail) {
+    printf("[InitProgress] %s: %s\n", step, detail);
+    
+    // Also notify JS via a callback if available
+    char script[512];
+    snprintf(script, sizeof(script), 
+        "if (window.__bespoke_on_init_progress) {"
+        "  window.__bespoke_on_init_progress('%s', '%s');"
+        "}", step, detail);
+    emscripten_run_script(script);
+}
 
 // Global state
 static std::unique_ptr<WebGPUContext> gContext;
@@ -152,6 +166,7 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int bufferSize) {
     printf("BespokeSynth WASM: Initializing (%dx%d, %dHz, %d samples)\n", 
            width, height, sampleRate, bufferSize);
+    reportInitProgress("init_start", "Beginning initialization");
     
     if (gInitState != InitState::NotStarted) {
         printf("BespokeSynth WASM: Already initialized or in progress (state=%d)\n", static_cast<int>(gInitState));
@@ -161,6 +176,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
     gWidth = width;
     gHeight = height;
     gInitState = InitState::WebGPURequested;
+    reportInitProgress("webgpu_requested", "Creating WebGPU instance and surface");
     
     // Initialize WebGPU context (asynchronous)
     gContext = std::make_unique<WebGPUContext>();
@@ -170,6 +186,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
         if (!success) {
             printf("BespokeSynth WASM: Failed to initialize WebGPU\n");
             printf("WasmBridge: notifying JS of init failure (-1)\n");
+            reportInitProgress("webgpu_failed", "WebGPU initialization failed - browser may not support WebGPU");
             gInitState = InitState::Failed;
             gInitErrorMessage = "WebGPU initialization failed";
             // Notify JS that initialization failed
@@ -180,16 +197,19 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
         // WebGPU initialized successfully
         printf("WasmBridge: WebGPU context ready, proceeding with remaining initialization\n");
         gInitState = InitState::WebGPUReady;
+        reportInitProgress("webgpu_ready", "GPU adapter and device acquired successfully");
         
         // Continue remaining initialization on success
         gContext->resize(gWidth, gHeight);
 
         // Initialize renderer
         printf("WasmBridge: Initializing renderer...\n");
+        reportInitProgress("renderer_init", "Creating shader pipelines...");
         gRenderer = std::make_unique<WebGPURenderer>(*gContext);
         if (!gRenderer->initialize()) {
             printf("BespokeSynth WASM: Failed to initialize renderer\n");
             printf("WasmBridge: notifying JS of init failure (-2)\n");
+            reportInitProgress("renderer_failed", "Shader pipeline compilation failed");
             gInitState = InitState::Failed;
             gInitErrorMessage = "Renderer initialization failed";
             emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-2);");
@@ -197,14 +217,17 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
         }
         
         printf("WasmBridge: Renderer initialized successfully\n");
+        reportInitProgress("renderer_ready", "All shader pipelines compiled successfully");
         gInitState = InitState::RendererReady;
 
         // Initialize audio backend
         printf("WasmBridge: Initializing audio backend...\n");
+        reportInitProgress("audio_init", "Opening audio device...");
         gAudioBackend = std::make_unique<SDL2AudioBackend>();
         if (!gAudioBackend->initialize(44100, 512, 2, 0)) {
             printf("BespokeSynth WASM: Failed to initialize audio\n");
             printf("WasmBridge: notifying JS of init failure (-3)\n");
+            reportInitProgress("audio_failed", "Audio device initialization failed");
             gInitState = InitState::Failed;
             gInitErrorMessage = "Audio backend initialization failed";
             emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-3);");
@@ -212,13 +235,24 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
         }
 
         printf("WasmBridge: Audio backend initialized successfully\n");
+        reportInitProgress("audio_ready", "Audio device opened successfully");
         gInitState = InitState::AudioReady;
         
         // Set audio callback
         gAudioBackend->setCallback(audioCallback);
+        
+        // Start audio playback
+        printf("WasmBridge: Starting audio playback...\n");
+        if (!gAudioBackend->start()) {
+            printf("BespokeSynth WASM: Warning - Failed to start audio playback\n");
+            reportInitProgress("audio_warning", "Audio initialized but playback failed to start");
+        } else {
+            reportInitProgress("audio_started", "Audio playback started");
+        }
 
         // Create some demo knobs
         printf("WasmBridge: Creating demo controls...\n");
+        reportInitProgress("controls_init", "Creating UI controls...");
         gKnobs.clear();
 
         auto knob1 = std::make_unique<Knob>("Frequency", 0.5f);
@@ -266,6 +300,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
 
         gInitState = InitState::FullyInitialized;
         gInitialized = true;
+        reportInitProgress("init_complete", "All subsystems ready");
         printf("BespokeSynth WASM: Initialization complete - all subsystems ready\n");
         printf("WasmBridge: notifying JS of init complete (0)\n");
 
@@ -275,9 +310,10 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
 
     if (!started) {
         printf("BespokeSynth WASM: Failed to start WebGPU initialization\n");
+        reportInitProgress("webgpu_start_failed", "Failed to start WebGPU initialization");
         gInitState = InitState::Failed;
         gInitErrorMessage = "Failed to start async WebGPU initialization";
-        return -1;
+        return -4;
     }
 
     // Indicate initialization started asynchronously

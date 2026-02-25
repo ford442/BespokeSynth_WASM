@@ -19,7 +19,19 @@
         </header>
         <main id="canvas-container">
             <canvas id="canvas"></canvas>
-            <div id="status">Initializing...</div>
+            <div id="status">
+                <div class="status-header">Initializing BespokeSynth</div>
+                <div class="status-subheader">Setting up WebGPU and audio...</div>
+                <div class="progress-container">
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-percentage" id="progress-text">0%</div>
+                </div>
+                <div class="init-steps" id="init-steps">
+                    <!-- Steps will be dynamically added here -->
+                </div>
+            </div>
         </main>
         <footer id="footer">
             <div class="info">
