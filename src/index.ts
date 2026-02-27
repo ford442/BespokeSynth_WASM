@@ -151,7 +151,7 @@ class BespokeSynthApp {
     if (!stepsContainer) return;
 
     stepsContainer.innerHTML = '';
-    INIT_STEPS.forEach((step, index) => {
+    INIT_STEPS.forEach((step) => {
       const stepEl = document.createElement('div');
       stepEl.className = 'init-step';
       stepEl.id = `step-${step.id}`;
