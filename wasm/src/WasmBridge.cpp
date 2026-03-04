@@ -59,11 +59,6 @@ static int gWidth = 800;
 static int gHeight = 600;
 static bool gInitialized = false;
 static float gTime = 0.0f;
-static InitState gInitState = InitState::NotStarted;
-static std::string gInitErrorMessage;
-
-// Thread safety for audio callback
-static std::atomic<bool> gAudioCallbackActive{false};
 
 // Panel selection
 enum PanelType {
@@ -388,35 +383,7 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void) {
         return;
     }
     
-    // Double-check all subsystems are ready
-    if (!gInitialized || !gRenderer || !gContext) {
-        printf("BespokeSynth WASM: Render called but not fully initialized\n");
-        return;
-    }
-    
-    // Verify WebGPU context is still valid
-    if (!gContext->isInitialized()) {
-        printf("BespokeSynth WASM: WebGPU context lost, cannot render\n");
-        return;
-    }
-    
     gTime += 0.016f; // Approximate 60fps
-    
-    // Mark current panel as running and update frame count
-    if (gCurrentPanel >= 0 && gCurrentPanel < PANEL_COUNT) {
-        markPanelRunning(gCurrentPanel);
-        gPanelStatus[gCurrentPanel].frameCount++;
-        gPanelStatus[gCurrentPanel].lastUpdateTime = gTime;
-        
-        // Log panel status every 300 frames (~5 seconds at 60fps)
-        if (gPanelStatus[gCurrentPanel].frameCount % 300 == 0) {
-            printf("DEBUG [Panel:%s] Running - Frames:%d Time:%.1fs\n",
-                   getPanelName(gCurrentPanel),
-                   gPanelStatus[gCurrentPanel].frameCount,
-                   gTime);
-        }
-    }
-    
     gRenderer->beginFrame(gWidth, gHeight, 1.0f, gTime);
     
     // Clear background
