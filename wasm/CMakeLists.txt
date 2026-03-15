@@ -27,6 +27,7 @@ set(BESPOKE_WASM_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 add_compile_options(
     "-sUSE_SDL=2"
     "-Wno-deprecated-literal-operator"  # Suppress JUCE warnings
+    "-Wno-#pragma-messages"              # Suppress Projucer warnings
 )
 
 # 2. Linker options
