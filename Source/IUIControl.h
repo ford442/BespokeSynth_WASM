@@ -31,6 +31,8 @@
 class FileStreamIn;
 class FileStreamOut;
 class PatchCableSource;
+class IModulator;
+class IControlVisualizer;
 
 #define HIDDEN_UICONTROL 9999
 
@@ -98,6 +100,9 @@ public:
    virtual float GetModulationRangeMin() const { return 0; }
    virtual float GetModulationRangeMax() const { return 1; }
    virtual bool ShouldSerializeForSnapshot() const { return false; }
+   virtual IModulator* GetModulator() { return nullptr; }
+   void SetControlVisualizer(IControlVisualizer* visualizer) { mControlVisualizer = visualizer; }
+   IControlVisualizer* GetControlVisualizer() const { return mControlVisualizer; }
 
    static void SetNewManualHoverViaTab(int direction);
    static void SetNewManualHoverViaArrow(ofVec2f direction);
@@ -109,7 +114,7 @@ public:
    virtual void LoadState(FileStreamIn& in, bool shouldSetValue = true) = 0;
 
 protected:
-   virtual ~IUIControl();
+   ~IUIControl() override;
 
    int mRemoteControlCount{ 0 };
    bool mCableTargetable{ true };
@@ -117,6 +122,7 @@ protected:
    bool mShouldSaveState{ true };
    bool mSnapshotHighlight{ false };
    bool mIsDeleted{ false };
+   IControlVisualizer* mControlVisualizer{ nullptr };
 
    static IUIControl* sLastHoveredUIControl;
    static bool sLastUIHoverWasSetManually;

@@ -51,6 +51,7 @@
 #include "SongBuilder.h"
 #include "LooperRecorder.h"
 #include "AudioSend.h"
+#include "IControlVisualizer.h"
 
 using namespace AbletonDevice;
 
@@ -653,21 +654,34 @@ void AbletonMoveControl::DrawToFramebuffer()
                if (controlIndex < (int)mControls.size())
                {
                   auto* control = mControls[controlIndex];
-                  mLCD.DrawLCDText(control->GetDisplayName().c_str(), i * 14 + 4, 26 + (i % 4) * 10);
+                  std::string displayName = control->GetDisplayName();
+                  if (control->GetModulator())
+                     displayName = "*" + displayName;
+                  if (displayName.length() > 12 && controlIndex + 4 < (int)mControls.size()) // truncate if we might stomp on the control name in the next column
+                     displayName = displayName.substr(0, 12);
+                  int x = i * 14 + 3;
+                  int y = 26 + (i % 4) * 10;
+                  mLCD.DrawLCDText(displayName.c_str(), x + 3, y);
+
+                  int pixelHeight = control->GetMidiValue() * 8;
+                  mLCD.DrawRect(x, y - pixelHeight, 1, pixelHeight, false);
                }
             }
 
-            const int kModuleViewBarX = 4;
-            const int kModuleViewBarY = 58;
-            const int kModuleViewBarWidth = 124;
-            const int kModuleViewBarHeight = 6;
-            mLCD.DrawRect(kModuleViewBarX, kModuleViewBarY, kModuleViewBarWidth, kModuleViewBarHeight, false);
-            float numControlsQuantized = ceil((float)mControls.size() / kNumMainEncoders) * kNumMainEncoders;
-            float offsetStart = GetControlOffset() / numControlsQuantized;
-            float offsetEnd = MIN(GetControlOffset() + kNumMainEncoders, numControlsQuantized) / numControlsQuantized;
-            mLCD.DrawRect(kModuleViewBarX + offsetStart * kModuleViewBarWidth, kModuleViewBarY + 2, (offsetEnd - offsetStart) * kModuleViewBarWidth, kModuleViewBarHeight - 4, true);
-            if (GetButtonState(kVolumeEncoderTouch))
-               mLCD.DrawRect(kModuleViewBarX + (GetModuleViewOffset() * kNumMainEncoders / numControlsQuantized) * kModuleViewBarWidth, kModuleViewBarY, 1, kModuleViewBarHeight, true);
+            if ((int)mControls.size() > kNumMainEncoders)
+            {
+               const int kModuleViewBarX = 4;
+               const int kModuleViewBarY = 58;
+               const int kModuleViewBarWidth = 124;
+               const int kModuleViewBarHeight = 6;
+               mLCD.DrawRect(kModuleViewBarX, kModuleViewBarY, kModuleViewBarWidth, kModuleViewBarHeight, false);
+               float numControlsQuantized = ceil((float)mControls.size() / kNumMainEncoders) * kNumMainEncoders;
+               float offsetStart = GetControlOffset() / numControlsQuantized;
+               float offsetEnd = MIN(GetControlOffset() + kNumMainEncoders, numControlsQuantized) / numControlsQuantized;
+               mLCD.DrawRect(kModuleViewBarX + offsetStart * kModuleViewBarWidth, kModuleViewBarY + 2, (offsetEnd - offsetStart) * kModuleViewBarWidth, kModuleViewBarHeight - 4, true);
+               if (GetButtonState(kVolumeEncoderTouch))
+                  mLCD.DrawRect(kModuleViewBarX + (GetModuleViewOffset() * kNumMainEncoders / numControlsQuantized) * kModuleViewBarWidth, kModuleViewBarY, 1, kModuleViewBarHeight, true);
+            }
          }
       }
 
@@ -678,8 +692,19 @@ void AbletonMoveControl::DrawToFramebuffer()
          if (controlIndex < (int)mControls.size())
          {
             auto* control = mControls[controlIndex];
-            mLCD.DrawLCDText(control->GetDisplayName().c_str(), 5, 26);
-            mLCD.DrawLCDText(control->GetDisplayValue(control->GetValue()).c_str(), 5, 40);
+            std::string displayName = control->GetDisplayName();
+            if (control->GetModulator() && control->GetModulator()->Active())
+               displayName = "*" + displayName;
+            mLCD.DrawLCDText(displayName.c_str(), 5, 26);
+            std::string displayValue = control->GetDisplayValue(control->GetValue());
+            if (control->GetModulator() && control->GetModulator()->Active())
+            {
+               if (mShiftHeld)
+                  displayValue += "   min: " + control->GetDisplayValue(control->GetModulator()->GetMin());
+               else
+                  displayValue += "   max: " + control->GetDisplayValue(control->GetModulator()->GetMax());
+            }
+            mLCD.DrawLCDText(displayValue.c_str(), 5, 40);
 
             int sliderX = 5;
             int sliderY = 42;
@@ -700,6 +725,33 @@ void AbletonMoveControl::DrawToFramebuffer()
                   mLCD.DrawRect(x, sliderY + sliderH - 2, 1, 2, false);
                }
             }
+
+            IModulator* modulator = control->GetModulator();
+            if (modulator && modulator->Active())
+            {
+               float sliderMin = 0;
+               float sliderMax = 1;
+               FloatSlider* slider = dynamic_cast<FloatSlider*>(control);
+               if (slider)
+               {
+                  sliderMin = slider->GetMin();
+                  sliderMax = slider->GetMax();
+               }
+               float modMin = ofMap(modulator->GetMin(), sliderMin, sliderMax, 0, 1);
+               float modMax = ofMap(modulator->GetMax(), sliderMin, sliderMax, 0, 1);
+               int min = ofLerp(sliderMinPos, sliderMaxPos, modMin);
+               int max = ofLerp(sliderMinPos, sliderMaxPos, modMax);
+               if (min > max) //swap
+               {
+                  float temp = min;
+                  min = max;
+                  max = temp;
+               }
+               mLCD.DrawRect(min, sliderY + 4, max - min, sliderH - 8, true);
+            }
+
+            if (IControlVisualizer* visualizer = control->GetControlVisualizer())
+               visualizer->DrawVisualizationToScreen(&mLCD, control);
          }
       }
    }
@@ -1202,6 +1254,10 @@ void AbletonMoveControl::DisplayScreenMessage(std::string message, float duratio
 bool AbletonMoveControl::IsDisplayableControl(IUIControl* control)
 {
    const IDrawableModule* owningModule = control->GetModuleParent();
+
+   if (owningModule == TheTransport && control->Name() == std::string("tempo"))
+      return false;
+
    bool isEnabledCheckbox = owningModule != nullptr && control == owningModule->GetEnabledCheckbox();
    if (!isEnabledCheckbox &&
        (control->IsSliderControl() || control->IsButtonControl()) &&
@@ -1397,10 +1453,7 @@ void AbletonMoveControl::OnMidiNote(MidiNote& note)
       {
          if (note.mVelocity > 0)
          {
-            SetDisplayModule(TheScale);
-            mPreviousSelectedTrackRow = mSelectedTrackRow;
-            mShowSoundSelector = false;
-            //SetActiveTrackRow(kTrackRowScale, false);
+            SetActiveTrackRow(kTrackRowScale, false);
          }
          else
          {
@@ -1433,7 +1486,7 @@ void AbletonMoveControl::OnMidiNote(MidiNote& note)
          handled = true;
       }
 
-      if (handled)
+      if (handled && note.mVelocity == 0)
          mBottomRowMode = false;
    }
 
@@ -1900,8 +1953,8 @@ void AbletonMoveControl::OnMidiControl(MidiControl& control)
    else if (control.mControl == kVolumeEncoderTurn)
    {
       float increment = control.mValue < 64 ? control.mValue : control.mValue - 128;
-      increment *= 0.07f;
-      SetModuleViewOffset(ofClamp(GetModuleViewOffset() + increment, 0, MAX(0, (int)mControls.size() / kNumMainEncoders)));
+      increment *= 0.03f;
+      SetModuleViewOffset(ofClamp(GetModuleViewOffset() + increment, 0, MAX(0, ((int)mControls.size() + kNumMainEncoders - 1) / kNumMainEncoders) - .01f));
    }
    /*else if (control.mControl == kSetupButton && control.mValue > 0)
    {
@@ -2236,11 +2289,17 @@ void AbletonMoveControl::AdjustControlWithEncoder(IUIControl* control, float mid
       IModulator* modulator = floatSlider->GetModulator();
       float min = floatSlider->GetMin();
       float max = floatSlider->GetMax();
-      float modMin = ofMap(modulator->GetMin(), min, max, 0, 1);
-      float modMax = ofMap(modulator->GetMax(), min, max, 0, 1);
-
-      modulator->GetMin() = ofMap(modMin - increment, 0, 1, min, max, K(clamp));
-      modulator->GetMax() = ofMap(modMax + increment, 0, 1, min, max, K(clamp));
+      if (mShiftHeld)
+      {
+         increment = GetEncoderIncrement(midiInputValue);
+         float modMin = ofMap(modulator->GetMin(), min, max, 0, 1);
+         modulator->GetMin() = ofMap(modMin + increment, 0, 1, min, max, K(clamp));
+      }
+      else
+      {
+         float modMax = ofMap(modulator->GetMax(), min, max, 0, 1);
+         modulator->GetMax() = ofMap(modMax + increment, 0, 1, min, max, K(clamp));
+      }
    }
    else if (button)
    {

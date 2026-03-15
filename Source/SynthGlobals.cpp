@@ -77,6 +77,9 @@ bool gShowDevModules = false;
 float gCornerRoundness = 1;
 std::array<float, (int)StepVelocityType::NumVelocityLevels> gStepVelocityLevels{};
 
+std::array<NVGcontext*, (int)NanoVGRenderContext::Num> gNanoVGRenderContexts{};
+NVGcontext* gNanoVG = nullptr;
+
 std::random_device gRandomDevice;
 bespoke::core::Xoshiro256ss gRandom(gRandomDevice);
 std::uniform_real_distribution<float> gRandom01(0.0f, 1.f);
@@ -825,6 +828,11 @@ bool IsMainThread()
 bool IsAudioThread()
 {
    return std::this_thread::get_id() == ModularSynth::GetAudioThreadID();
+}
+
+bool IsRenderThread()
+{
+   return std::this_thread::get_id() == ModularSynth::GetRenderThreadID();
 }
 
 float GetLeftPanGain(float pan)
