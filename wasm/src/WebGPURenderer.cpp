@@ -24,6 +24,7 @@ static const int kArcTessellationFactor = 4;  // Arc subdivisions per radius uni
 static const float kCharacterWidthRatio = 0.6f;  // Character width as ratio of font size
 static const float PI = 3.14159265f;
 static const float TWO_PI = 6.28318530f;
+static const float HALF_PI = 1.57079632f;
 
 // Shader source code (WGSL)
 static const char* kRender2DShader = R"(
