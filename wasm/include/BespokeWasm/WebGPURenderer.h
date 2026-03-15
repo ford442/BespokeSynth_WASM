@@ -87,7 +87,6 @@ namespace bespoke
          WGPURenderPipeline fader_cap;
          WGPURenderPipeline mod_wheel;
       };
-   };
 
    /**
  * WebGPU-based 2D renderer
