@@ -249,6 +249,7 @@ target_sources(BespokeSynth PRIVATE
     IAudioSource.h
     IClickable.cpp
     IClickable.h
+    IControlVisualizer.h
     IDrawableModule.cpp
     IDrawableModule.h
     IDrivableSequencer.h
@@ -778,6 +779,8 @@ target_sources(BespokeSynth PRIVATE
     WaveformViewer.h
     Waveshaper.cpp
     Waveshaper.h
+    WelcomeScreen.cpp
+    WelcomeScreen.h
     WhiteKeys.cpp
     WhiteKeys.h
     WindowCloseListener.h
