@@ -241,6 +241,7 @@ class BespokeSynthApp {
     
     // Map C++ InitState enum to our step IDs
     const stateToStep: Record<number, string> = {
+      0: 'wasm_load',        // NotStarted
       1: 'webgpu_instance',  // WebGPURequested
       2: 'webgpu_adapter',   // WebGPUReady (adapter acquired)
       3: 'renderer_pipelines', // RendererReady

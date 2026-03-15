@@ -15,6 +15,7 @@
 #include <memory>
 #include <vector>
 #include <atomic>
+#include <emscripten.h>  // Required for emscripten_run_script
 
 // Key code constants
 static const int KEY_SHIFT = 16;
@@ -90,6 +91,11 @@ static PanelStatus gPanelStatus[PANEL_COUNT] = {
 // Version string
 static const char* kVersion = "1.0.0-wasm";
 
+// Initialization state
+static InitState gInitState = InitState::NotStarted;
+static std::string gInitErrorMessage;
+static std::atomic<bool> gAudioCallbackActive{false};
+
 // Audio callback for demo (thread-safe)
 static void audioCallback(const float* const* input, float* const* output,
                           int numInputChannels, int numOutputChannels, int numSamples)
@@ -124,6 +130,9 @@ static void audioCallback(const float* const* input, float* const* output,
          output[ch][i] = sample;
       }
    }
+
+   // Mark that audio callback is complete
+   gAudioCallbackActive.store(false);
 }
 
 // Helper function to get panel name
@@ -243,7 +252,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                printf("WasmBridge: Initializing audio backend...\n");
                                                reportInitProgress("audio_init", "Opening audio device...");
                                                gAudioBackend = std::make_unique<SDL2AudioBackend>();
-                                               if (!gAudioBackend->initialize(44100, 512, 2, 0))
+                                               if (!gAudioBackend->initialize(sampleRate, bufferSize, 2, 0))
                                                {
                                                   printf("BespokeSynth WASM: Failed to initialize audio\n");
                                                   printf("WasmBridge: notifying JS of init failure (-3)\n");
@@ -261,17 +270,10 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                // Set audio callback
                                                gAudioBackend->setCallback(audioCallback);
 
-                                               // Start audio playback
-                                               printf("WasmBridge: Starting audio playback...\n");
-                                               if (!gAudioBackend->start())
-                                               {
-                                                  printf("BespokeSynth WASM: Warning - Failed to start audio playback\n");
-                                                  reportInitProgress("audio_warning", "Audio initialized but playback failed to start");
-                                               }
-                                               else
-                                               {
-                                                  reportInitProgress("audio_started", "Audio playback started");
-                                               }
+                                               // Audio is NOT auto-started (browser policy requires user interaction)
+                                               // Audio will be started when user clicks the play button
+                                               printf("WasmBridge: Audio ready (will start on user interaction)\n");
+                                               reportInitProgress("audio_ready", "Audio ready - click play to start");
 
                                                // Create some demo knobs
                                                printf("WasmBridge: Creating demo controls...\n");

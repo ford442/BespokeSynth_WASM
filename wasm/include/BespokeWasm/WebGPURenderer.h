@@ -172,7 +172,6 @@ namespace bespoke
       void drawPanel(float x, float y, float w, float h, bool bordered);
       void drawLED(float x, float y, float w, float h, bool on);
       void drawProgressBar(float x, float y, float w, float h, float value);
-<<<<<<< HEAD:wasm/include/BespokeWasm/WebGPURenderer.h
 
       // New drawing methods
       void drawXYPad(float x, float y, float w, float h, float cx, float cy);
@@ -184,8 +183,6 @@ namespace bespoke
       void drawSpectrumRainbow(float x, float y, float w, float h, float* data, int count);
       void drawCircularScope(float x, float y, float w, float h);
       void drawEchoTrail(float x, float y, float w, float h);
-=======
->>>>>>> origin/wasm-renderer-update-17384666709190575130:wasm/include/WebGPURenderer.h
 
    private:
       void createPipelines();

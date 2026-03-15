@@ -12,8 +12,11 @@ endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
-cmake_minimum_required(VERSION 3.10)
-project(BespokeSynthWASM)
+
+# Define source directories FIRST (before include_directories that use them)
+set(BESPOKE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Source")
+set(BESPOKE_LIBS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../libs")
+set(BESPOKE_WASM_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 # --- CRITICAL FIX START ---
 
@@ -43,7 +46,7 @@ add_compile_definitions(
 # Include Paths
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include/BespokeWasm")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../Source")
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/json/jsoncpp/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/JUCE/modules")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/JUCE/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/nanovg/src") # NanoVG
@@ -65,11 +68,6 @@ message(STATUS "Building BespokeSynth for WebAssembly")
 message(STATUS "  WebGPU: ${BESPOKE_WASM_WEBGPU}")
 message(STATUS "  SDL2 Audio: ${BESPOKE_WASM_SDL2_AUDIO}")
 message(STATUS "  Threads: ${BESPOKE_WASM_THREADS}")
-
-# Define source directories
-set(BESPOKE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Source")
-set(BESPOKE_LIBS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../libs")
-set(BESPOKE_WASM_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 # Collect WASM-specific sources
 set(WASM_SOURCES
