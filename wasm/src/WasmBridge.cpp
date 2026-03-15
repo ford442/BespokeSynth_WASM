@@ -103,6 +103,17 @@ static void audioCallback(const float* const* input, float* const* output,
    // Mark that audio callback is active
    gAudioCallbackActive.store(true);
 
+   // Safety bounds
+   if (numOutputChannels <= 0 || numSamples <= 0 || !output)
+   {
+      gAudioCallbackActive.store(false);
+      return;
+   }
+
+   // Limit channels to prevent overflow (stereo max)
+   const int maxChannels = 2;
+   int channels = (numOutputChannels > maxChannels) ? maxChannels : numOutputChannels;
+
    // Simple demo: generate a sine wave with frequency controlled by first knob
    static float phase = 0.0f;
    float frequency = 440.0f;
@@ -125,9 +136,12 @@ static void audioCallback(const float* const* input, float* const* output,
          phase -= 2.0f * 3.14159265f;
       }
 
-      for (int ch = 0; ch < numOutputChannels; ch++)
+      for (int ch = 0; ch < channels; ch++)
       {
-         output[ch][i] = sample;
+         if (output[ch]) // Null check for channel buffer
+         {
+            output[ch][i] = sample;
+         }
       }
    }
 
