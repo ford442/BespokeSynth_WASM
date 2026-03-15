@@ -26,6 +26,7 @@ set(BESPOKE_WASM_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 # backend is added conditionally below based on BESPOKE_WASM_SDL2_AUDIO option.
 add_compile_options(
     "-sUSE_SDL=2"
+    "-Wno-deprecated-literal-operator"  # Suppress JUCE warnings
 )
 
 # 2. Linker options
