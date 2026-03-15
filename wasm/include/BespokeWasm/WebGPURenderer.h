@@ -95,11 +95,6 @@ namespace bespoke
    class WebGPURenderer
    {
    public:
-      // Bring types from wasm namespace into scope
-      using Color = wasm::Color;
-      using Vertex2D = wasm::Vertex2D;
-      using Pipelines = wasm::Pipelines;
-      
       WebGPURenderer(WebGPUContext& context);
       ~WebGPURenderer();
 
