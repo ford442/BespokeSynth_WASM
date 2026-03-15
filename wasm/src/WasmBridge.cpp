@@ -207,7 +207,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
    gContext = std::make_unique<WebGPUContext>();
    printf("WasmBridge: starting async WebGPU initialization (selector=#canvas)\n");
 
-   bool started = gContext->initializeAsync("#canvas", [](bool success)
+   bool started = gContext->initializeAsync("#canvas", [sampleRate, bufferSize](bool success)
                                             {
                                                if (!success)
                                                {
