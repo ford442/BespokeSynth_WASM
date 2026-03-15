@@ -15,6 +15,9 @@
 namespace bespoke {
 namespace wasm {
 
+// Bring Color into scope (defined in WebGPURenderer.h)
+using Color = wasm::Color;
+
 /**
  * Knob control styles
  */
