@@ -245,8 +245,10 @@ WGPURenderPassEncoder WebGPUContext::beginFrame() {
     WGPUSurfaceTexture surfaceTexture;
     wgpuSurfaceGetCurrentTexture(mSurface, &surfaceTexture);
 
-    if (surfaceTexture.status != 0 && surfaceTexture.texture == nullptr) {
-        printf("WebGPUContext: WARNING - Failed to get surface texture, status=%d\n", surfaceTexture.status);
+    const bool textureOk = (surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal ||
+                             surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal);
+    if (!textureOk || surfaceTexture.texture == nullptr) {
+        printf("WebGPUContext: WARNING - Failed to get surface texture, status=%d\n", (int)surfaceTexture.status);
         return nullptr;
     }
     
