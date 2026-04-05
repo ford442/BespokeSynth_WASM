@@ -151,7 +151,7 @@ set(EMSCRIPTEN_LINK_FLAGS
     "-sMODULARIZE=1"
     "-sEXPORT_NAME='createBespokeSynth'"
     "-sASYNCIFY=1"  # Enable async operations
-    "-sASYNCIFY_STACK_SIZE=524288"  # 512KB async stack (was 64KB, increased for WebGPU callbacks)
+    "-sASYNCIFY_STACK_SIZE=2097152"  # 2MB async stack (increased from 512KB; emscripten_sleep() removed from hot path but kept for safety)
 )
 
 # Add WebGPU support

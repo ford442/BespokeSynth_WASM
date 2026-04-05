@@ -84,6 +84,7 @@ class BespokeSynthApp {
   private completedSteps = new Set<string>();
   private activeStep: string | null = null;
   private initStartTime = 0;
+  private isProcessingEvents = false;
 
   async init(): Promise<void> {
     this.initStartTime = performance.now();
@@ -231,9 +232,15 @@ class BespokeSynthApp {
   private pollInitState(): void {
     if (!this.module) return;
 
-    // Process WebGPU events
-    if (this.module._bespoke_process_events) {
-      this.module._bespoke_process_events();
+    // Process WebGPU events — guard against concurrent calls which caused
+    // Asyncify reentrancy crashes when emscripten_sleep(0) was in use.
+    if (this.module._bespoke_process_events && !this.isProcessingEvents) {
+      this.isProcessingEvents = true;
+      try {
+        this.module._bespoke_process_events();
+      } finally {
+        this.isProcessingEvents = false;
+      }
     }
 
     // Get current init state from C++
@@ -268,30 +275,25 @@ class BespokeSynthApp {
   private async waitForAsyncInit(statePollInterval: number): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       console.log('Waiting for async initialization...');
-      
+
       const initTimeout = window.setTimeout(() => {
         clearInterval(statePollInterval);
-        clearInterval(pollInterval);
         delete (window as any).__bespoke_on_init_complete;
-        
+
         const elapsed = ((performance.now() - this.initStartTime) / 1000).toFixed(1);
         console.error(`Initialization timed out after ${elapsed}s`);
-        
+
         reject(new Error(`Initialization timed out after ${elapsed}s. Check console for details.`));
       }, 60000); // 60 second timeout
 
-      // Poll more frequently for better responsiveness
-      const pollInterval = window.setInterval(() => {
-        if (this.module._bespoke_process_events) {
-          this.module._bespoke_process_events();
-        }
-      }, 16); // ~60fps polling
+      // statePollInterval (50ms) already calls _bespoke_process_events() via pollInitState().
+      // A separate high-frequency poll interval is not needed and previously caused
+      // Asyncify reentrancy crashes by calling _bespoke_process_events() concurrently.
 
       (window as any).__bespoke_on_init_complete = (status: number) => {
         console.log('__bespoke_on_init_complete called with status:', status);
-        
+
         window.clearTimeout(initTimeout);
-        clearInterval(pollInterval);
         clearInterval(statePollInterval);
         delete (window as any).__bespoke_on_init_complete;
 

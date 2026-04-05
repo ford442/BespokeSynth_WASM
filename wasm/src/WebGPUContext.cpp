@@ -154,16 +154,15 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
 }
 
 void WebGPUContext::processEvents() {
-    // On Emscripten, yield to allow browser to process WebGPU callbacks
-    // The new callback API with AllowProcessEvents mode should handle this automatically
-    // but we yield just in case
-#ifdef __EMSCRIPTEN__
-    emscripten_sleep(0);
-#else
+    // Process pending WebGPU events.
+    // On Emscripten, WebGPU callbacks (adapter/device requests) fire via browser
+    // Promise resolution in the JS event loop — they do NOT require emscripten_sleep().
+    // Using emscripten_sleep(0) here causes Asyncify reentrancy crashes when JS
+    // calls bespoke_process_events() from multiple concurrent setInterval timers.
+    // wgpuInstanceProcessEvents() is a safe, synchronous, non-Asyncify call.
     if (mInstance) {
         wgpuInstanceProcessEvents(mInstance);
     }
-#endif
 }
 
 void WebGPUContext::onDeviceReady() {
