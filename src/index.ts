@@ -245,30 +245,40 @@ class BespokeSynthApp {
 
     // Get current init state from C++
     const state = this.module._bespoke_get_init_state?.() ?? 0;
-    
-    // Map C++ InitState enum to our step IDs
+
+    // Map C++ InitState enum values to the UI step that becomes active at that state.
+    // The C++ collapses several WebGPU sub-steps into two states (1 and 2), so some
+    // INIT_STEPS ('webgpu_surface', 'webgpu_device') are not directly mapped here but
+    // are completed transitively by the index-based loop below.
     const stateToStep: Record<number, string> = {
-      0: 'wasm_load',        // NotStarted
-      1: 'webgpu_instance',  // WebGPURequested
-      2: 'webgpu_adapter',   // WebGPUReady (adapter acquired)
-      3: 'renderer_pipelines', // RendererReady
-      4: 'audio_init',       // AudioReady
-      5: 'controls_create',  // FullyInitialized
+      0: 'wasm_load',           // NotStarted
+      1: 'webgpu_instance',     // WebGPURequested (instance + surface + adapter request)
+      2: 'webgpu_adapter',      // WebGPUReady (adapter + device acquired)
+      3: 'renderer_pipelines',  // RendererReady
+      4: 'audio_init',          // AudioReady
+      5: 'controls_create',     // FullyInitialized
     };
 
-    // Mark previous steps as completed based on current state
-    const stateOrder = [0, 1, 2, 3, 4, 5];
-    for (const s of stateOrder) {
-      if (s < state && stateToStep[s]) {
-        if (!this.completedSteps.has(stateToStep[s])) {
-          this.completeStep(stateToStep[s]);
+    const currentMappedStep = stateToStep[state];
+    const currentStepIndex = currentMappedStep
+      ? INIT_STEPS.findIndex(s => s.id === currentMappedStep)
+      : -1;
+
+    // Complete ALL INIT_STEPS that come before the current mapped step (by list order).
+    // This ensures intermediate steps like 'webgpu_surface' and 'webgpu_device' that
+    // have no direct C++ state mapping are marked complete when the state advances past them.
+    if (currentStepIndex > 0) {
+      for (let i = 0; i < currentStepIndex; i++) {
+        const stepId = INIT_STEPS[i].id;
+        if (!this.completedSteps.has(stepId)) {
+          this.completeStep(stepId);
         }
       }
     }
 
     // Set active step for current state
-    if (stateToStep[state] && this.activeStep !== stateToStep[state]) {
-      this.setActiveStep(stateToStep[state]);
+    if (currentMappedStep && this.activeStep !== currentMappedStep) {
+      this.setActiveStep(currentMappedStep);
     }
   }
 
