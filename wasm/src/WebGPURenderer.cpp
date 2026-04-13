@@ -111,10 +111,6 @@ fn fs_knob_highlight(input: VertexOutput) -> @location(0) vec4<f32> {
     color.g = color.g * (1.0 - edgeDark * 0.3);
     color.b = color.b * (1.0 - edgeDark * 0.3);
 
-    // Circle mask
-    let alpha = smoothstep(0.5, 0.48, dist);
-    color.a = color.a * alpha;
-
     return color;
 }
 
@@ -248,18 +244,31 @@ fn fs_slider_handle(input: VertexOutput) -> @location(0) vec4<f32> {
 // Use texcoord.x > 0.5 for pressed state indication
 @fragment
 fn fs_button(input: VertexOutput) -> @location(0) vec4<f32> {
-    // Determine if button is in pressed state (signaled by extra param in u coord - simulated here by simple logic or uniform,
-    // but in this shader we'll assume standard UV and rely on color or other cues, OR we repurpose UVs.
-    // Actually, let's just use standard bevel.)
+    // Determine if button is in pressed state (signaled by extra param in u coord)
+    let isPressed = input.texcoord.x > 0.9;
 
-    // 3D bevel effect
-    var topLight: f32 = (1.0 - smoothstep(0.0, 0.2, input.texcoord.y)) * 0.25;
-    var bottomDark: f32 = (1.0 - smoothstep(1.0, 0.8, input.texcoord.y)) * 0.3;
+    // 3D bevel effect - reverses when pressed
+    var topLight: f32;
+    var bottomDark: f32;
+    if (isPressed) {
+        topLight = smoothstep(0.0, 0.2, input.texcoord.y) * 0.3;
+        bottomDark = smoothstep(1.0, 0.8, input.texcoord.y) * 0.2;
+    } else {
+        topLight = (1.0 - smoothstep(0.0, 0.2, input.texcoord.y)) * 0.25;
+        bottomDark = (1.0 - smoothstep(1.0, 0.8, input.texcoord.y)) * 0.3;
+    }
 
     var color = input.color;
     color.r = min(1.0, max(0.0, color.r + topLight - bottomDark));
     color.g = min(1.0, max(0.0, color.g + topLight - bottomDark));
     color.b = min(1.0, max(0.0, color.b + topLight - bottomDark));
+
+    // Pressed darkening
+    if (isPressed) {
+        color.r = color.r * 0.85;
+        color.g = color.g * 0.85;
+        color.b = color.b * 0.85;
+    }
 
     return color;
 }
@@ -347,7 +356,6 @@ fn fs_toggle_thumb(input: VertexOutput) -> @location(0) vec4<f32> {
 @fragment
 fn fs_adsr_envelope(input: VertexOutput) -> @location(0) vec4<f32> {
     // Envelope visualization - filled area below curve
-    // texcoord.x represents position along envelope, texcoord.y represents the envelope curve value at that position
     let envValue = input.texcoord.y;
 
     // Gradient fill from bottom - brighter near the envelope curve
@@ -358,9 +366,8 @@ fn fs_adsr_envelope(input: VertexOutput) -> @location(0) vec4<f32> {
     color.g = color.g * (0.5 + fillGradient * 0.5);
     color.b = color.b * (0.5 + fillGradient * 0.5);
 
-    // Brighter at the envelope curve edge (where y approaches the actual envelope value)
-    // The envelope value is passed via the v texture coordinate, highlight pixels near that boundary
-    let curveEdge = 1.0 - envValue; // distance from top of fill to top of screen
+    // Brighter at the envelope curve edge
+    let curveEdge = 1.0 - envValue;
     let edgeBrightness = smoothstep(0.04, 0.0, curveEdge);
     color.r = min(1.0, color.r + edgeBrightness * 0.4);
     color.g = min(1.0, color.g + edgeBrightness * 0.4);
@@ -845,6 +852,291 @@ fn fs_mod_wheel(input: VertexOutput) -> @location(0) vec4<f32> {
 
     return color;
 }
+
+// ============================================================================
+// NEW SHADERS - Enhanced Visual Effects
+// ============================================================================
+
+// Neon glow wire shader with animated gradient
+@fragment
+fn fs_neon_wire(input: VertexOutput) -> @location(0) vec4<f32> {
+    // Distance from center of wire
+    let dist = abs(input.texcoord.y - 0.5) * 2.0;
+
+    // Animated rainbow gradient along the wire
+    let hue = fract(input.texcoord.x * 2.0 + uniforms.time * 0.5);
+    let rainbow = vec3<f32>(
+        sin(hue * TWO_PI) * 0.5 + 0.5,
+        sin((hue + 0.33) * TWO_PI) * 0.5 + 0.5,
+        sin((hue + 0.66) * TWO_PI) * 0.5 + 0.5
+    );
+
+    // Core wire
+    let coreWidth = 0.2;
+    let core = smoothstep(coreWidth, 0.0, dist);
+
+    // Neon glow
+    let glowWidth = 0.8;
+    let glow = smoothstep(glowWidth, 0.0, dist) * 0.7;
+
+    var color = input.color;
+    let intensity = core + glow;
+    color.r = min(1.0, rainbow.r * intensity * 2.0);
+    color.g = min(1.0, rainbow.g * intensity * 2.0);
+    color.b = min(1.0, rainbow.b * intensity * 2.0);
+    color.a = color.a * min(1.0, intensity * 1.5);
+
+    return color;
+}
+
+// Animated beat pulse shader
+@fragment
+fn fs_beat_pulse(input: VertexOutput) -> @location(0) vec4<f32> {
+    let center = vec2<f32>(0.5, 0.5);
+    let dist = distance(input.texcoord, center);
+
+    // Pulsing ring effect
+    let pulseSpeed = 4.0;
+    let pulsePhase = fract(uniforms.time * pulseSpeed);
+    let pulseDist = abs(dist - pulsePhase * 0.5);
+    let pulse = smoothstep(0.1, 0.0, pulseDist);
+
+    // Center glow
+    let centerGlow = smoothstep(0.3, 0.0, dist);
+
+    var color = input.color;
+    let intensity = pulse * 0.8 + centerGlow * 0.4;
+    color.r = min(1.0, color.r + intensity);
+    color.g = min(1.0, color.g + intensity);
+    color.b = min(1.0, color.b + intensity);
+    color.a = color.a * (intensity + 0.3);
+
+    return color;
+}
+
+// Gradient background shader with animated noise
+@fragment
+fn fs_gradient_bg(input: VertexOutput) -> @location(0) vec4<f32> {
+    // Vertical gradient
+    let gradient = 1.0 - input.texcoord.y * 0.8;
+
+    // Simple noise for texture
+    let noiseScale = 20.0;
+    let noise = fract(sin(dot(input.texcoord * noiseScale, vec2<f32>(12.9898, 78.233))) * 43758.5453);
+
+    // Animated subtle movement
+    let animNoise = fract(noise + uniforms.time * 0.1);
+
+    var color = input.color;
+    color.r = color.r * gradient * (0.95 + animNoise * 0.1);
+    color.g = color.g * gradient * (0.95 + animNoise * 0.1);
+    color.b = color.b * gradient * (0.95 + animNoise * 0.1);
+
+    return color;
+}
+
+// Metallic knob shader with brushed metal effect
+@fragment
+fn fs_metallic_knob(input: VertexOutput) -> @location(0) vec4<f32> {
+    let center = vec2<f32>(0.5, 0.5);
+    let toCenter = input.texcoord - center;
+    let dist = length(toCenter);
+    let angle = atan2(toCenter.y, toCenter.x);
+
+    // Brushed metal effect using radial lines
+    let radialFreq = 60.0;
+    let radialLines = sin(angle * radialFreq) * 0.5 + 0.5;
+
+    // Circular grooves
+    let grooveFreq = 15.0;
+    let grooves = sin(dist * grooveFreq * TWO_PI) * 0.5 + 0.5;
+
+    // Metallic reflection based on angle
+    let reflection = sin(angle * 3.0 + uniforms.time * 0.5) * 0.3 + 0.7;
+
+    // Top highlight
+    let lightDir = normalize(vec2<f32>(-0.3, -0.7));
+    let normal = normalize(toCenter);
+    let highlight = pow(max(0.0, dot(normal, lightDir)), 3.0);
+
+    var color = input.color;
+    let metal = (radialLines * 0.1 + grooves * 0.05 + reflection * 0.85);
+    color.r = min(1.0, color.r * metal + highlight * 0.5);
+    color.g = min(1.0, color.g * metal + highlight * 0.5);
+    color.b = min(1.0, color.b * metal + highlight * 0.5);
+
+    // Circular mask
+    let edge = smoothstep(0.5, 0.48, dist);
+    color.a = color.a * edge;
+
+    return color;
+}
+
+// Drop shadow shader
+@fragment
+fn fs_drop_shadow(input: VertexOutput) -> @location(0) vec4<f32> {
+    let center = vec2<f32>(0.5, 0.5);
+    let dist = distance(input.texcoord, center);
+
+    // Soft radial gradient for shadow
+    let shadowSoftness = 0.3;
+    let alpha = smoothstep(0.5, 0.5 - shadowSoftness, dist) * (1.0 - dist * 2.0);
+
+    var color = input.color;
+    color.a = color.a * alpha * 0.5;
+
+    return color;
+}
+
+// Frequency spectrum circular shader
+@fragment
+fn fs_spectrum_circular(input: VertexOutput) -> @location(0) vec4<f32> {
+    let center = vec2<f32>(0.5, 0.5);
+    let toCenter = input.texcoord - center;
+    let dist = length(toCenter);
+    let angle = atan2(toCenter.y, toCenter.x);
+
+    // Normalize angle to 0-1 range
+    let normAngle = (angle + PI) / TWO_PI;
+
+    // Create frequency bars in circular arrangement
+    let freq = sin(normAngle * 20.0 + uniforms.time) * 0.5 + 0.5;
+    let barWidth = 0.02;
+    let inBar = step(abs(fract(normAngle * 16.0) - 0.5), barWidth * 8.0);
+
+    // Radial gradient based on frequency value
+    let barHeight = freq * 0.4;
+    let inHeight = step(dist, 0.2 + barHeight) * step(0.2, dist);
+
+    var color = input.color;
+    let hue = normAngle;
+    color.r = sin(hue * TWO_PI) * 0.5 + 0.5;
+    color.g = sin((hue + 0.33) * TWO_PI) * 0.5 + 0.5;
+    color.b = sin((hue + 0.66) * TWO_PI) * 0.5 + 0.5;
+    color.a = color.a * inBar * inHeight;
+
+    return color;
+}
+
+// Active control glow shader
+@fragment
+fn fs_active_glow(input: VertexOutput) -> @location(0) vec4<f32> {
+    // Animated pulsing glow from center
+    let center = vec2<f32>(0.5, 0.5);
+    let dist = distance(input.texcoord, center);
+
+    // Pulsing animation
+    let pulse = sin(uniforms.time * 4.0) * 0.2 + 0.8;
+
+    // Radial glow falloff
+    let glow = smoothstep(0.5 * pulse, 0.0, dist);
+
+    // Ring effect
+    let ringDist = abs(dist - 0.3 * pulse);
+    let ring = smoothstep(0.05, 0.0, ringDist);
+
+    var color = input.color;
+    let intensity = glow * 0.5 + ring * 0.8;
+    color.r = min(1.0, color.r + intensity);
+    color.g = min(1.0, color.g + intensity);
+    color.b = min(1.0, color.b + intensity);
+    color.a = color.a * (glow * 0.6 + ring * 0.4);
+
+    return color;
+}
+
+// LCD display screen shader
+@fragment
+fn fs_lcd_screen(input: VertexOutput) -> @location(0) vec4<f32> {
+    // LCD pixel grid effect
+    let pixelSize = 0.005;
+    let pixelX = fract(input.texcoord.x / pixelSize);
+    let pixelY = fract(input.texcoord.y / pixelSize);
+
+    // Grid lines between pixels
+    let gridX = smoothstep(0.0, 0.3, pixelX) * smoothstep(1.0, 0.7, pixelX);
+    let gridY = smoothstep(0.0, 0.3, pixelY) * smoothstep(1.0, 0.7, pixelY);
+    let inPixel = gridX * gridY;
+
+    // Backlight gradient
+    let backlight = 0.1 + input.texcoord.y * 0.05;
+
+    var color = input.color;
+    color.r = color.r * inPixel * 0.8 + backlight;
+    color.g = color.g * inPixel * 0.9 + backlight;
+    color.b = color.b * inPixel * 0.8 + backlight;
+
+    return color;
+}
+
+// Vintage VU meter with needle
+@fragment
+fn fs_vintage_vu(input: VertexOutput) -> @location(0) vec4<f32> {
+    let center = vec2<f32>(0.5, 0.2);
+    let toPoint = input.texcoord - center;
+
+    // Arc shape (semi-circle)
+    let angle = atan2(toPoint.y, toPoint.x);
+    let inArc = step(-PI * 0.8, angle) * step(angle, -PI * 0.2);
+    let dist = length(toPoint);
+    let inRadius = step(0.15, dist) * step(dist, 0.45);
+
+    // Tick marks
+    let tickFreq = 10.0;
+    let tickPos = fract((angle + PI * 0.8) / (PI * 0.6) * tickFreq);
+    let inTick = step(0.85, tickPos) * step(0.4, dist) * step(dist, 0.45);
+
+    // Color zones (green to yellow to red)
+    let t = (angle + PI * 0.8) / (PI * 0.6);
+    var zoneColor: vec3<f32>;
+    if (t < 0.6) {
+        zoneColor = vec3<f32>(0.2, 0.8, 0.2); // Green
+    } else if (t < 0.85) {
+        zoneColor = vec3<f32>(0.9, 0.9, 0.2); // Yellow
+    } else {
+        zoneColor = vec3<f32>(0.9, 0.2, 0.2); // Red
+    }
+
+    var color = input.color;
+    color.r = zoneColor.r * inRadius * inArc * (1.0 - inTick * 0.7);
+    color.g = zoneColor.g * inRadius * inArc * (1.0 - inTick * 0.7);
+    color.b = zoneColor.b * inRadius * inArc * (1.0 - inTick * 0.7);
+    color.a = color.a * inArc * inRadius;
+
+    return color;
+}
+
+// XY pad / joystick control shader
+@fragment
+fn fs_xy_pad(input: VertexOutput) -> @location(0) vec4<f32> {
+    // Grid lines
+    let gridSpacing = 0.2;
+    let gridWidth = 0.01;
+
+    let gridX = abs(fract(input.texcoord.x / gridSpacing) - 0.5) * 2.0;
+    let gridY = abs(fract(input.texcoord.y / gridSpacing) - 0.5) * 2.0;
+
+    let inGridX = smoothstep(gridWidth, 0.0, abs(gridX - 0.5) * gridSpacing);
+    let inGridY = smoothstep(gridWidth, 0.0, abs(gridY - 0.5) * gridSpacing);
+    let grid = max(inGridX, inGridY);
+
+    // Crosshair at center
+    let centerDistX = abs(input.texcoord.x - 0.5);
+    let centerDistY = abs(input.texcoord.y - 0.5);
+    let crosshair = smoothstep(0.005, 0.0, centerDistX) + smoothstep(0.005, 0.0, centerDistY);
+
+    // 3D inset effect
+    let topShadow = smoothstep(0.0, 0.1, input.texcoord.y);
+    let leftShadow = smoothstep(0.0, 0.1, input.texcoord.x);
+    let shadow = (1.0 - topShadow) * 0.3 + (1.0 - leftShadow) * 0.2;
+
+    var color = input.color;
+    color.r = color.r * (1.0 - shadow) + grid * 0.15 + crosshair * 0.3;
+    color.g = color.g * (1.0 - shadow) + grid * 0.15 + crosshair * 0.3;
+    color.b = color.b * (1.0 - shadow) + grid * 0.15 + crosshair * 0.3;
+
+    return color;
+}
 )";
 
 WebGPURenderer::WebGPURenderer(WebGPUContext& context)
@@ -1100,7 +1392,9 @@ void WebGPURenderer::beginFrame(int width, int height, float pixelRatio, float t
     mFrameStarted = true;
     
     mVertices.clear();
-    
+
+    mContext.beginFrame();
+
     // Update uniform buffer with view size and time
     float uniforms[4] = {
         static_cast<float>(width),
@@ -1120,6 +1414,7 @@ void WebGPURenderer::beginFrame(int width, int height, float pixelRatio, float t
 void WebGPURenderer::endFrame() {
     flushBatch();
     mFrameStarted = false;
+    mContext.endFrame();
 }
 
 void WebGPURenderer::save() {
@@ -1891,7 +2186,7 @@ void WebGPURenderer::flushBatch() {
                          mVertices.data(), mVertices.size() * sizeof(Vertex2D));
     
     // Get render pass encoder
-    WGPURenderPassEncoder pass = mContext.beginFrame();
+    WGPURenderPassEncoder pass = mContext.getCurrentPass();
     if (!pass) return;
     
     // Set pipeline and draw
@@ -1905,9 +2200,8 @@ void WebGPURenderer::flushBatch() {
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, mVertexBuffer, 0, mVertices.size() * sizeof(Vertex2D));
     wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(mVertices.size()), 1, 0, 0);
     
-    mContext.endFrame();
-    
     mVertices.clear();
+
 }
 
 } // namespace wasm

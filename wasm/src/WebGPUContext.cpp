@@ -183,6 +183,15 @@ void WebGPUContext::onDeviceReady() {
 
     // Error callback was already set in device descriptor
     
+    printf("WebGPUContext: Getting surface capabilities...\n");
+    WGPUSurfaceCapabilities caps = {};
+    wgpuSurfaceGetCapabilities(mSurface, mAdapter, &caps);
+    if (caps.formatCount > 0) {
+        mFormat = caps.formats[0];
+        printf("WebGPUContext: Selected preferred surface format: %d\n", (int)mFormat);
+    }
+    wgpuSurfaceCapabilitiesFreeMembers(caps);
+
     // Get current canvas size and configure surface
     printf("WebGPUContext: Configuring surface...\n");
     double w, h;
@@ -257,6 +266,8 @@ WGPURenderPassEncoder WebGPUContext::beginFrame() {
         return nullptr;
     }
 
+    mCurrentSurfaceTexture = surfaceTexture.texture;
+
     WGPUTextureViewDescriptor viewDesc = {};
     viewDesc.format = mFormat;
     viewDesc.dimension = WGPUTextureViewDimension_2D;
@@ -321,5 +332,10 @@ void WebGPUContext::endFrame() {
     if (mCurrentView) {
         wgpuTextureViewRelease(mCurrentView);
         mCurrentView = nullptr;
+    }
+
+    if (mCurrentSurfaceTexture) {
+        wgpuTextureRelease(mCurrentSurfaceTexture);
+        mCurrentSurfaceTexture = nullptr;
     }
 }
