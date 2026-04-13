@@ -34,6 +34,7 @@ public:
     WGPURenderPassEncoder beginFrame();
     void endFrame();
 
+    WGPURenderPassEncoder getCurrentPass() const { return mCurrentPass; }
     WGPUDevice getDevice() const { return mDevice; }
     WGPUQueue getQueue() const { return mQueue; }
     WGPUTextureFormat getSwapChainFormat() const { return mFormat; }
@@ -55,6 +56,7 @@ private:
     
     // Current frame state
     WGPUCommandEncoder mCurrentEncoder = nullptr;
+    WGPUTexture mCurrentSurfaceTexture = nullptr;
     WGPUTextureView mCurrentView = nullptr;
     WGPURenderPassEncoder mCurrentPass = nullptr;
 
