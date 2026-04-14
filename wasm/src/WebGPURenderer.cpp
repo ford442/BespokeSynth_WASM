@@ -1573,10 +1573,8 @@ void WebGPURenderer::arc(float cx, float cy, float r, float a0, float a1, int di
     
     // Draw arc as line segments
     float da = a1 - a0;
-    if (dir == 1) {
-        if (da < 0) da += TWO_PI;
-    } else {
-        if (da > 0) da -= TWO_PI;
+    if (dir == 1 && da < 0) {
+        da += TWO_PI;
     }
     
     int numSegments = std::max(3, static_cast<int>(std::abs(da) * r / kArcTessellationFactor));
