@@ -1573,6 +1573,9 @@ void WebGPURenderer::arc(float cx, float cy, float r, float a0, float a1, int di
     
     // Draw arc as line segments
     float da = a1 - a0;
+    // Callers use dir=0 for the natural sweep between a0 and a1, including
+    // positive quarter-turns and full circles. Only normalize when a wrapped
+    // clockwise sweep is explicitly requested.
     if (dir == 1 && da < 0) {
         da += TWO_PI;
     }
