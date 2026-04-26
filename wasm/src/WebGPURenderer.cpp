@@ -1414,7 +1414,7 @@ void WebGPURenderer::beginFrame(int width, int height, float pixelRatio, float t
 }
 
 void WebGPURenderer::endFrame() {
-    // Finalise the last pending batch
+    // Finalize the last pending batch
     flushBatch();
 
     // Upload ALL vertices for this frame in a single write
@@ -1821,7 +1821,9 @@ void WebGPURenderer::setPipeline(WGPURenderPipeline pipeline) {
         flushBatch();
         mCurrentPipeline = pipeline;
     }
-}(float x, float y, float w, float h, WGPURenderPipeline pipeline) {
+}
+
+void WebGPURenderer::drawQuad(float x, float y, float w, float h, WGPURenderPipeline pipeline) {
     setPipeline(pipeline);
 
     float x1 = x;
