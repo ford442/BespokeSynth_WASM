@@ -184,6 +184,14 @@ namespace bespoke
       void drawEchoTrail(float x, float y, float w, float h);
 
    private:
+      // Per-frame draw call record: all vertices are uploaded once at endFrame()
+      struct DrawCall
+      {
+         WGPURenderPipeline pipeline;
+         uint32_t firstVertex;
+         uint32_t vertexCount;
+      };
+
       void createPipelines();
       void createBuffers();
       void flushBatch();
@@ -204,7 +212,12 @@ namespace bespoke
       WGPUBindGroupLayout mBindGroupLayout = nullptr; // Cached layout used even when pipelines are null
       WGPURenderPassEncoder mCurrentPass = nullptr;
 
+      // All vertices accumulated for the entire frame; uploaded once at endFrame()
       std::vector<Vertex2D> mVertices;
+      // Recorded draw calls; each references a contiguous range of mVertices
+      std::vector<DrawCall> mDrawCalls;
+      // Index of the first vertex in mVertices belonging to the current (not yet recorded) batch
+      uint32_t mCurrentBatchFirstVertex = 0;
 
       // State stack
       struct State
