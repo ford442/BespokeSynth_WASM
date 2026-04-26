@@ -1392,6 +1392,8 @@ void WebGPURenderer::beginFrame(int width, int height, float pixelRatio, float t
     mFrameStarted = true;
     
     mVertices.clear();
+    mDrawCalls.clear();
+    mCurrentBatchFirstVertex = 0;
 
     mContext.beginFrame();
 
@@ -1412,7 +1414,29 @@ void WebGPURenderer::beginFrame(int width, int height, float pixelRatio, float t
 }
 
 void WebGPURenderer::endFrame() {
+    // Finalize the last pending batch
     flushBatch();
+
+    // Upload ALL vertices for this frame in a single write
+    if (!mVertices.empty()) {
+        wgpuQueueWriteBuffer(mContext.getQueue(), mVertexBuffer, 0,
+                             mVertices.data(), mVertices.size() * sizeof(Vertex2D));
+
+        // Issue all recorded draw calls
+        WGPURenderPassEncoder pass = mContext.getCurrentPass();
+        if (pass) {
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, mBindGroup, 0, nullptr);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, mVertexBuffer, 0,
+                                                 mVertices.size() * sizeof(Vertex2D));
+
+            for (const auto& dc : mDrawCalls) {
+                if (dc.vertexCount == 0 || !dc.pipeline) continue;
+                wgpuRenderPassEncoderSetPipeline(pass, dc.pipeline);
+                wgpuRenderPassEncoderDraw(pass, dc.vertexCount, 1, dc.firstVertex, 0);
+            }
+        }
+    }
+
     mFrameStarted = false;
     mContext.endFrame();
 }
@@ -1451,10 +1475,10 @@ void WebGPURenderer::rotate(float angle) {
     float sn = sinf(angle);
     float t[6];
     std::memcpy(t, mCurrentState.transform, sizeof(t));
-    mCurrentState.transform[0] = t[0] * cs - t[2] * sn;
-    mCurrentState.transform[1] = t[1] * cs - t[3] * sn;
-    mCurrentState.transform[2] = t[0] * sn + t[2] * cs;
-    mCurrentState.transform[3] = t[1] * sn + t[3] * cs;
+    mCurrentState.transform[0] = t[0] * cs + t[2] * sn;
+    mCurrentState.transform[1] = t[1] * cs + t[3] * sn;
+    mCurrentState.transform[2] = -t[0] * sn + t[2] * cs;
+    mCurrentState.transform[3] = -t[1] * sn + t[3] * cs;
 }
 
 void WebGPURenderer::scale(float x, float y) {
@@ -2180,29 +2204,12 @@ void WebGPURenderer::pushVertex(float x, float y, float u, float v, const Color&
 }
 
 void WebGPURenderer::flushBatch() {
-    if (mVertices.empty()) return;
-    
-    // Upload vertices
-    wgpuQueueWriteBuffer(mContext.getQueue(), mVertexBuffer, 0,
-                         mVertices.data(), mVertices.size() * sizeof(Vertex2D));
-    
-    // Get render pass encoder
-    WGPURenderPassEncoder pass = mContext.getCurrentPass();
-    if (!pass) return;
-    
-    // Set pipeline and draw
-    if (mCurrentPipeline) {
-        wgpuRenderPassEncoderSetPipeline(pass, mCurrentPipeline);
-    } else {
-        wgpuRenderPassEncoderSetPipeline(pass, mPipelines.solid);
-    }
+    uint32_t vertexCount = static_cast<uint32_t>(mVertices.size()) - mCurrentBatchFirstVertex;
+    if (vertexCount == 0) return;
 
-    wgpuRenderPassEncoderSetBindGroup(pass, 0, mBindGroup, 0, nullptr);
-    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, mVertexBuffer, 0, mVertices.size() * sizeof(Vertex2D));
-    wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(mVertices.size()), 1, 0, 0);
-    
-    mVertices.clear();
-
+    WGPURenderPipeline pipeline = mCurrentPipeline ? mCurrentPipeline : mPipelines.solid;
+    mDrawCalls.push_back({ pipeline, mCurrentBatchFirstVertex, vertexCount });
+    mCurrentBatchFirstVertex = static_cast<uint32_t>(mVertices.size());
 }
 
 } // namespace wasm
