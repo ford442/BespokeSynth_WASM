@@ -1137,6 +1137,155 @@ fn fs_xy_pad(input: VertexOutput) -> @location(0) vec4<f32> {
 
     return color;
 }
+
+// ============================================================================
+// PIXEL FONT TEXT RENDERING
+// ============================================================================
+// 5x7 bitmap font for ASCII 32-90 (space through 'Z')
+// Each character has 5 column values; bit N = row N (0=top, 6=bottom)
+// Lowercase a-z is mapped to uppercase by the caller.
+
+const FONT_COLS = array<u32, 295>(
+    // 32 ' '
+    0u, 0u, 0u, 0u, 0u,
+    // 33 '!'
+    0u, 0u, 95u, 0u, 0u,
+    // 34 '"'
+    0u, 7u, 0u, 7u, 0u,
+    // 35 '#'
+    20u, 127u, 20u, 127u, 20u,
+    // 36 '$'
+    36u, 42u, 127u, 42u, 18u,
+    // 37 '%'
+    35u, 19u, 8u, 100u, 98u,
+    // 38 '&'
+    54u, 73u, 85u, 34u, 80u,
+    // 39 '\''
+    0u, 5u, 3u, 0u, 0u,
+    // 40 '('
+    0u, 28u, 34u, 65u, 0u,
+    // 41 ')'
+    0u, 65u, 34u, 28u, 0u,
+    // 42 '*'
+    20u, 8u, 62u, 8u, 20u,
+    // 43 '+'
+    8u, 8u, 62u, 8u, 8u,
+    // 44 ','
+    0u, 80u, 48u, 0u, 0u,
+    // 45 '-'
+    8u, 8u, 8u, 8u, 8u,
+    // 46 '.'
+    0u, 96u, 96u, 0u, 0u,
+    // 47 '/'
+    32u, 16u, 8u, 4u, 2u,
+    // 48 '0'
+    62u, 65u, 65u, 65u, 62u,
+    // 49 '1'
+    0u, 66u, 127u, 64u, 0u,
+    // 50 '2'
+    66u, 97u, 81u, 73u, 70u,
+    // 51 '3'
+    33u, 65u, 69u, 75u, 49u,
+    // 52 '4'
+    24u, 20u, 18u, 127u, 16u,
+    // 53 '5'
+    39u, 69u, 69u, 69u, 57u,
+    // 54 '6'
+    60u, 74u, 73u, 73u, 48u,
+    // 55 '7'
+    1u, 113u, 9u, 5u, 3u,
+    // 56 '8'
+    54u, 73u, 73u, 73u, 54u,
+    // 57 '9'
+    6u, 73u, 73u, 41u, 30u,
+    // 58 ':'
+    0u, 54u, 54u, 0u, 0u,
+    // 59 ';'
+    0u, 86u, 54u, 0u, 0u,
+    // 60 '<'
+    8u, 20u, 34u, 65u, 0u,
+    // 61 '='
+    20u, 20u, 20u, 20u, 20u,
+    // 62 '>'
+    0u, 65u, 34u, 20u, 8u,
+    // 63 '?'
+    2u, 1u, 81u, 9u, 6u,
+    // 64 '@'
+    50u, 73u, 121u, 65u, 62u,
+    // 65 'A'
+    126u, 9u, 9u, 9u, 126u,
+    // 66 'B'
+    127u, 73u, 73u, 73u, 54u,
+    // 67 'C'
+    62u, 65u, 65u, 65u, 34u,
+    // 68 'D'
+    127u, 65u, 65u, 34u, 28u,
+    // 69 'E'
+    127u, 73u, 73u, 73u, 65u,
+    // 70 'F'
+    127u, 9u, 9u, 9u, 1u,
+    // 71 'G'
+    62u, 65u, 73u, 73u, 122u,
+    // 72 'H'
+    127u, 8u, 8u, 8u, 127u,
+    // 73 'I'
+    0u, 65u, 127u, 65u, 0u,
+    // 74 'J'
+    32u, 64u, 65u, 63u, 1u,
+    // 75 'K'
+    127u, 8u, 20u, 34u, 65u,
+    // 76 'L'
+    127u, 64u, 64u, 64u, 64u,
+    // 77 'M'
+    127u, 2u, 4u, 2u, 127u,
+    // 78 'N'
+    127u, 4u, 8u, 16u, 127u,
+    // 79 'O'
+    62u, 65u, 65u, 65u, 62u,
+    // 80 'P'
+    127u, 9u, 9u, 9u, 6u,
+    // 81 'Q'
+    62u, 65u, 81u, 33u, 94u,
+    // 82 'R'
+    127u, 9u, 25u, 41u, 70u,
+    // 83 'S'
+    70u, 73u, 73u, 73u, 49u,
+    // 84 'T'
+    1u, 1u, 127u, 1u, 1u,
+    // 85 'U'
+    63u, 64u, 64u, 64u, 63u,
+    // 86 'V'
+    31u, 32u, 64u, 32u, 31u,
+    // 87 'W'
+    63u, 64u, 56u, 64u, 63u,
+    // 88 'X'
+    99u, 20u, 8u, 20u, 99u,
+    // 89 'Y'
+    7u, 8u, 112u, 8u, 7u,
+    // 90 'Z'
+    97u, 81u, 73u, 69u, 67u
+);
+
+// Pixel text shader - renders 5x7 bitmap font glyphs
+// texcoord.x = float(charIndex) + localX  (charIndex = ascii - 32, clamped 0-58)
+// texcoord.y = localY (0 = top, 1 = bottom of glyph)
+@fragment
+fn fs_pixel_text(input: VertexOutput) -> @location(0) vec4<f32> {
+    let charIdx = clamp(i32(floor(input.texcoord.x)), 0, 58);
+    let localX = fract(input.texcoord.x);
+
+    let px = clamp(i32(localX * 5.0), 0, 4);
+    let py = clamp(i32(input.texcoord.y * 7.0), 0, 6);
+
+    let colData = FONT_COLS[charIdx * 5 + px];
+    let pixelOn = (colData >> u32(py)) & 1u;
+
+    if (pixelOn == 0u) {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+
+    return input.color;
+}
 )";
 
 WebGPURenderer::WebGPURenderer(WebGPUContext& context)
@@ -1194,6 +1343,7 @@ WebGPURenderer::~WebGPURenderer() {
     if (mPipelines.fader_groove) wgpuRenderPipelineRelease(mPipelines.fader_groove);
     if (mPipelines.fader_cap) wgpuRenderPipelineRelease(mPipelines.fader_cap);
     if (mPipelines.mod_wheel) wgpuRenderPipelineRelease(mPipelines.mod_wheel);
+    if (mPipelines.pixel_text) wgpuRenderPipelineRelease(mPipelines.pixel_text);
 }
 
 bool WebGPURenderer::initialize() {
@@ -1338,6 +1488,7 @@ void WebGPURenderer::createPipelines() {
     mPipelines.fader_groove = createPipeline("fs_fader_groove");
     mPipelines.fader_cap = createPipeline("fs_fader_cap");
     mPipelines.mod_wheel = createPipeline("fs_mod_wheel");
+    mPipelines.pixel_text = createPipeline("fs_pixel_text");
     
     // Create stroke pipeline (lines) - uses solid color shader
     pipelineDesc.primitive.topology = WGPUPrimitiveTopology_LineList;
@@ -1773,36 +1924,64 @@ void WebGPURenderer::fontFace(const char* name) {
 }
 
 void WebGPURenderer::text(float x, float y, const char* string) {
-    // Simple box-based text rendering as placeholder
-    // Each character is a small box with approximate spacing
     if (!string || string[0] == '\0') return;
-    
+    if (!mPipelines.pixel_text) return;
+
+    // Each glyph is 5 pixels wide × 7 pixels tall in a cell sized by font state
     float charWidth = mFontSize * kCharacterWidthRatio;
     float charHeight = mFontSize;
-    float charSpacing = charWidth * 0.2f;
-    
+    float charSpacing = charWidth * 0.15f;
+
     Color textColor = mCurrentState.fillColor;
-    Color dimColor(textColor.r * 0.3f, textColor.g * 0.3f, textColor.b * 0.3f, textColor.a);
-    
+
+    // Switch to the pixel-font pipeline once for the whole string
+    setPipeline(mPipelines.pixel_text);
+
     float currentX = x;
     size_t len = strlen(string);
     for (size_t i = 0; i < len; i++) {
-        char c = string[i];
-        
-        // Skip spaces but add spacing
-        if (c == ' ') {
+        unsigned char c = static_cast<unsigned char>(string[i]);
+
+        // Map lowercase to uppercase (font table only covers 32-90)
+        if (c >= 'a' && c <= 'z') c = c - 32;
+
+        // Treat out-of-range as space
+        if (c < 32 || c > 90) c = 32;
+
+        if (c == 32) {
             currentX += charWidth + charSpacing;
             continue;
         }
-        
-        // Draw character as a small box with a line to represent the glyph
-        // Use text_shadow for background
-        drawQuad(currentX, y - charHeight * 0.8f, charWidth * 0.9f, charHeight * 0.9f, mPipelines.text_shadow);
-        
-        // Draw text glow
-        fillColor(textColor);
-        drawQuad(currentX, y - charHeight * 0.8f, charWidth * 0.9f, charHeight * 0.9f, mPipelines.text_glow);
-        
+
+        int charIdx = static_cast<int>(c) - 32;
+
+        // texcoord.x encodes charIdx (integer part) + local x within glyph (fractional part)
+        float u0 = static_cast<float>(charIdx);
+        float u1 = static_cast<float>(charIdx) + 1.0f;
+        float v0 = 0.0f;
+        float v1 = 1.0f;
+
+        float x1 = currentX;
+        float y1 = y - charHeight * 0.8f;
+        float x2 = x1 + charWidth * 0.9f;
+        float y2 = y1 + charHeight * 0.9f;
+
+        float tx1 = x1, ty1 = y1;
+        float tx2 = x2, ty2 = y1;
+        float tx3 = x2, ty3 = y2;
+        float tx4 = x1, ty4 = y2;
+        transformPoint(tx1, ty1);
+        transformPoint(tx2, ty2);
+        transformPoint(tx3, ty3);
+        transformPoint(tx4, ty4);
+
+        pushVertex(tx1, ty1, u0, v0, textColor);
+        pushVertex(tx2, ty2, u1, v0, textColor);
+        pushVertex(tx3, ty3, u1, v1, textColor);
+        pushVertex(tx1, ty1, u0, v0, textColor);
+        pushVertex(tx3, ty3, u1, v1, textColor);
+        pushVertex(tx4, ty4, u0, v1, textColor);
+
         currentX += charWidth + charSpacing;
     }
 }
