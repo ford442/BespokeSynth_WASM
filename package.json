@@ -17,7 +17,10 @@
     "clean": "rm -rf dist wasm/build wasm/dist",
     "clean:all": "rm -rf dist node_modules wasm/build wasm/dist",
     "lint": "eslint src --ext .ts,.tsx",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug"
   },
   "keywords": [
     "synthesizer",
@@ -35,6 +38,7 @@
     "url": "https://github.com/ford442/BespokeSynth_WASM.git"
   },
   "devDependencies": {
+    "@playwright/test": "^1.40.0",
     "@types/emscripten": "^1.39.10",
     "@types/node": "^20.10.6",
     "@typescript-eslint/eslint-plugin": "^6.16.0",

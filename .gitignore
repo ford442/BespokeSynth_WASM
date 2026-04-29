@@ -427,3 +427,8 @@ yarn.lock
 # CodeQL artifacts
 _codeql_detected_source_root
 emsdk/
+
+# Playwright test artifacts
+test-results/
+playwright-report/
+.auth/
