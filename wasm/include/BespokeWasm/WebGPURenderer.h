@@ -86,6 +86,7 @@ namespace bespoke
          WGPURenderPipeline fader_groove;
          WGPURenderPipeline fader_cap;
          WGPURenderPipeline mod_wheel;
+         WGPURenderPipeline pixel_text;
       };
 
    /**
