@@ -9,6 +9,7 @@
 #include "WebGPUContext.h"
 #include "WebGPURenderer.h"
 #include "SDL2AudioBackend.h"
+#include "ModuleCanvas.h"
 #include "Knob.h"
 #include <cstdio>
 #include <string>
@@ -20,6 +21,7 @@
 // Key code constants
 static const int KEY_SHIFT = 16;
 static const int KEY_SPACE = 32;
+static const int KEY_TAB = 9;
 
 using namespace bespoke::wasm;
 
@@ -58,6 +60,12 @@ static std::unique_ptr<SDL2AudioBackend> gAudioBackend;
 
 // Demo controls
 static std::vector<std::unique_ptr<Knob>> gKnobs;
+
+// Modular canvas
+static std::unique_ptr<bespoke::wasm::ModuleCanvas> gCanvas;
+
+// View modes: 0 = modular canvas (default), 1 = legacy demo panels
+static int gViewMode = 0;
 
 static int gWidth = 800;
 static int gHeight = 600;
@@ -335,6 +343,24 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                }
                                                printf("=== Panel Initialization Complete ===\n\n");
 
+                                               // Initialize the modular canvas
+                                               printf("WasmBridge: Creating modular canvas...\n");
+                                               gCanvas = std::make_unique<bespoke::wasm::ModuleCanvas>();
+
+                                               // Create a default starter patch
+                                               int oscId = gCanvas->createModule("oscillator", 100, 150);
+                                               int gainId = gCanvas->createModule("gain", 320, 160);
+                                               int outputId = gCanvas->createModule("output", 500, 170);
+
+                                               // Connect oscillator -> gain -> output
+                                               if (oscId > 0 && gainId > 0 && outputId > 0)
+                                               {
+                                                  gCanvas->connectModules(oscId, 0, gainId, 0);
+                                                  gCanvas->connectModules(gainId, 0, outputId, 0);
+                                               }
+
+                                               printf("WasmBridge: Modular canvas ready with starter patch\n");
+
                                                gInitState = InitState::FullyInitialized;
                                                gInitialized = true;
                                                reportInitProgress("init_complete", "All subsystems ready");
@@ -373,6 +399,7 @@ EMSCRIPTEN_KEEPALIVE void bespoke_shutdown(void)
 
    // Clear controls first
    gKnobs.clear();
+   gCanvas.reset();
 
    // Stop and cleanup audio
    if (gAudioBackend)
@@ -427,6 +454,9 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_buffer_size(void)
    return gAudioBackend ? gAudioBackend->getBufferSize() : 512;
 }
 
+// Forward declaration
+static void renderDemoPanels();
+
 EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
 {
    // During initialization, process events to allow WebGPU callbacks
@@ -447,6 +477,34 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
    gRenderer->rect(0, 0, static_cast<float>(gWidth), static_cast<float>(gHeight));
    gRenderer->fill();
 
+   if (gViewMode == 0 && gCanvas)
+   {
+      // Modular canvas view
+      gCanvas->render(*gRenderer, gWidth, gHeight);
+
+      // Status bar
+      gRenderer->fillColor(Color(0.6f, 0.6f, 0.65f, 1.0f));
+      gRenderer->fontSize(10.0f);
+
+      char statusText[256];
+      snprintf(statusText, sizeof(statusText),
+               "Audio: %s | %d Hz | Tab: switch view",
+               (gAudioBackend && gAudioBackend->isRunning()) ? "Running" : "Stopped",
+               bespoke_get_sample_rate());
+      gRenderer->text(static_cast<float>(gWidth) - 280, static_cast<float>(gHeight) - 15, statusText);
+   }
+   else
+   {
+      // Legacy demo panel view
+      renderDemoPanels();
+   }
+
+   gRenderer->endFrame();
+}
+
+// Helper function to render the legacy demo panels view
+static void renderDemoPanels()
+{
    // Draw title
    gRenderer->fillColor(Color(0.9f, 0.9f, 0.95f, 1.0f));
    gRenderer->fontSize(24.0f);
@@ -732,7 +790,10 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
 
    gRenderer->text(20, static_cast<float>(gHeight) - 20, statusText);
 
-   gRenderer->endFrame();
+   // View switch hint
+   gRenderer->fillColor(Color(0.5f, 0.5f, 0.55f, 0.7f));
+   gRenderer->fontSize(10.0f);
+   gRenderer->text(static_cast<float>(gWidth) - 150, 20, "Tab: Modular Canvas");
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_resize(int width, int height)
@@ -759,6 +820,14 @@ EMSCRIPTEN_KEEPALIVE void bespoke_mouse_move(int x, int y)
    gMouseX = x;
    gMouseY = y;
 
+   // Route to modular canvas
+   if (gViewMode == 0 && gCanvas)
+   {
+      gCanvas->onMouseMove(static_cast<float>(x), static_cast<float>(y),
+                           static_cast<float>(prevX), static_cast<float>(prevY));
+      return;
+   }
+
    // Handle knob dragging
    if (gMouseDown)
    {
@@ -775,6 +844,13 @@ EMSCRIPTEN_KEEPALIVE void bespoke_mouse_down(int x, int y, int button)
    gMouseDown = true;
    gMouseX = x;
    gMouseY = y;
+
+   // Route to modular canvas
+   if (gViewMode == 0 && gCanvas)
+   {
+      gCanvas->onMouseDown(static_cast<float>(x), static_cast<float>(y), button);
+      return;
+   }
 
    // Check panel tab clicks
    float tabY = 70.0f;
@@ -820,6 +896,13 @@ EMSCRIPTEN_KEEPALIVE void bespoke_mouse_up(int x, int y, int button)
 {
    gMouseDown = false;
 
+   // Route to modular canvas
+   if (gViewMode == 0 && gCanvas)
+   {
+      gCanvas->onMouseUp(static_cast<float>(x), static_cast<float>(y), button);
+      return;
+   }
+
    for (auto& knob : gKnobs)
    {
       knob->onMouseUp();
@@ -828,6 +911,13 @@ EMSCRIPTEN_KEEPALIVE void bespoke_mouse_up(int x, int y, int button)
 
 EMSCRIPTEN_KEEPALIVE void bespoke_mouse_wheel(float deltaX, float deltaY)
 {
+   // Route to modular canvas for zoom
+   if (gViewMode == 0 && gCanvas)
+   {
+      gCanvas->onMouseWheel(deltaX, deltaY, static_cast<float>(gMouseX), static_cast<float>(gMouseY));
+      return;
+   }
+
    // Handle scroll on knobs
    float knobSize = 80.0f;
    float startX = 100.0f;
@@ -847,6 +937,21 @@ EMSCRIPTEN_KEEPALIVE void bespoke_mouse_wheel(float deltaX, float deltaY)
 
 EMSCRIPTEN_KEEPALIVE void bespoke_key_down(int keyCode, int modifiers)
 {
+   // Tab key switches between modular canvas and demo panels
+   if (keyCode == KEY_TAB)
+   {
+      gViewMode = (gViewMode == 0) ? 1 : 0;
+      printf("BespokeSynth WASM: Switched to %s view\n",
+             gViewMode == 0 ? "Modular Canvas" : "Demo Panels");
+      return;
+   }
+
+   // Route to modular canvas
+   if (gViewMode == 0 && gCanvas)
+   {
+      gCanvas->onKeyDown(keyCode, modifiers);
+   }
+
    // Handle shift for fine mode
    if (keyCode == KEY_SHIFT)
    {
@@ -883,24 +988,59 @@ EMSCRIPTEN_KEEPALIVE void bespoke_key_up(int keyCode, int modifiers)
 
 EMSCRIPTEN_KEEPALIVE int bespoke_create_module(const char* type, float x, float y)
 {
-   // TODO: Implement module creation
-   printf("BespokeSynth WASM: Create module '%s' at (%.1f, %.1f)\n", type, x, y);
-   return 0;
+   if (gCanvas)
+   {
+      int id = gCanvas->createModule(type, x, y);
+      printf("BespokeSynth WASM: Created module '%s' (id=%d) at (%.1f, %.1f)\n", type, id, x, y);
+      return id;
+   }
+   printf("BespokeSynth WASM: Cannot create module - canvas not initialized\n");
+   return -1;
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_delete_module(int moduleId)
 {
+   if (gCanvas)
+   {
+      gCanvas->deleteModule(moduleId);
+   }
    printf("BespokeSynth WASM: Delete module %d\n", moduleId);
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_connect_modules(int sourceId, int destId)
 {
+   if (gCanvas)
+   {
+      gCanvas->connectModules(sourceId, 0, destId, 0);
+   }
    printf("BespokeSynth WASM: Connect %d -> %d\n", sourceId, destId);
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_view_mode(void)
+{
+   return gViewMode;
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_view_mode(int mode)
+{
+   gViewMode = (mode == 0) ? 0 : 1;
+   printf("BespokeSynth WASM: Set view mode to %d (%s)\n",
+          gViewMode, gViewMode == 0 ? "Modular Canvas" : "Demo Panels");
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_set_control_value(int moduleId, const char* controlName, float value)
 {
-   // For demo, control knobs directly
+   // Try canvas modules first
+   if (gCanvas)
+   {
+      auto* mod = gCanvas->getModule(moduleId);
+      if (mod)
+      {
+         mod->setControlValue(controlName, value);
+         return;
+      }
+   }
+   // Fallback: control knobs directly
    if (moduleId >= 0 && moduleId < static_cast<int>(gKnobs.size()))
    {
       gKnobs[moduleId]->setValue(value);
@@ -909,6 +1049,16 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_control_value(int moduleId, const char* co
 
 EMSCRIPTEN_KEEPALIVE float bespoke_get_control_value(int moduleId, const char* controlName)
 {
+   // Try canvas modules first
+   if (gCanvas)
+   {
+      auto* mod = gCanvas->getModule(moduleId);
+      if (mod)
+      {
+         return mod->getControlValue(controlName);
+      }
+   }
+   // Fallback: read from knobs
    if (moduleId >= 0 && moduleId < static_cast<int>(gKnobs.size()))
    {
       return gKnobs[moduleId]->getValue();
@@ -946,6 +1096,10 @@ EMSCRIPTEN_KEEPALIVE void bespoke_play(void)
    {
       gAudioBackend->start();
    }
+   if (gCanvas && gCanvas->getTransport())
+   {
+      gCanvas->getTransport()->setPlaying(true);
+   }
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_stop(void)
@@ -954,16 +1108,28 @@ EMSCRIPTEN_KEEPALIVE void bespoke_stop(void)
    {
       gAudioBackend->stop();
    }
+   if (gCanvas && gCanvas->getTransport())
+   {
+      gCanvas->getTransport()->setPlaying(false);
+   }
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_set_tempo(float bpm)
 {
+   if (gCanvas && gCanvas->getTransport())
+   {
+      gCanvas->getTransport()->setBPM(bpm);
+   }
    printf("BespokeSynth WASM: Set tempo to %.1f BPM\n", bpm);
 }
 
 EMSCRIPTEN_KEEPALIVE float bespoke_get_tempo(void)
 {
-   return 120.0f; // Default tempo
+   if (gCanvas && gCanvas->getTransport())
+   {
+      return gCanvas->getTransport()->getBPM();
+   }
+   return 120.0f;
 }
 
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_version(void)
@@ -979,6 +1145,10 @@ EMSCRIPTEN_KEEPALIVE float bespoke_get_cpu_load(void)
 
 EMSCRIPTEN_KEEPALIVE int bespoke_get_module_count(void)
 {
+   if (gCanvas)
+   {
+      return gCanvas->getModuleCount();
+   }
    return static_cast<int>(gKnobs.size());
 }
 

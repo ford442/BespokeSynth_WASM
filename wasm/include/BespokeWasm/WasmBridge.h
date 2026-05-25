@@ -42,6 +42,8 @@ EMSCRIPTEN_KEEPALIVE void bespoke_key_up(int keyCode, int modifiers);
 EMSCRIPTEN_KEEPALIVE int bespoke_create_module(const char* type, float x, float y);
 EMSCRIPTEN_KEEPALIVE void bespoke_delete_module(int moduleId);
 EMSCRIPTEN_KEEPALIVE void bespoke_connect_modules(int sourceId, int destId);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_view_mode(void);
+EMSCRIPTEN_KEEPALIVE void bespoke_set_view_mode(int mode);
 
 // Control access
 EMSCRIPTEN_KEEPALIVE void bespoke_set_control_value(int moduleId, const char* controlName, float value);
