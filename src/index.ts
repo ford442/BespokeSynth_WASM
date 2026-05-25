@@ -86,6 +86,10 @@ class BespokeSynthApp {
   private initStartTime = 0;
   private isProcessingEvents = false;
 
+  getModule(): any {
+    return this.module;
+  }
+
   async init(): Promise<void> {
     this.initStartTime = performance.now();
     console.log('Initializing BespokeSynth WASM...');
@@ -514,6 +518,42 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (error) {
     console.error('Application initialization failed:', error);
   }
+
+  // Expose module creation API on window for console access
+  (window as Record<string, unknown>).__bespoke = {
+    createModule: (type: string, x: number, y: number) => {
+      const mod = app.getModule();
+      if (mod && mod.ccall) {
+        return mod.ccall('bespoke_create_module', 'number', ['string', 'number', 'number'], [type, x, y]);
+      }
+      return -1;
+    },
+    deleteModule: (id: number) => {
+      const mod = app.getModule();
+      if (mod && mod._bespoke_delete_module) {
+        mod._bespoke_delete_module(id);
+      }
+    },
+    connectModules: (srcId: number, destId: number) => {
+      const mod = app.getModule();
+      if (mod && mod._bespoke_connect_modules) {
+        mod._bespoke_connect_modules(srcId, destId);
+      }
+    },
+    setViewMode: (mode: number) => {
+      const mod = app.getModule();
+      if (mod && mod._bespoke_set_view_mode) {
+        mod._bespoke_set_view_mode(mode);
+      }
+    },
+    getModuleCount: () => {
+      const mod = app.getModule();
+      if (mod && mod._bespoke_get_module_count) {
+        return mod._bespoke_get_module_count();
+      }
+      return 0;
+    }
+  };
 
   // Cleanup on page unload
   window.addEventListener('beforeunload', () => {

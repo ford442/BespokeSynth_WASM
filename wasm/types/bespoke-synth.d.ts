@@ -37,6 +37,8 @@ export interface BespokeSynthModule extends EmscriptenModule {
     _bespoke_create_module(type: number, x: number, y: number): number;
     _bespoke_delete_module(moduleId: number): void;
     _bespoke_connect_modules(sourceId: number, destId: number): void;
+    _bespoke_get_view_mode(): number;
+    _bespoke_set_view_mode(mode: number): void;
 
     // Control access
     _bespoke_set_control_value(moduleId: number, controlName: number, value: number): void;
