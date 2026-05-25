@@ -1085,12 +1085,12 @@ namespace bespoke {
             float btnX = 140.0f;
             float btnW = 75.0f;
             float btnH = 24.0f;
-            float btnY_pos = 8.0f;
+            float btnTop = 8.0f;
 
             for (int i = 0; i < 4; i++)
             {
                float bx = btnX + i * (btnW + 5);
-               if (x >= bx && x <= bx + btnW && y >= btnY_pos && y <= btnY_pos + btnH)
+               if (x >= bx && x <= bx + btnW && y >= btnTop && y <= btnTop + btnH)
                {
                   if (mSpawnMenuOpen && mSpawnMenuCategory == i)
                   {
@@ -1223,8 +1223,11 @@ namespace bespoke {
 
       void ModuleCanvas::onKeyDown(int keyCode, int modifiers)
       {
+         static const int kKeyDelete = 46;
+         static const int kKeyBackspace = 8;
+
          // Delete key removes selected module
-         if (keyCode == 46 || keyCode == 8) // Delete or Backspace
+         if (keyCode == kKeyDelete || keyCode == kKeyBackspace)
          {
             if (mDraggedModuleId >= 0)
             {

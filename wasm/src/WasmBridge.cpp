@@ -21,6 +21,7 @@
 // Key code constants
 static const int KEY_SHIFT = 16;
 static const int KEY_SPACE = 32;
+static const int KEY_TAB = 9;
 
 using namespace bespoke::wasm;
 
@@ -347,13 +348,16 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                gCanvas = std::make_unique<bespoke::wasm::ModuleCanvas>();
 
                                                // Create a default starter patch
-                                               gCanvas->createModule("oscillator", 100, 150);
-                                               gCanvas->createModule("gain", 320, 160);
-                                               gCanvas->createModule("output", 500, 170);
+                                               int oscId = gCanvas->createModule("oscillator", 100, 150);
+                                               int gainId = gCanvas->createModule("gain", 320, 160);
+                                               int outputId = gCanvas->createModule("output", 500, 170);
 
                                                // Connect oscillator -> gain -> output
-                                               gCanvas->connectModules(3, 0, 4, 0); // osc audio -> gain audio in
-                                               gCanvas->connectModules(4, 0, 5, 0); // gain audio -> output audio in
+                                               if (oscId > 0 && gainId > 0 && outputId > 0)
+                                               {
+                                                  gCanvas->connectModules(oscId, 0, gainId, 0);
+                                                  gCanvas->connectModules(gainId, 0, outputId, 0);
+                                               }
 
                                                printf("WasmBridge: Modular canvas ready with starter patch\n");
 
@@ -930,8 +934,6 @@ EMSCRIPTEN_KEEPALIVE void bespoke_mouse_wheel(float deltaX, float deltaY)
       }
    }
 }
-
-static const int KEY_TAB = 9;
 
 EMSCRIPTEN_KEEPALIVE void bespoke_key_down(int keyCode, int modifiers)
 {
