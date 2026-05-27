@@ -508,6 +508,24 @@ fn fs_panel_background(input: VertexOutput) -> @location(0) vec4<f32> {
     color.r = color.r * gradient * (0.9 + shadowIntensity * 0.1);
     color.g = color.g * gradient * (0.9 + shadowIntensity * 0.1);
     color.b = color.b * gradient * (0.9 + shadowIntensity * 0.1);
+
+    // Subtle dot-grid for "pro audio" tactile depth.
+    // Very fine spacing (~40 dots per unit) with tiny radius so it reads as
+    // texture rather than pattern.  Applied at low alpha to stay invisible at
+    // a glance but add perceived depth when inspected.
+    let dotSpacing = 0.04;
+    let dotRadius  = 0.005;
+    let cellX = fract(input.texcoord.x / dotSpacing + 0.5) - 0.5;
+    let cellY = fract(input.texcoord.y / dotSpacing + 0.5) - 0.5;
+    let dotDist = sqrt(cellX * cellX + cellY * cellY) * dotSpacing;
+    let dot = smoothstep(dotRadius, dotRadius * 0.3, dotDist);
+    // Blend dot only inside the interior (avoid dotting the shadow border area)
+    let dotFade = smoothstep(0.02, 0.06, min(edgeX, edgeY));
+    let dotContrib = dot * dotFade * 0.055;
+    color.r = color.r + dotContrib;
+    color.g = color.g + dotContrib;
+    color.b = color.b + dotContrib;
+
     color.a = color.a * alpha;
     
     return color;

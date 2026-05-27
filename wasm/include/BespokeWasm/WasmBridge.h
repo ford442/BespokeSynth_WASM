@@ -81,6 +81,23 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_init_state(void);
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_init_error(void);
 EMSCRIPTEN_KEEPALIVE int bespoke_is_fully_initialized(void);
 
+// Control enumeration / inspection API
+// Returns the total number of enumerable controls (knobs, sliders, etc.)
+EMSCRIPTEN_KEEPALIVE int bespoke_get_control_count(void);
+// Returns a JSON string describing the control at the given index:
+//   { "id": <int>, "type": "knob", "label": <str>, "value": <float>,
+//     "min": <float>, "max": <float>, "unit": <str>,
+//     "x": <float>, "y": <float>, "size": <float> }
+// Returns an empty object "{}" for out-of-range indices.
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_control_info(int index);
+
+// Theming API – runtime color overrides
+// colorId selects the theme slot (see BespokeWasm/Theme.h ThemeColorId enum).
+// r, g, b, a are in [0, 1].
+EMSCRIPTEN_KEEPALIVE void bespoke_set_theme_color(int colorId, float r, float g, float b, float a);
+// Reset all overrides back to built-in defaults.
+EMSCRIPTEN_KEEPALIVE void bespoke_reset_theme(void);
+
 #ifdef __cplusplus
 }
 #endif
