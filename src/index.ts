@@ -86,6 +86,11 @@ class BespokeSynthApp {
   private initStartTime = 0;
   private isProcessingEvents = false;
 
+  // Hybrid DOM text overlay
+  private guiOverlay: HTMLElement | null = null;
+  // Reusable label elements keyed by control index
+  private labelElements: Map<number, HTMLElement> = new Map();
+
   getModule(): any {
     return this.module;
   }
@@ -483,14 +488,103 @@ class BespokeSynthApp {
   private startRenderLoop(): void {
     if (this.animationFrameId !== null) return;
 
+    // Grab the overlay element once so we don't re-query every frame.
+    this.guiOverlay = document.getElementById('gui-overlay');
+
     const renderFrame = () => {
       if (this.module?._bespoke_render) {
         this.module._bespoke_render();
       }
+      // Sync hybrid text labels after every GPU frame
+      this.updateControlOverlays();
       this.animationFrameId = requestAnimationFrame(renderFrame);
     };
 
     this.animationFrameId = requestAnimationFrame(renderFrame);
+  }
+
+  /**
+   * Synchronise the DOM text overlay with the current knob positions and
+   * values reported by the C inspection API.  Each knob gets one absolutely-
+   * positioned `.gui-label` element (created lazily, reused thereafter).
+   *
+   * The overlay is only active in demo-panels view (view mode 1) where the
+   * gControlInfoCache is populated; in modular-canvas mode there are no entries
+   * and any existing labels are hidden.
+   */
+  private updateControlOverlays(): void {
+    if (!this.guiOverlay || !this.module || !this.canvas) return;
+
+    const count: number = this.module._bespoke_get_control_count?.() ?? 0;
+
+    // Hide stale labels that exceed the current count
+    this.labelElements.forEach((el, idx) => {
+      if (idx >= count) el.style.display = 'none';
+    });
+
+    if (count === 0) return;
+
+    // The canvas element may have CSS dimensions different from its pixel
+    // dimensions (device-pixel-ratio scaling).  Compute the scale factors so
+    // we can convert WASM pixel coordinates → CSS pixels.
+    const cssW = this.canvas.clientWidth || this.canvas.width;
+    const cssH = this.canvas.clientHeight || this.canvas.height;
+    const scaleX = cssW / (this.canvas.width || cssW);
+    const scaleY = cssH / (this.canvas.height || cssH);
+
+    for (let i = 0; i < count; i++) {
+      const ptr: number = this.module._bespoke_get_control_info?.(i) ?? 0;
+      if (!ptr) continue;
+
+      let info: {
+        id: number; type: string; label: string; value: number;
+        min: number; max: number; unit: string;
+        x: number; y: number; size: number;
+      };
+
+      try {
+        info = JSON.parse(this.module.UTF8ToString(ptr));
+      } catch {
+        continue;
+      }
+
+      // Screen position: WASM reports top-left corner; we centre the label
+      // horizontally and place it below the knob.
+      const cssCentreX = (info.x + info.size * 0.5) * scaleX;
+      const cssBelowY  = (info.y + info.size + 4) * scaleY;
+
+      // Format the display value (use the same units as getDisplayString)
+      let displayVal = '';
+      if (info.unit === 'Hz') {
+        const v = info.value;
+        displayVal = v >= 1000 ? `${(v / 1000).toFixed(2)} kHz` : `${Math.round(v)} Hz`;
+      } else if (info.unit === '%') {
+        displayVal = `${Math.round(info.value * 100)}%`;
+      } else {
+        displayVal = info.value.toFixed(2) + (info.unit ? ` ${info.unit}` : '');
+      }
+
+      // Create or recycle the label element
+      let el = this.labelElements.get(i);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'gui-label';
+        el.innerHTML =
+          '<span class="label-name"></span>' +
+          '<span class="label-value"></span>';
+        this.guiOverlay.appendChild(el);
+        this.labelElements.set(i, el);
+      }
+
+      el.style.display  = '';
+      el.style.left     = `${cssCentreX}px`;
+      el.style.top      = `${cssBelowY}px`;
+
+      const nameEl  = el.querySelector<HTMLElement>('.label-name');
+      const valueEl = el.querySelector<HTMLElement>('.label-value');
+      if (nameEl)  nameEl.textContent  = info.label;
+      if (valueEl) valueEl.textContent = displayVal;
+    }
   }
 
   private stopRenderLoop(): void {
@@ -520,7 +614,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Expose module creation API on window for console access
-  (window as Record<string, unknown>).__bespoke = {
+  (window as unknown as Record<string, unknown>).__bespoke = {
     createModule: (type: string, x: number, y: number) => {
       const mod = app.getModule();
       if (mod && mod.ccall) {
@@ -552,7 +646,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         return mod._bespoke_get_module_count();
       }
       return 0;
-    }
+    },
+    // Control inspection API
+    getControlCount: () => {
+      const mod = app.getModule();
+      return mod?._bespoke_get_control_count?.() ?? 0;
+    },
+    getControlInfo: (index: number) => {
+      const mod = app.getModule();
+      if (!mod?._bespoke_get_control_info) return null;
+      const ptr: number = mod._bespoke_get_control_info(index);
+      if (!ptr) return null;
+      try { return JSON.parse(mod.UTF8ToString(ptr)); } catch { return null; }
+    },
+    // Runtime theming API  (colorId matches ThemeColorId enum in Theme.h)
+    setThemeColor: (colorId: number, r: number, g: number, b: number, a = 1.0) => {
+      const mod = app.getModule();
+      mod?._bespoke_set_theme_color?.(colorId, r, g, b, a);
+    },
+    resetTheme: () => {
+      const mod = app.getModule();
+      mod?._bespoke_reset_theme?.();
+    },
   };
 
   // Cleanup on page unload

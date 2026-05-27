@@ -65,5 +65,58 @@ namespace UITheme {
 
 } // namespace UITheme
 
+/**
+ * ThemeColorId enumerates all runtime-overridable theme color slots.
+ * Pass these to bespoke_set_theme_color() from JavaScript to change the
+ * active palette without recompiling.
+ */
+enum class ThemeColorId : int {
+   BgDark        = 0,
+   BgPanel       = 1,
+   BgTrack       = 2,
+   BgElevated    = 3,
+   TextPrimary   = 4,
+   TextSecondary = 5,
+   TextValue     = 6,
+   AccentCyan    = 7,
+   AccentMagenta = 8,
+   AccentAmber   = 9,
+   AccentGreen   = 10,
+   KnobBg        = 11,
+   KnobFg        = 12,
+   KnobIndicator = 13,
+   KnobRim       = 14,
+   Count         = 15
+};
+
+/**
+ * RuntimeTheme holds per-slot color overrides applied on top of UITheme.
+ * Slots that have not been overridden fall back to the UITheme inline const.
+ * Use bespoke_set_theme_color() / bespoke_reset_theme() from JavaScript to
+ * change colors at runtime without recompiling.
+ */
+struct RuntimeTheme {
+   bool  active[static_cast<int>(ThemeColorId::Count)] = {};
+   Color colors[static_cast<int>(ThemeColorId::Count)] = {};
+
+   Color resolve(ThemeColorId id) const;
+
+   void setColor(ThemeColorId id, const Color& c) {
+      int i = static_cast<int>(id);
+      if (i >= 0 && i < static_cast<int>(ThemeColorId::Count)) {
+         colors[i] = c;
+         active[i] = true;
+      }
+   }
+   void reset() {
+      for (int i = 0; i < static_cast<int>(ThemeColorId::Count); ++i) {
+         active[i] = false;
+      }
+   }
+};
+
+// Global runtime theme instance – defined in WasmBridge.cpp.
+extern RuntimeTheme gRuntimeTheme;
+
 } // namespace wasm
 } // namespace bespoke
