@@ -124,7 +124,7 @@ body {
     flex-direction: column;
     align-items: center;
     gap: 1px;
-    transform: translate(-50%, 0);  /* centre horizontally on the knob */
+    transform: translate(-50%, 0);  /* center horizontally on the knob */
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     font-size: 10px;
     line-height: 1.2;

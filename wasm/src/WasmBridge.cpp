@@ -709,8 +709,7 @@ static void renderDemoPanels()
          // Channel 2 tracks the Pan knob (idx 3) remapped from -1..1 to 0..1.
          // Master blends Volume and the Frequency position.
          float ch1Val    = knobNormalized(1);
-         float ch2Val    = (gKnobs.size() > 3) ? (gKnobs[3]->getValue() - gKnobs[3]->getMin()) /
-                                                  (gKnobs[3]->getMax() - gKnobs[3]->getMin()) : 0.3f;
+         float ch2Val    = knobNormalized(3);
          float masterVal = (knobNormalized(0) * 0.4f + knobNormalized(1) * 0.6f);
 
          // Mixer sliders – live values driven by gKnobs
@@ -1361,9 +1360,25 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_control_count(void)
    return static_cast<int>(gControlInfoCache.size());
 }
 
+// Append a JSON-escaped version of `src` into `dst`, stopping before `end`.
+static char* jsonEscape(char* dst, const char* end, const char* src)
+{
+   for (; *src && dst < end - 1; ++src)
+   {
+      if (*src == '"' || *src == '\\')
+      {
+         if (dst < end - 2) { *dst++ = '\\'; }
+         else break;
+      }
+      *dst++ = *src;
+   }
+   return dst;
+}
+
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_control_info(int index)
 {
-   // Static buffer – caller must consume before the next call.
+   // Static buffer – WASM runs single-threaded; caller must consume before
+   // the next call (which is guaranteed by the JS overlay loop).
    static char sJsonBuf[512];
 
    if (index < 0 || index >= static_cast<int>(gControlInfoCache.size()))
@@ -1373,14 +1388,20 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_control_info(int index)
    }
 
    const ControlInfoEntry& e = gControlInfoCache[index];
-   // Escape label/unit in case they contain quotes (basic safety).
-   snprintf(sJsonBuf, sizeof(sJsonBuf),
-            "{\"id\":%d,\"type\":\"%s\",\"label\":\"%s\","
-            "\"value\":%.6f,\"min\":%.6f,\"max\":%.6f,\"unit\":\"%s\","
-            "\"x\":%.2f,\"y\":%.2f,\"size\":%.2f}",
-            e.id, e.type, e.label,
-            e.value, e.min, e.max, e.unit,
-            e.x, e.y, e.size);
+
+   // Build JSON with proper escaping for the string fields.
+   char* p   = sJsonBuf;
+   char* end = sJsonBuf + sizeof(sJsonBuf) - 1;
+
+   p += snprintf(p, end - p, "{\"id\":%d,\"type\":\"%s\",\"label\":\"", e.id, e.type);
+   p  = jsonEscape(p, end, e.label);
+   p += snprintf(p, end - p, "\",\"value\":%.6f,\"min\":%.6f,\"max\":%.6f,\"unit\":\"",
+                 e.value, e.min, e.max);
+   p  = jsonEscape(p, end, e.unit);
+   p += snprintf(p, end - p, "\",\"x\":%.2f,\"y\":%.2f,\"size\":%.2f}",
+                 e.x, e.y, e.size);
+   *p = '\0';
+
    return sJsonBuf;
 }
 

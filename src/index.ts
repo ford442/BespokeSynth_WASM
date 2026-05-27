@@ -544,13 +544,14 @@ class BespokeSynthApp {
 
       try {
         info = JSON.parse(this.module.UTF8ToString(ptr));
-      } catch {
+      } catch (e) {
+        console.warn(`[BespokeSynth] Failed to parse control info for index ${i}:`, e);
         continue;
       }
 
-      // Screen position: WASM reports top-left corner; we centre the label
+      // Screen position: WASM reports top-left corner; we center the label
       // horizontally and place it below the knob.
-      const cssCentreX = (info.x + info.size * 0.5) * scaleX;
+      const cssCenterX = (info.x + info.size * 0.5) * scaleX;
       const cssBelowY  = (info.y + info.size + 4) * scaleY;
 
       // Format the display value (use the same units as getDisplayString)
@@ -577,7 +578,7 @@ class BespokeSynthApp {
       }
 
       el.style.display  = '';
-      el.style.left     = `${cssCentreX}px`;
+      el.style.left     = `${cssCenterX}px`;
       el.style.top      = `${cssBelowY}px`;
 
       const nameEl  = el.querySelector<HTMLElement>('.label-name');
