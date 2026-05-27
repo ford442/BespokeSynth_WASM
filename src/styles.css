@@ -102,6 +102,50 @@ body {
     cursor: crosshair;
 }
 
+/* ── Hybrid DOM text overlay ──────────────────────────────────────────────────
+ * Absolutely positioned over the WebGPU canvas so we can use system /
+ * variable fonts for crisp sub-pixel text while all heavy rendering
+ * (knobs, shaders, cables) stays on the GPU.
+ * pointer-events: none ensures every mouse/touch event reaches the canvas.
+ * ──────────────────────────────────────────────────────────────────────────── */
+#gui-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 10;
+}
+
+/* Individual control label – one element per knob / slider */
+.gui-label {
+    position: absolute;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    transform: translate(-50%, 0);  /* center horizontally on the knob */
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 10px;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.gui-label .label-name {
+    color: rgba(235, 236, 242, 0.82);
+    font-weight: 500;
+    letter-spacing: 0.03em;
+}
+
+.gui-label .label-value {
+    color: rgba(140, 230, 255, 0.90);   /* matches UITheme::kTextValue */
+    font-weight: 600;
+    font-size: 9px;
+    letter-spacing: 0.04em;
+}
+
 /* Status Overlay */
 #status {
     position: absolute;

@@ -105,6 +105,54 @@ static InitState gInitState = InitState::NotStarted;
 static std::string gInitErrorMessage;
 static std::atomic<bool> gAudioCallbackActive{false};
 
+// ---- Control inspection cache ----
+// Updated each frame by renderDemoPanels() so that bespoke_get_control_info()
+// always reflects current screen positions.
+struct ControlInfoEntry {
+   int   id;
+   char  type[16];
+   char  label[64];
+   float value;
+   float min;
+   float max;
+   char  unit[16];
+   float x;
+   float y;
+   float size;
+};
+static std::vector<ControlInfoEntry> gControlInfoCache;
+
+// Runtime theme – one global instance used by bespoke_set_theme_color().
+bespoke::wasm::RuntimeTheme gRuntimeTheme;
+
+// RuntimeTheme::resolve() – returns the override if active, else UITheme default.
+bespoke::wasm::Color bespoke::wasm::RuntimeTheme::resolve(bespoke::wasm::ThemeColorId id) const
+{
+   using namespace bespoke::wasm::UITheme;
+   int i = static_cast<int>(id);
+   if (i >= 0 && i < static_cast<int>(bespoke::wasm::ThemeColorId::Count) && active[i]) {
+      return colors[i];
+   }
+   switch (id) {
+      case bespoke::wasm::ThemeColorId::BgDark:        return kBgDark;
+      case bespoke::wasm::ThemeColorId::BgPanel:       return kBgPanel;
+      case bespoke::wasm::ThemeColorId::BgTrack:       return kBgTrack;
+      case bespoke::wasm::ThemeColorId::BgElevated:    return kBgElevated;
+      case bespoke::wasm::ThemeColorId::TextPrimary:   return kTextPrimary;
+      case bespoke::wasm::ThemeColorId::TextSecondary: return kTextSecondary;
+      case bespoke::wasm::ThemeColorId::TextValue:     return kTextValue;
+      case bespoke::wasm::ThemeColorId::AccentCyan:    return kAccentCyan;
+      case bespoke::wasm::ThemeColorId::AccentMagenta: return kAccentMagenta;
+      case bespoke::wasm::ThemeColorId::AccentAmber:   return kAccentAmber;
+      case bespoke::wasm::ThemeColorId::AccentGreen:   return kAccentGreen;
+      case bespoke::wasm::ThemeColorId::KnobBg:        return kKnobBg;
+      case bespoke::wasm::ThemeColorId::KnobFg:        return kKnobFg;
+      case bespoke::wasm::ThemeColorId::KnobIndicator: return kKnobIndicator;
+      case bespoke::wasm::ThemeColorId::KnobRim:       return kKnobRim;
+      default:                                          return kTextPrimary;
+   }
+}
+
 // Audio callback for demo (thread-safe)
 static void audioCallback(const float* const* input, float* const* output,
                           int numInputChannels, int numOutputChannels, int numSamples)
@@ -127,10 +175,10 @@ static void audioCallback(const float* const* input, float* const* output,
    static float phase = 0.0f;
    float frequency = 440.0f;
 
-   // Thread-safe read of knob value
+   // Thread-safe read of knob value – knob range is now 100–900 Hz directly
    if (gInitialized && !gKnobs.empty())
    {
-      frequency = 100.0f + gKnobs[0]->getValue() * 800.0f; // 100-900 Hz
+      frequency = gKnobs[0]->getValue();
    }
 
    float sampleRate = gAudioBackend ? gAudioBackend->getSampleRate() : 44100;
@@ -304,7 +352,9 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                gKnobs.clear();
 
                                                auto knob1 = std::make_unique<Knob>("Frequency", 0.5f);
-                                               knob1->setRange(0.0f, 1.0f);
+                                               knob1->setRange(100.0f, 900.0f);
+                                               knob1->setUnit("Hz");
+                                               knob1->setDisplayPrecision(0);
                                                knob1->setStyle(KnobStyle::Classic);
                                                knob1->setColors(
                                                Color(0.25f, 0.25f, 0.28f, 1.0f),
@@ -314,6 +364,8 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
 
                                                auto knob2 = std::make_unique<Knob>("Volume", 0.7f);
                                                knob2->setRange(0.0f, 1.0f);
+                                               knob2->setUnit("%");
+                                               knob2->setDisplayPrecision(0);
                                                knob2->setStyle(KnobStyle::Modern);
                                                knob2->setColors(
                                                Color(0.2f, 0.2f, 0.22f, 1.0f),
@@ -322,7 +374,9 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                gKnobs.push_back(std::move(knob2));
 
                                                auto knob3 = std::make_unique<Knob>("Filter", 0.3f);
-                                               knob3->setRange(0.0f, 1.0f);
+                                               knob3->setRange(20.0f, 20000.0f);
+                                               knob3->setUnit("Hz");
+                                               knob3->setDisplayPrecision(0);
                                                knob3->setStyle(KnobStyle::LED);
                                                knob3->setColors(
                                                Color(0.15f, 0.15f, 0.18f, 1.0f),
@@ -331,7 +385,9 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                gKnobs.push_back(std::move(knob3));
 
                                                auto knob4 = std::make_unique<Knob>("Pan", 0.5f);
-                                               knob4->setRange(0.0f, 1.0f);
+                                               knob4->setRange(-1.0f, 1.0f);
+                                               knob4->setUnit("");
+                                               knob4->setDisplayPrecision(2);
                                                knob4->setBipolar(true);
                                                knob4->setStyle(KnobStyle::Vintage);
                                                gKnobs.push_back(std::move(knob4));
@@ -506,6 +562,13 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
 // Helper function to render the legacy demo panels view
 static void renderDemoPanels()
 {
+   // Utility: return the 0–1 normalised position of knob[idx]
+   auto knobNormalized = [](int idx) -> float {
+      if (idx < 0 || idx >= static_cast<int>(gKnobs.size())) return 0.5f;
+      const auto& k = *gKnobs[idx];
+      float range = k.getMax() - k.getMin();
+      return (range > 0.0f) ? (k.getValue() - k.getMin()) / range : 0.5f;
+   };
    // Draw title
    gRenderer->fillColor(Color(0.9f, 0.9f, 0.95f, 1.0f));
    gRenderer->fontSize(24.0f);
@@ -571,10 +634,25 @@ static void renderDemoPanels()
    float startY = 130.0f;
    float spacing = 120.0f;
 
+   // Rebuild the control info cache for this frame so the inspection API is
+   // always in sync with what is actually rendered on screen.
+   gControlInfoCache.resize(gKnobs.size());
    for (size_t i = 0; i < gKnobs.size(); i++)
    {
-      float x = startX + i * spacing;
+      float x = startX + static_cast<float>(i) * spacing;
       gKnobs[i]->render(*gRenderer, x, startY, knobSize);
+
+      ControlInfoEntry& entry = gControlInfoCache[i];
+      entry.id    = static_cast<int>(i);
+      snprintf(entry.type,  sizeof(entry.type),  "knob");
+      snprintf(entry.label, sizeof(entry.label), "%s", gKnobs[i]->getLabel().c_str());
+      entry.value = gKnobs[i]->getValue();
+      entry.min   = gKnobs[i]->getMin();
+      entry.max   = gKnobs[i]->getMax();
+      snprintf(entry.unit,  sizeof(entry.unit),  "%s", gKnobs[i]->getUnit().c_str());
+      entry.x     = x;
+      entry.y     = startY;
+      entry.size  = knobSize;
    }
 
    // Draw cables connecting knobs
@@ -626,33 +704,44 @@ static void renderDemoPanels()
          float sliderX = panelX + 30;
          float sliderY = panelY + 50;
 
-         // Mixer sliders - now with live value labels (theme + extended font)
+         // Derive live slider values from knobs so they update in real time.
+         // Channel 1 tracks the Volume knob (idx 1).
+         // Channel 2 tracks the Pan knob (idx 3) remapped from -1..1 to 0..1.
+         // Master blends Volume and the Frequency position.
+         float ch1Val    = knobNormalized(1);
+         float ch2Val    = knobNormalized(3);
+         float masterVal = (knobNormalized(0) * 0.4f + knobNormalized(1) * 0.6f);
+
+         // Mixer sliders – live values driven by gKnobs
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(sliderX, sliderY - 10, "Channel 1");
-         gRenderer->drawSlider(sliderX, sliderY, 200, 20, 0.6f,
+         gRenderer->drawSlider(sliderX, sliderY, 200, 20, ch1Val,
                                UITheme::kBgTrack, UITheme::kAccentGreen);
 
-         // Value label (high-impact addition)
-         char vbuf[16]; snprintf(vbuf, sizeof(vbuf), "%.2f", 0.6f);
+         char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%.2f", ch1Val);
          gRenderer->fillColor(UITheme::kTextValue);
          gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 5, vbuf);
 
          gRenderer->fillColor(UITheme::kTextPrimary);
+         gRenderer->fontSize(12.0f);
          gRenderer->text(sliderX, sliderY + 40, "Channel 2");
-         gRenderer->drawSlider(sliderX, sliderY + 50, 200, 20, 0.3f,
+         gRenderer->drawSlider(sliderX, sliderY + 50, 200, 20, ch2Val,
                                UITheme::kBgTrack, UITheme::kAccentCyan);
-         snprintf(vbuf, sizeof(vbuf), "%.2f", 0.3f);
+         snprintf(vbuf, sizeof(vbuf), "%.2f", ch2Val);
          gRenderer->fillColor(UITheme::kTextValue);
+         gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 55, vbuf);
 
          gRenderer->fillColor(UITheme::kTextPrimary);
+         gRenderer->fontSize(12.0f);
          gRenderer->text(sliderX, sliderY + 90, "Master");
-         gRenderer->drawSlider(sliderX, sliderY + 100, 200, 20, 0.8f,
+         gRenderer->drawSlider(sliderX, sliderY + 100, 200, 20, masterVal,
                                UITheme::kBgTrack, UITheme::kAccentMagenta);
-         snprintf(vbuf, sizeof(vbuf), "%.2f", 0.8f);
+         snprintf(vbuf, sizeof(vbuf), "%.2f", masterVal);
          gRenderer->fillColor(UITheme::kTextValue);
+         gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 105, vbuf);
 
          // Draw VU meters
@@ -680,29 +769,35 @@ static void renderDemoPanels()
          float effectX = panelX + 30;
          float effectY = panelY + 50;
 
-         gRenderer->fillColor(Color(0.5f, 0.5f, 0.55f, 1.0f));
-         gRenderer->fontSize(12.0f);
-         // Effects - labels + values (theme colors, extended font support)
+         // Live values: Filter → Reverb Mix / Chorus Depth; Frequency → Delay Time; Pan → Distortion
+         float reverbMix     = knobNormalized(2);         // Filter knob normalised
+         float delayTime     = knobNormalized(0);         // Frequency knob normalised
+         float chorusDepth   = knobNormalized(1);         // Volume knob normalised
+         float distortion    = 1.0f - knobNormalized(2); // Inverted filter
+
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY - 10, "Reverb Mix");
-         gRenderer->drawSlider(effectX, effectY, 250, 20, 0.4f, UITheme::kBgTrack, UITheme::kAccentMagenta);
-         { char v[16]; snprintf(v, sizeof(v), "%.2f", 0.4f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 5, v); }
+         gRenderer->drawSlider(effectX, effectY, 250, 20, reverbMix, UITheme::kBgTrack, UITheme::kAccentMagenta);
+         { char v[32]; snprintf(v, sizeof(v), "%.2f", reverbMix); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 5, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
+         gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 40, "Delay Time");
-         gRenderer->drawSlider(effectX, effectY + 50, 250, 20, 0.5f, UITheme::kBgTrack, UITheme::kAccentAmber);
-         { char v[16]; snprintf(v, sizeof(v), "%.2f", 0.5f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 55, v); }
+         gRenderer->drawSlider(effectX, effectY + 50, 250, 20, delayTime, UITheme::kBgTrack, UITheme::kAccentAmber);
+         { char v[32]; snprintf(v, sizeof(v), "%.2f", delayTime); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 55, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
+         gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 90, "Chorus Depth");
-         gRenderer->drawSlider(effectX, effectY + 100, 250, 20, 0.7f, UITheme::kBgTrack, UITheme::kAccentCyan);
-         { char v[16]; snprintf(v, sizeof(v), "%.2f", 0.7f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 105, v); }
+         gRenderer->drawSlider(effectX, effectY + 100, 250, 20, chorusDepth, UITheme::kBgTrack, UITheme::kAccentCyan);
+         { char v[32]; snprintf(v, sizeof(v), "%.2f", chorusDepth); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 105, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
+         gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 140, "Distortion");
-         gRenderer->drawSlider(effectX, effectY + 150, 250, 20, 0.2f, UITheme::kBgTrack, UITheme::kAccentMagenta);
-         { char v[16]; snprintf(v, sizeof(v), "%.2f", 0.2f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 155, v); }
+         gRenderer->drawSlider(effectX, effectY + 150, 250, 20, distortion, UITheme::kBgTrack, UITheme::kAccentMagenta);
+         { char v[32]; snprintf(v, sizeof(v), "%.2f", distortion); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 155, v); }
 
          // Draw effect visualizer
          float vizX = panelX + panelW - 200;
@@ -735,17 +830,27 @@ static void renderDemoPanels()
          float seqX = panelX + 30;
          float seqY = panelY + 50;
 
-         gRenderer->fillColor(Color(0.5f, 0.5f, 0.55f, 1.0f));
+         // BPM tracks the Frequency knob (100–900 Hz → mapped to 60–200 BPM).
+         // Swing tracks the Pan knob (-1..1 → 0..1).
+         float bpmNorm  = knobNormalized(0);
+         float swingNorm = knobNormalized(3);
+         float bpmDisplay = 60.0f + bpmNorm * 140.0f; // 60–200 BPM
+
+         gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(seqX, seqY - 10, "BPM");
-         gRenderer->drawSlider(seqX, seqY, 150, 20, 0.6f,
+         gRenderer->drawSlider(seqX, seqY, 150, 20, bpmNorm,
                                Color(0.25f, 0.25f, 0.28f, 1.0f),
                                Color(0.5f, 0.8f, 0.4f, 1.0f));
+         { char v[32]; snprintf(v, sizeof(v), "%.0f", bpmDisplay); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(seqX + 155, seqY + 5, v); }
 
+         gRenderer->fillColor(UITheme::kTextPrimary);
+         gRenderer->fontSize(12.0f);
          gRenderer->text(seqX + 200, seqY - 10, "Swing");
-         gRenderer->drawSlider(seqX + 200, seqY, 150, 20, 0.5f,
+         gRenderer->drawSlider(seqX + 200, seqY, 150, 20, swingNorm,
                                Color(0.25f, 0.25f, 0.28f, 1.0f),
                                Color(0.8f, 0.7f, 0.4f, 1.0f));
+         { char v[32]; snprintf(v, sizeof(v), "%.0f%%", swingNorm * 100.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(seqX + 355, seqY + 5, v); }
 
          // Draw step sequencer grid
          float gridX = seqX;
@@ -1246,6 +1351,71 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_init_error(void)
 EMSCRIPTEN_KEEPALIVE int bespoke_is_fully_initialized(void)
 {
    return (gInitState == InitState::FullyInitialized) ? 1 : 0;
+}
+
+// ---- Control enumeration / inspection API ----
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_control_count(void)
+{
+   return static_cast<int>(gControlInfoCache.size());
+}
+
+// Append a JSON-escaped version of `src` into `dst`, stopping before `end`.
+static char* jsonEscape(char* dst, const char* end, const char* src)
+{
+   for (; *src && dst < end - 1; ++src)
+   {
+      if (*src == '"' || *src == '\\')
+      {
+         if (dst < end - 2) { *dst++ = '\\'; }
+         else break;
+      }
+      *dst++ = *src;
+   }
+   return dst;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_control_info(int index)
+{
+   // Static buffer – WASM runs single-threaded; caller must consume before
+   // the next call (which is guaranteed by the JS overlay loop).
+   static char sJsonBuf[512];
+
+   if (index < 0 || index >= static_cast<int>(gControlInfoCache.size()))
+   {
+      snprintf(sJsonBuf, sizeof(sJsonBuf), "{}");
+      return sJsonBuf;
+   }
+
+   const ControlInfoEntry& e = gControlInfoCache[index];
+
+   // Build JSON with proper escaping for the string fields.
+   char* p   = sJsonBuf;
+   char* end = sJsonBuf + sizeof(sJsonBuf) - 1;
+
+   p += snprintf(p, end - p, "{\"id\":%d,\"type\":\"%s\",\"label\":\"", e.id, e.type);
+   p  = jsonEscape(p, end, e.label);
+   p += snprintf(p, end - p, "\",\"value\":%.6f,\"min\":%.6f,\"max\":%.6f,\"unit\":\"",
+                 e.value, e.min, e.max);
+   p  = jsonEscape(p, end, e.unit);
+   p += snprintf(p, end - p, "\",\"x\":%.2f,\"y\":%.2f,\"size\":%.2f}",
+                 e.x, e.y, e.size);
+   *p = '\0';
+
+   return sJsonBuf;
+}
+
+// ---- Runtime theming API ----
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_theme_color(int colorId, float r, float g, float b, float a)
+{
+   auto id = static_cast<bespoke::wasm::ThemeColorId>(colorId);
+   gRuntimeTheme.setColor(id, bespoke::wasm::Color(r, g, b, a));
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_reset_theme(void)
+{
+   gRuntimeTheme.reset();
 }
 
 } // extern "C"

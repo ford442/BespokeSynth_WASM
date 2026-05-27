@@ -19,6 +19,11 @@
         </header>
         <main id="canvas-container">
             <canvas id="canvas"></canvas>
+            <!-- Hybrid DOM text overlay: absolutely-positioned labels sit above the
+                 WebGPU canvas using system fonts for crisp, sub-pixel text rendering.
+                 pointer-events: none keeps all mouse input flowing to the canvas.
+                 Content is populated and updated by BespokeSynthApp in index.ts.  -->
+            <div id="gui-overlay" aria-hidden="true" role="presentation"></div>
             <div id="status">
                 <div class="status-header">Initializing BespokeSynth</div>
                 <div class="status-subheader">Setting up WebGPU and audio...</div>

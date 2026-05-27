@@ -75,6 +75,14 @@ EMSCRIPTEN_KEEPALIVE int bespoke_is_panel_running(int panelIndex);
 EMSCRIPTEN_KEEPALIVE int bespoke_get_panel_frame_count(int panelIndex);
 EMSCRIPTEN_KEEPALIVE void bespoke_log_all_panels_status(void);
 
+// Control enumeration / inspection API
+EMSCRIPTEN_KEEPALIVE int bespoke_get_control_count(void);
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_control_info(int index);
+
+// Theming API – runtime color overrides
+EMSCRIPTEN_KEEPALIVE void bespoke_set_theme_color(int colorId, float r, float g, float b, float a);
+EMSCRIPTEN_KEEPALIVE void bespoke_reset_theme(void);
+
 #ifdef __cplusplus
 }
 #endif
