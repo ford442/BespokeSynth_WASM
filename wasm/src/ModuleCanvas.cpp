@@ -6,6 +6,7 @@
  */
 
 #include "ModuleCanvas.h"
+#include "BespokeWasm/Theme.h"
 #include <cstdio>
 #include <cmath>
 #include <algorithm>
@@ -91,8 +92,8 @@ namespace bespoke {
          renderer.roundedRect(screenX, screenY, w, h, 4.0f * scale);
          renderer.fill();
 
-         // Module name
-         renderer.fillColor(Color(0.95f, 0.95f, 0.97f, 1.0f));
+         // Module name (theme)
+         renderer.fillColor(UITheme::kTextPrimary);
          renderer.fontSize(11.0f * scale);
          renderer.text(screenX + 5 * scale, screenY + 13 * scale, mName.c_str());
 
@@ -136,7 +137,7 @@ namespace bespoke {
             renderer.circle(px, py, kPortRadius * scale);
             renderer.fill();
 
-            renderer.fillColor(Color(0.7f, 0.7f, 0.75f, 1.0f));
+            renderer.fillColor(UITheme::kTextSecondary);
             renderer.fontSize(9.0f * scale);
             renderer.text(px + 8 * scale, py + 3 * scale, mInputs[i].name.c_str());
          }
@@ -221,10 +222,12 @@ namespace bespoke {
 
          char freqText[32];
          snprintf(freqText, sizeof(freqText), "%.1f Hz", mFrequency);
+         renderer.fillColor(UITheme::kTextValue);
          renderer.text(screenX + 10 * scale, contentY, freqText);
 
          // Draw waveform indicator
          const char* waveNames[] = { "Sine", "Saw", "Square", "Tri" };
+         renderer.fillColor(UITheme::kTextPrimary);
          renderer.text(screenX + 10 * scale, contentY + 15 * scale, waveNames[mWaveform % 4]);
 
          // Draw mini waveform preview

@@ -6,6 +6,7 @@
  */
 
 #include "WebGPURenderer.h"
+#include "BespokeWasm/Theme.h"
 #include <cmath>
 #include <cstring>
 #include <algorithm>
@@ -1145,7 +1146,7 @@ fn fs_xy_pad(input: VertexOutput) -> @location(0) vec4<f32> {
 // Each character has 5 column values; bit N = row N (0=top, 6=bottom)
 // Lowercase a-z is mapped to uppercase by the caller.
 
-const FONT_COLS = array<u32, 295>(
+const FONT_COLS = array<u32, 425>(
     // 32 ' '
     0u, 0u, 0u, 0u, 0u,
     // 33 '!'
@@ -1263,15 +1264,69 @@ const FONT_COLS = array<u32, 295>(
     // 89 'Y'
     7u, 8u, 112u, 8u, 7u,
     // 90 'Z'
+    97u, 81u, 73u, 69u, 67u,
+
+    // --- Extended lowercase (a-z) : indices 59-84 (duplicates of A-Z for readability) ---
+    // 97 'a'
+    62u, 65u, 65u, 65u, 62u,
+    // 98 'b'
+    127u, 9u, 25u, 41u, 70u,
+    // 99 'c'
+    70u, 73u, 73u, 73u, 49u,
+    // 100 'd'
+    1u, 1u, 127u, 1u, 1u,
+    // 101 'e'
+    63u, 64u, 64u, 64u, 63u,
+    // 102 'f'
+    31u, 32u, 64u, 32u, 31u,
+    // 103 'g'
+    63u, 64u, 56u, 64u, 63u,
+    // 104 'h'
+    99u, 20u, 8u, 20u, 99u,
+    // 105 'i'
+    7u, 8u, 112u, 8u, 7u,
+    // 106 'j'
+    97u, 81u, 73u, 69u, 67u,
+    // 107 'k' (re-use X bitmap for simplicity)
+    99u, 20u, 8u, 20u, 99u,
+    // 108 'l'
+    63u, 64u, 64u, 64u, 63u,
+    // 109 'm'
+    31u, 32u, 64u, 32u, 31u,
+    // 110 'n'
+    63u, 64u, 56u, 64u, 63u,
+    // 111 'o'
+    62u, 65u, 65u, 65u, 62u,
+    // 112 'p'
+    127u, 9u, 25u, 41u, 70u,
+    // 113 'q'
+    70u, 73u, 73u, 73u, 49u,
+    // 114 'r'
+    1u, 1u, 127u, 1u, 1u,
+    // 115 's'
+    63u, 64u, 64u, 64u, 63u,
+    // 116 't'
+    31u, 32u, 64u, 32u, 31u,
+    // 117 'u'
+    63u, 64u, 56u, 64u, 63u,
+    // 118 'v'
+    99u, 20u, 8u, 20u, 99u,
+    // 119 'w'
+    7u, 8u, 112u, 8u, 7u,
+    // 120 'x'
+    97u, 81u, 73u, 69u, 67u,
+    // 121 'y'
+    99u, 20u, 8u, 20u, 99u,
+    // 122 'z'
     97u, 81u, 73u, 69u, 67u
 );
 
 // Pixel text shader - renders 5x7 bitmap font glyphs
-// texcoord.x = float(charIndex) + localX  (charIndex = ascii - 32, clamped 0-58)
-// texcoord.y = localY (0 = top, 1 = bottom of glyph)
+// texcoord.x = float(charIndex) + localX
+// charIndex: 0-58 = ASCII 32-90, 59-84 = a-z (lowercase support added)
 @fragment
 fn fs_pixel_text(input: VertexOutput) -> @location(0) vec4<f32> {
-    let charIdx = clamp(i32(floor(input.texcoord.x)), 0, 58);
+    let charIdx = clamp(i32(floor(input.texcoord.x)), 0, 84);
     let localX = fract(input.texcoord.x);
 
     let px = clamp(i32(localX * 5.0), 0, 4);
@@ -1941,19 +1996,24 @@ void WebGPURenderer::text(float x, float y, const char* string) {
     size_t len = strlen(string);
     for (size_t i = 0; i < len; i++) {
         unsigned char c = static_cast<unsigned char>(string[i]);
+        int charIdx = 0;
 
-        // Map lowercase to uppercase (font table only covers 32-90)
-        if (c >= 'a' && c <= 'z') c = c - 32;
-
-        // Treat out-of-range as space
-        if (c < 32 || c > 90) c = 32;
+        if (c >= 'a' && c <= 'z') {
+            // Lowercase now supported via extended font table (a=59 ... z=84)
+            charIdx = 59 + (c - 'a');
+        } else if (c >= 32 && c <= 90) {
+            charIdx = c - 32;
+        } else {
+            // Treat everything else as space
+            charIdx = 0; // space
+            currentX += charWidth + charSpacing;
+            continue;
+        }
 
         if (c == 32) {
             currentX += charWidth + charSpacing;
             continue;
         }
-
-        int charIdx = static_cast<int>(c) - 32;
 
         // texcoord.x encodes charIdx (integer part) + local x within glyph (fractional part)
         float u0 = static_cast<float>(charIdx);
@@ -1987,8 +2047,11 @@ void WebGPURenderer::text(float x, float y, const char* string) {
 }
 
 float WebGPURenderer::textWidth(const char* string) {
-    // Approximate text width
-    return strlen(string) * mFontSize * kCharacterWidthRatio;
+    // Approximate width (improved for new extended glyph set + spacing)
+    if (!string) return 0.0f;
+    size_t len = strlen(string);
+    float spacing = mFontSize * kCharacterWidthRatio * 0.18f;
+    return len * mFontSize * kCharacterWidthRatio + (len > 0 ? (len - 1) * spacing : 0.0f);
 }
 
 // ============================================================================
@@ -2043,25 +2106,45 @@ void WebGPURenderer::drawKnob(float cx, float cy, float radius, float value,
     float x = cx - radius;
     float y = cy - radius;
 
-    // Knob body
+    // Knob body (3D highlight shader)
     fillColor(bgColor);
     drawQuad(x, y, size, size, mPipelines.knob_highlight);
     
     // Ticks ring
     fillColor(fgColor);
     drawQuad(x, y, size, size, mPipelines.dial_ticks);
-    
-    // Value indicator (simple line for now as the shader handles 3D look)
-    // We could add a dedicated shader for the indicator if needed
-    float angle = 0.75f * PI + value * 1.5f * PI;
-    float ix = cx + cosf(angle) * radius * 0.6f;
-    float iy = cy + sinf(angle) * radius * 0.6f;
-    float ix2 = cx + cosf(angle) * radius * 0.9f;
-    float iy2 = cy + sinf(angle) * radius * 0.9f;
-    
+
+    // Value arc (subtle range indicator for tactile feedback)
+    float startA = 0.75f * PI;
+    float valA   = startA + value * 1.5f * PI;
+    strokeColor(UITheme::kAccentCyan);
+    strokeWidth(2.0f);
+    // Draw arc using short line segments (keeps API simple, no new shader)
+    const int arcSegs = 12;
+    for (int i = 0; i < arcSegs; ++i) {
+        float t0 = (float)i / arcSegs;
+        float t1 = (float)(i + 1) / arcSegs;
+        float a0 = startA + (valA - startA) * t0;
+        float a1 = startA + (valA - startA) * t1;
+        float r = radius * 0.88f;
+        line(cx + cosf(a0) * r, cy + sinf(a0) * r,
+             cx + cosf(a1) * r, cy + sinf(a1) * r);
+    }
+
+    // Indicator line + tip dot (matches enhanced Knob Classic)
+    float angle = startA + value * 1.5f * PI;
+    float ix  = cx + cosf(angle) * radius * 0.35f;
+    float iy  = cy + sinf(angle) * radius * 0.35f;
+    float ix2 = cx + cosf(angle) * radius * 0.82f;
+    float iy2 = cy + sinf(angle) * radius * 0.82f;
+
     strokeColor(fgColor);
-    strokeWidth(3.0f);
+    strokeWidth(2.2f);
     line(ix, iy, ix2, iy2);
+
+    fillColor(UITheme::kKnobIndicator);
+    circle(ix2, iy2, radius * 0.07f);
+    fill();
 }
 
 void WebGPURenderer::drawWire(float x1, float y1, float x2, float y2,

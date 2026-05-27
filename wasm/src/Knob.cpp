@@ -6,8 +6,11 @@
  */
 
 #include "Knob.h"
+#include "BespokeWasm/Theme.h"
 #include <cmath>
 #include <algorithm>
+#include <cstdio>   // for snprintf in getDisplayString
+#include <string>
 
 namespace bespoke {
 namespace wasm {
@@ -60,6 +63,30 @@ void Knob::notifyValueChanged() {
     }
 }
 
+std::string Knob::getDisplayString() const {
+    // Simple, allocation-light formatter for synth params
+    char buffer[32];
+    float v = mValue;
+
+    // Special-case common musical ranges for nicer strings
+    if (mUnit == "Hz" || mUnit == "kHz") {
+        if (v >= 1000.0f && mUnit == "Hz") {
+            snprintf(buffer, sizeof(buffer), "%.2f kHz", v / 1000.0f);
+        } else if (mUnit == "kHz") {
+            snprintf(buffer, sizeof(buffer), "%.2f kHz", v);
+        } else {
+            snprintf(buffer, sizeof(buffer), "%.0f Hz", v);
+        }
+    } else if (mUnit == "%" || mUnit.empty()) {
+        snprintf(buffer, sizeof(buffer), "%.*f%s", mDisplayPrecision, v * (mUnit == "%" ? 100.0f : 1.0f), mUnit.c_str());
+    } else if (mUnit == "ms" || mUnit == "s") {
+        snprintf(buffer, sizeof(buffer), "%.0f %s", v, mUnit.c_str());
+    } else {
+        snprintf(buffer, sizeof(buffer), "%.*f %s", mDisplayPrecision, v, mUnit.c_str());
+    }
+    return std::string(buffer);
+}
+
 void Knob::render(WebGPURenderer& renderer, float x, float y, float size) {
     // Smooth animation
     mAnimatedValue += (mValue - mAnimatedValue) * mAnimationSpeed;
@@ -82,12 +109,24 @@ void Knob::render(WebGPURenderer& renderer, float x, float y, float size) {
             break;
     }
     
-    // Draw label if present
+    // Draw label + live value (high-impact polish)
     if (!mLabel.empty()) {
-        renderer.fillColor(mForegroundColor);
-        renderer.fontSize(size * 0.2f);
+        const float labelY = y + size * 0.58f;
+
+        // Name (primary label)
+        renderer.fillColor(UITheme::kTextPrimary);
+        renderer.fontSize(UITheme::kLabelFontSize * (size / 80.0f));  // Scale with knob size
         float labelWidth = renderer.textWidth(mLabel.c_str());
-        renderer.text(x - labelWidth / 2, y + size * 0.7f, mLabel.c_str());
+        renderer.text(x - labelWidth * 0.5f, labelY, mLabel.c_str());
+
+        // Live value (below name, cyan accent, updates smoothly via animated)
+        std::string valStr = getDisplayString();
+        if (!valStr.empty()) {
+            renderer.fillColor(UITheme::kTextValue);
+            renderer.fontSize(UITheme::kValueFontSize * (size / 80.0f));
+            float valWidth = renderer.textWidth(valStr.c_str());
+            renderer.text(x - valWidth * 0.5f, labelY + UITheme::kValueFontSize * (size / 80.0f) + 2.0f, valStr.c_str());
+        }
     }
 }
 
@@ -131,31 +170,51 @@ void Knob::renderClassicKnob(WebGPURenderer& renderer, float x, float y, float s
     renderer.stroke();
     
     // Draw outer ring
-    renderer.strokeColor(mForegroundColor);
+    renderer.strokeColor(UITheme::kKnobRim);
     renderer.strokeWidth(1.0f);
     renderer.circle(x, y, radius);
     renderer.stroke();
-    
-    // Draw indicator line
+
+    // Subtle background arc showing full range (tactile reference)
+    renderer.strokeColor(Color(0.25f, 0.25f, 0.27f, 0.6f));
+    renderer.strokeWidth(2.5f);
+    renderer.beginPath();
+    renderer.arc(x, y, radius * 0.92f, kStartAngle, kEndAngle, 0);
+    renderer.stroke();
+
+    // Value arc (filled portion of the range) - uses theme accent
+    float valueAngle = valueToAngle(mAnimatedValue);
+    renderer.strokeColor(UITheme::kAccentCyan);
+    renderer.strokeWidth(2.8f);
+    renderer.beginPath();
+    renderer.arc(x, y, radius * 0.92f, kStartAngle, valueAngle, 0);
+    renderer.stroke();
+
+    // Draw indicator line + dot (more precise tactile feel)
     float angle = valueToAngle(mAnimatedValue);
-    float innerRadius = radius * 0.3f;
-    float outerRadius = radius * 0.85f;
-    
+    float innerRadius = radius * 0.32f;
+    float outerRadius = radius * 0.82f;
+
     float x1 = x + cosf(angle) * innerRadius;
     float y1 = y + sinf(angle) * innerRadius;
     float x2 = x + cosf(angle) * outerRadius;
     float y2 = y + sinf(angle) * outerRadius;
-    
+
     renderer.strokeColor(mIndicatorColor);
-    renderer.strokeWidth(3.0f);
+    renderer.strokeWidth(2.5f);
     renderer.line(x1, y1, x2, y2);
+
+    // Indicator tip dot (highly visible)
+    renderer.fillColor(UITheme::kKnobIndicator);
+    renderer.circle(x2, y2, radius * 0.08f);
+    renderer.fill();
     
     // Draw modulation ring if modulation is active
     if (std::abs(mModulationAmount) > 0.001f) {
         float modValue = std::max(mMin, std::min(mMax, mValue + mModulationValue));
         float modAngle = valueToAngle(modValue);
         
-        renderer.strokeColor(Color(0.3f, 0.7f, 1.0f, 0.8f));
+        renderer.strokeColor(UITheme::kModRing);
         renderer.strokeWidth(4.0f);
         renderer.beginPath();
         if (mModulationAmount > 0) {

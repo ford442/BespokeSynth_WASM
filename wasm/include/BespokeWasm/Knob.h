@@ -93,6 +93,12 @@ public:
     // Sensitivity
     void setSensitivity(float sensitivity) { mSensitivity = sensitivity; }
 
+    // Value display labeling (name + live formatted value)
+    void setUnit(const std::string& unit) { mUnit = unit; }
+    const std::string& getUnit() const { return mUnit; }
+    void setDisplayPrecision(int precision) { mDisplayPrecision = precision; }
+    std::string getDisplayString() const;   // e.g. "440 Hz" or "0.75"
+
 private:
     void renderClassicKnob(WebGPURenderer& renderer, float x, float y, float size);
     void renderVintageKnob(WebGPURenderer& renderer, float x, float y, float size);
@@ -110,9 +116,9 @@ private:
     float mMax = 1.0f;
     
     KnobStyle mStyle = KnobStyle::Classic;
-    Color mBackgroundColor{0.2f, 0.2f, 0.2f, 1.0f};
-    Color mForegroundColor{0.7f, 0.7f, 0.7f, 1.0f};
-    Color mIndicatorColor{0.3f, 0.8f, 0.4f, 1.0f};
+    Color mBackgroundColor{0.22f, 0.22f, 0.24f, 1.0f};  // UITheme::kKnobBg
+    Color mForegroundColor{0.75f, 0.76f, 0.78f, 1.0f}; // UITheme::kKnobFg
+    Color mIndicatorColor{0.95f, 0.96f, 0.98f, 1.0f};  // UITheme::kKnobIndicator
     
     bool mBipolar = false;
     bool mDragging = false;
@@ -129,6 +135,10 @@ private:
     // Animation
     float mAnimatedValue = 0.5f;
     float mAnimationSpeed = 0.1f;
+
+    // Value formatting for labels
+    std::string mUnit;
+    int mDisplayPrecision = 2;
 };
 
 } // namespace wasm

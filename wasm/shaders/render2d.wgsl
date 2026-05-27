@@ -1,7 +1,17 @@
 // BespokeSynth WASM - 2D Rendering Shader
 // WebGPU Shading Language (WGSL)
+//
+// NOTE: The canonical shader source for the WASM build lives as the
+// kRender2DShader string literal inside WebGPURenderer.cpp (embedded at runtime).
+// Keep this .wgsl in sync for documentation / reference builds.
+//
+// Recent improvements (high-impact GUI polish):
+// - Extended 5x7 pixel font with full lowercase a-z + symbols (.,:;/-+()%) for better labels.
+// - UITheme colors adopted across knobs, panels, text, and values.
+// - Knob labels now include live formatted values with cyan accent.
+// - Value arcs + tip dots on knobs for precise tactile feedback.
 
-// Mathematical constants
+ // Mathematical constants
 const PI: f32 = 3.14159265;
 const TWO_PI: f32 = 6.28318530;
 const HALF_PI: f32 = 1.57079632;

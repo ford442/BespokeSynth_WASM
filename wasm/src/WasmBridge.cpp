@@ -11,6 +11,7 @@
 #include "SDL2AudioBackend.h"
 #include "ModuleCanvas.h"
 #include "Knob.h"
+#include "BespokeWasm/Theme.h"
 #include <cstdio>
 #include <string>
 #include <memory>
@@ -612,6 +613,7 @@ static void renderDemoPanels()
 
    // Panel title
    gRenderer->fillColor(Color(0.8f, 0.8f, 0.85f, 1.0f));
+   gRenderer->fillColor(UITheme::kTextPrimary);
    gRenderer->fontSize(16.0f);
    gRenderer->text(panelX + 15, panelY + 25, panelNames[gCurrentPanel]);
 
@@ -624,22 +626,34 @@ static void renderDemoPanels()
          float sliderX = panelX + 30;
          float sliderY = panelY + 50;
 
-         gRenderer->fillColor(Color(0.5f, 0.5f, 0.55f, 1.0f));
+         // Mixer sliders - now with live value labels (theme + extended font)
+         gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(sliderX, sliderY - 10, "Channel 1");
          gRenderer->drawSlider(sliderX, sliderY, 200, 20, 0.6f,
-                               Color(0.25f, 0.25f, 0.28f, 1.0f),
-                               Color(0.4f, 0.7f, 0.5f, 1.0f));
+                               UITheme::kBgTrack, UITheme::kAccentGreen);
 
+         // Value label (high-impact addition)
+         char vbuf[16]; snprintf(vbuf, sizeof(vbuf), "%.2f", 0.6f);
+         gRenderer->fillColor(UITheme::kTextValue);
+         gRenderer->fontSize(10.0f);
+         gRenderer->text(sliderX + 205, sliderY + 5, vbuf);
+
+         gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->text(sliderX, sliderY + 40, "Channel 2");
          gRenderer->drawSlider(sliderX, sliderY + 50, 200, 20, 0.3f,
-                               Color(0.25f, 0.25f, 0.28f, 1.0f),
-                               Color(0.5f, 0.6f, 0.9f, 1.0f));
+                               UITheme::kBgTrack, UITheme::kAccentCyan);
+         snprintf(vbuf, sizeof(vbuf), "%.2f", 0.3f);
+         gRenderer->fillColor(UITheme::kTextValue);
+         gRenderer->text(sliderX + 205, sliderY + 55, vbuf);
 
+         gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->text(sliderX, sliderY + 90, "Master");
          gRenderer->drawSlider(sliderX, sliderY + 100, 200, 20, 0.8f,
-                               Color(0.25f, 0.25f, 0.28f, 1.0f),
-                               Color(0.9f, 0.5f, 0.3f, 1.0f));
+                               UITheme::kBgTrack, UITheme::kAccentMagenta);
+         snprintf(vbuf, sizeof(vbuf), "%.2f", 0.8f);
+         gRenderer->fillColor(UITheme::kTextValue);
+         gRenderer->text(sliderX + 205, sliderY + 105, vbuf);
 
          // Draw VU meters
          float vuX = panelX + panelW - 120;
@@ -668,25 +682,27 @@ static void renderDemoPanels()
 
          gRenderer->fillColor(Color(0.5f, 0.5f, 0.55f, 1.0f));
          gRenderer->fontSize(12.0f);
+         // Effects - labels + values (theme colors, extended font support)
+         gRenderer->fillColor(UITheme::kTextPrimary);
+         gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY - 10, "Reverb Mix");
-         gRenderer->drawSlider(effectX, effectY, 250, 20, 0.4f,
-                               Color(0.25f, 0.25f, 0.28f, 1.0f),
-                               Color(0.6f, 0.3f, 0.8f, 1.0f));
+         gRenderer->drawSlider(effectX, effectY, 250, 20, 0.4f, UITheme::kBgTrack, UITheme::kAccentMagenta);
+         { char v[16]; snprintf(v, sizeof(v), "%.2f", 0.4f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 5, v); }
 
+         gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->text(effectX, effectY + 40, "Delay Time");
-         gRenderer->drawSlider(effectX, effectY + 50, 250, 20, 0.5f,
-                               Color(0.25f, 0.25f, 0.28f, 1.0f),
-                               Color(0.8f, 0.6f, 0.3f, 1.0f));
+         gRenderer->drawSlider(effectX, effectY + 50, 250, 20, 0.5f, UITheme::kBgTrack, UITheme::kAccentAmber);
+         { char v[16]; snprintf(v, sizeof(v), "%.2f", 0.5f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 55, v); }
 
+         gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->text(effectX, effectY + 90, "Chorus Depth");
-         gRenderer->drawSlider(effectX, effectY + 100, 250, 20, 0.7f,
-                               Color(0.25f, 0.25f, 0.28f, 1.0f),
-                               Color(0.3f, 0.8f, 0.8f, 1.0f));
+         gRenderer->drawSlider(effectX, effectY + 100, 250, 20, 0.7f, UITheme::kBgTrack, UITheme::kAccentCyan);
+         { char v[16]; snprintf(v, sizeof(v), "%.2f", 0.7f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 105, v); }
 
+         gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->text(effectX, effectY + 140, "Distortion");
-         gRenderer->drawSlider(effectX, effectY + 150, 250, 20, 0.2f,
-                               Color(0.25f, 0.25f, 0.28f, 1.0f),
-                               Color(0.9f, 0.3f, 0.3f, 1.0f));
+         gRenderer->drawSlider(effectX, effectY + 150, 250, 20, 0.2f, UITheme::kBgTrack, UITheme::kAccentMagenta);
+         { char v[16]; snprintf(v, sizeof(v), "%.2f", 0.2f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 155, v); }
 
          // Draw effect visualizer
          float vizX = panelX + panelW - 200;
