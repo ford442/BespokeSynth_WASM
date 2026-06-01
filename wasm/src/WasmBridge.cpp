@@ -123,7 +123,10 @@ struct ControlInfoEntry {
 static std::vector<ControlInfoEntry> gControlInfoCache;
 
 // Runtime theme – one global instance used by bespoke_set_theme_color().
-bespoke::wasm::RuntimeTheme gRuntimeTheme;
+// Defines the instance declared 'extern' in BespokeWasm/Theme.h, so it must
+// live in the bespoke::wasm namespace (otherwise an unqualified reference is
+// ambiguous between this global and the namespaced declaration).
+namespace bespoke { namespace wasm { RuntimeTheme gRuntimeTheme; } }
 
 // RuntimeTheme::resolve() – returns the override if active, else UITheme default.
 bespoke::wasm::Color bespoke::wasm::RuntimeTheme::resolve(bespoke::wasm::ThemeColorId id) const
