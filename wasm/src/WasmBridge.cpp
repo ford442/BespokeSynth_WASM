@@ -13,6 +13,7 @@
 #include "Knob.h"
 #include "BespokeWasm/Theme.h"
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <memory>
 #include <vector>
@@ -64,6 +65,8 @@ static std::vector<std::unique_ptr<Knob>> gKnobs;
 
 // Modular canvas
 static std::unique_ptr<bespoke::wasm::ModuleCanvas> gCanvas;
+static int gOscillatorModuleId = -1;
+static int gGainModuleId = -1;
 
 // View modes: 0 = modular canvas (default), 1 = legacy demo panels
 static int gViewMode = 0;
@@ -156,56 +159,75 @@ bespoke::wasm::Color bespoke::wasm::RuntimeTheme::resolve(bespoke::wasm::ThemeCo
    }
 }
 
-// Audio callback for demo (thread-safe)
+// Audio callback — generates oscillator tone gated by transport playing state
 static void audioCallback(const float* const* input, float* const* output,
                           int numInputChannels, int numOutputChannels, int numSamples)
 {
-   // Mark that audio callback is active
    gAudioCallbackActive.store(true);
 
-   // Safety bounds
    if (numOutputChannels <= 0 || numSamples <= 0 || !output)
    {
       gAudioCallbackActive.store(false);
       return;
    }
 
-   // Limit channels to prevent overflow (stereo max)
    const int maxChannels = 2;
    int channels = (numOutputChannels > maxChannels) ? maxChannels : numOutputChannels;
 
-   // Simple demo: generate a sine wave with frequency controlled by first knob
-   static float phase = 0.0f;
-   float frequency = 440.0f;
+   // Silence all channels, then fill if playing
+   for (int ch = 0; ch < channels; ch++)
+      if (output[ch])
+         memset(output[ch], 0, numSamples * sizeof(float));
 
-   // Thread-safe read of knob value – knob range is now 100–900 Hz directly
-   if (gInitialized && !gKnobs.empty())
+   // Only generate audio when transport is playing
+   bool isPlaying = false;
+   if (gCanvas && gCanvas->getTransport())
+      isPlaying = gCanvas->getTransport()->isPlaying();
+
+   if (!isPlaying)
+   {
+      gAudioCallbackActive.store(false);
+      return;
+   }
+
+   // Frequency from oscillator module, fallback to first knob
+   float frequency = 440.0f;
+   if (gCanvas && gOscillatorModuleId >= 0)
+   {
+      auto* osc = gCanvas->getModule(gOscillatorModuleId);
+      if (osc)
+         frequency = osc->getControlValue("frequency");
+   }
+   else if (gInitialized && !gKnobs.empty())
    {
       frequency = gKnobs[0]->getValue();
    }
 
+   // Gain from gain module, fallback to 1.0
+   float gain = 1.0f;
+   if (gCanvas && gGainModuleId >= 0)
+   {
+      auto* gainMod = gCanvas->getModule(gGainModuleId);
+      if (gainMod)
+         gain = gainMod->getControlValue("gain");
+   }
+
    float sampleRate = gAudioBackend ? gAudioBackend->getSampleRate() : 44100;
    float phaseInc = 2.0f * 3.14159265f * frequency / sampleRate;
+   static float phase = 0.0f;
 
    for (int i = 0; i < numSamples; i++)
    {
-      float sample = sinf(phase) * 0.3f; // Low amplitude for safety
+      float sample = sinf(phase) * 0.3f * gain;
       phase += phaseInc;
       if (phase > 2.0f * 3.14159265f)
-      {
          phase -= 2.0f * 3.14159265f;
-      }
 
       for (int ch = 0; ch < channels; ch++)
-      {
-         if (output[ch]) // Null check for channel buffer
-         {
+         if (output[ch])
             output[ch][i] = sample;
-         }
-      }
    }
 
-   // Mark that audio callback is complete
    gAudioCallbackActive.store(false);
 }
 
@@ -411,6 +433,10 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                int oscId = gCanvas->createModule("oscillator", 100, 150);
                                                int gainId = gCanvas->createModule("gain", 320, 160);
                                                int outputId = gCanvas->createModule("output", 500, 170);
+
+                                               // Track module IDs for audio callback use
+                                               gOscillatorModuleId = oscId;
+                                               gGainModuleId = gainId;
 
                                                // Connect oscillator -> gain -> output
                                                if (oscId > 0 && gainId > 0 && outputId > 0)

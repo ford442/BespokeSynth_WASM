@@ -1326,7 +1326,7 @@ const FONT_COLS = array<u32, 425>(
 // charIndex: 0-58 = ASCII 32-90, 59-84 = a-z (lowercase support added)
 @fragment
 fn fs_pixel_text(input: VertexOutput) -> @location(0) vec4<f32> {
-    let charIdx = clamp(i32(floor(input.texcoord.x)), 0, 84);
+    let charIdx = clamp(i32(floor(input.texcoord.x)), 0, 58);
     let localX = fract(input.texcoord.x);
 
     let px = clamp(i32(localX * 5.0), 0, 4);
@@ -1998,13 +1998,12 @@ void WebGPURenderer::text(float x, float y, const char* string) {
         unsigned char c = static_cast<unsigned char>(string[i]);
         int charIdx = 0;
 
-        if (c >= 'a' && c <= 'z') {
-            // Lowercase now supported via extended font table (a=59 ... z=84)
-            charIdx = 59 + (c - 'a');
-        } else if (c >= 32 && c <= 90) {
+        // Map lowercase to uppercase — the font table only has glyphs for ASCII 32-90
+        if (c >= 'a' && c <= 'z') c -= 32;
+
+        if (c >= 32 && c <= 90) {
             charIdx = c - 32;
         } else {
-            // Treat everything else as space
             charIdx = 0; // space
             currentX += charWidth + charSpacing;
             continue;
