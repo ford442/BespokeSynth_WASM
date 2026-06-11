@@ -428,28 +428,26 @@ bool WebGL2Renderer::initialize()
 #else
     printf("WebGL2Renderer: Initializing...\n");
 
-    // Compile programs
-    auto vert = compileShader(GL_VERTEX_SHADER, kGL2VertexShader);
-    if (!vert) return false;
-
+    // Compile the shared vertex shader once; each program links its own copy
+    // (GL requires a separate compiled shader object per link, but we can
+    // reuse the source text by compiling fresh instances cheaply).
     auto buildProg = [&](const char* fragSrc) -> GLuint {
-        auto v = compileShader(GL_VERTEX_SHADER, kGL2VertexShader);
-        auto f = compileShader(GL_FRAGMENT_SHADER, fragSrc);
+        GLuint v = compileShader(GL_VERTEX_SHADER, kGL2VertexShader);
+        if (!v) return 0;
+        GLuint f = compileShader(GL_FRAGMENT_SHADER, fragSrc);
         return linkProgram(v, f);
     };
 
-    (void)vert;
     mProgSolid     = buildProg(kGL2FragSolid);
+    if (!mProgSolid) { printf("WebGL2Renderer: Failed to compile solid shader.\n"); return false; }
+
     mProgPixelText = buildProg(kGL2FragPixelText);
+    if (!mProgPixelText) { printf("WebGL2Renderer: Failed to compile pixel-text shader.\n"); return false; }
+
     mProgKnob      = buildProg(kGL2FragKnob);
     mProgSlider    = buildProg(kGL2FragSlider);
     mProgCable     = buildProg(kGL2FragCable);
     mProgVU        = buildProg(kGL2FragVU);
-
-    if (!mProgSolid || !mProgPixelText) {
-        printf("WebGL2Renderer: Failed to compile core shader programs.\n");
-        return false;
-    }
 
     // Create VAO + VBO
     glGenVertexArrays(1, &mVAO);
@@ -924,22 +922,21 @@ void WebGL2Renderer::text(float x, float y, const char* str)
     float curX = x;
     for (size_t i = 0; str[i]; i++) {
         unsigned char ch = static_cast<unsigned char>(str[i]);
-        int charIdx = 0;
-        if (ch >= 'a' && ch <= 'z') {
-            charIdx = 59 + (ch - 'a');
-        } else if (ch >= 32 && ch <= 90) {
-            charIdx = ch - 32;
-        } else if (ch == ' ' || ch < 32) {
-            curX += charWidth + charSpacing;
-            continue;
-        } else {
-            curX += charWidth + charSpacing;
-            continue;
-        }
-        if (ch == ' ') { curX += charWidth + charSpacing; continue; }
 
-        renderGlyph(curX, y, charIdx, charWidth, charHeight, c);
+        // Determine glyph index; unknown or non-printable characters → skip (advance only)
+        int charIdx = -1;
+        if (ch >= 'a' && ch <= 'z') {
+            charIdx = 59 + (ch - 'a');        // lowercase a-z → indices 59-84
+        } else if (ch >= 32 && ch <= 90) {
+            charIdx = ch - 32;                 // space + punctuation + digits + A-Z → 0-58
+        }
+        // ASCII 91-96: [, \, ], ^, _, ` — no glyph; advance only
+        // ASCII 91-96 falls through to the advance below
+
         curX += charWidth + charSpacing;
+        if (charIdx < 0) continue;
+        // Render the glyph at the position before advancing (so we pass the pre-advance x)
+        renderGlyph(curX - charWidth - charSpacing, y, charIdx, charWidth, charHeight, c);
     }
 
 #ifdef __EMSCRIPTEN__

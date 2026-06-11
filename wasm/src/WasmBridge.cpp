@@ -331,6 +331,10 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                gContext->resize(gWidth, gHeight);
 
                                                // Initialize renderer (backend chosen by gRendererBackendPref)
+                                               // Note: Auto (0) currently behaves the same as WebGPU (1) because
+                                               // automatic fallback to WebGL2 on WebGPU init failure is not yet
+                                               // implemented.  Call bespoke_set_renderer_backend(2) before
+                                               // bespoke_init() to explicitly request the WebGL2 path.
                                                printf("WasmBridge: Initializing renderer...\n");
                                                reportInitProgress("renderer_init", "Creating shader pipelines...");
                                                if (gRendererBackendPref == static_cast<int>(bespoke::wasm::RendererBackend::WebGL2)) {
@@ -612,7 +616,7 @@ static void renderDemoPanels()
    // Draw title
    gRenderer->fillColor(Color(0.9f, 0.9f, 0.95f, 1.0f));
    gRenderer->fontSize(24.0f);
-   gRenderer->text(20, 40, "BespokeSynth WASM - WebGPU Demo");
+   gRenderer->text(20, 40, "BespokeSynth WASM");
 
    // Draw panel tabs
    float tabY = 70.0f;
@@ -1496,7 +1500,11 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_renderer_backend(void)
  */
 EMSCRIPTEN_KEEPALIVE uint8_t* bespoke_capture_frame(int* outWidth, int* outHeight)
 {
-   if (!gRenderer || !outWidth || !outHeight) return nullptr;
+   if (!outWidth || !outHeight) return nullptr;
+   // Pre-zero so that a nullptr return always produces valid (0,0) dimensions.
+   *outWidth  = 0;
+   *outHeight = 0;
+   if (!gRenderer) return nullptr;
    int w = 0, h = 0;
    uint8_t* pixels = gRenderer->captureFrame(w, h);
    *outWidth  = w;

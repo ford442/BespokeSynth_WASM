@@ -106,7 +106,13 @@ export enum PanelType {
 }
 
 /**
- * Renderer backend selection
+ * Renderer backend selection.
+ * Pass to bespoke_set_renderer_backend() BEFORE calling bespoke_init().
+ *
+ * Auto   — defaults to WebGPU. No automatic WebGL2 fallback in this version.
+ * WebGPU — force the WebGPU rendering path (requires Chrome/Edge 113+).
+ * WebGL2 — force the WebGL2 rendering path (broader browser compatibility,
+ *           supports synchronous canvas screenshot via captureFrame).
  */
 export enum RendererBackend {
     Auto   = 0,

@@ -2007,18 +2007,15 @@ void WebGPURenderer::text(float x, float y, const char* string) {
         int charIdx = 0;
 
         // Map to font table index:
-        //   ASCII 32-90  → indices 0-58  (space, punctuation, digits, uppercase)
+        //   ASCII 32-90  → indices 0-58  (space, punctuation, digits, uppercase A-Z)
         //   ASCII 97-122 → indices 59-84 (lowercase a-z)
+        //   ASCII 91-96 ([ \ ] ^ _ `) have no glyph; advance without rendering.
         if (c >= 'a' && c <= 'z') {
             charIdx = 59 + (c - 'a');
         } else if (c >= 32 && c <= 90) {
             charIdx = c - 32;
-        } else if (c >= 91 && c <= 96) {
-            // [ \ ] ^ _ ` — map to uppercase range with offset
-            charIdx = c - 32;
-            if (charIdx > 58) charIdx = 0; // space fallback
         } else {
-            // Unsupported character — render as space
+            // Unsupported character — advance only (render as space)
             currentX += charWidth + charSpacing;
             continue;
         }

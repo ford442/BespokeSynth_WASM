@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "WebGPURenderer.h"
+#include "IRenderer.h"
 #include <string>
 #include <functional>
 
@@ -38,7 +38,7 @@ public:
     ~Knob() = default;
 
     // Rendering
-    void render(WebGPURenderer& renderer, float x, float y, float size);
+    void render(IRenderer& renderer, float x, float y, float size);
 
     // Value access
     float getValue() const { return mValue; }
@@ -94,11 +94,11 @@ public:
     void setSensitivity(float sensitivity) { mSensitivity = sensitivity; }
 
 private:
-    void renderClassicKnob(WebGPURenderer& renderer, float x, float y, float size);
-    void renderVintageKnob(WebGPURenderer& renderer, float x, float y, float size);
-    void renderModernKnob(WebGPURenderer& renderer, float x, float y, float size);
-    void renderLEDKnob(WebGPURenderer& renderer, float x, float y, float size);
-    void renderMinimalKnob(WebGPURenderer& renderer, float x, float y, float size);
+    void renderClassicKnob(IRenderer& renderer, float x, float y, float size);
+    void renderVintageKnob(IRenderer& renderer, float x, float y, float size);
+    void renderModernKnob(IRenderer& renderer, float x, float y, float size);
+    void renderLEDKnob(IRenderer& renderer, float x, float y, float size);
+    void renderMinimalKnob(IRenderer& renderer, float x, float y, float size);
 
     float valueToAngle(float value) const;
     void notifyValueChanged();
