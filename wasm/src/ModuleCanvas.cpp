@@ -14,6 +14,16 @@
 namespace bespoke {
    namespace wasm {
 
+      namespace {
+         static void formatFrequency(char* buffer, size_t bufferSize, float hz)
+         {
+            if (hz >= 1000.0f)
+               snprintf(buffer, bufferSize, "%.2f kHz", hz / 1000.0f);
+            else
+               snprintf(buffer, bufferSize, "%.0f Hz", hz);
+         }
+      } // namespace
+
       // ============================================================
       // Module base class
       // ============================================================
@@ -108,8 +118,6 @@ namespace bespoke {
 
       void Module::renderPorts(WebGPURenderer& renderer, float screenX, float screenY, float scale)
       {
-         float portSpacing = 15.0f * scale;
-
          // Input ports on the left
          for (size_t i = 0; i < mInputs.size(); i++)
          {
@@ -169,6 +177,11 @@ namespace bespoke {
             renderer.fillColor(portColor);
             renderer.circle(px, py, kPortRadius * scale);
             renderer.fill();
+
+            renderer.fillColor(UITheme::kTextSecondary);
+            renderer.fontSize(9.0f * scale);
+            float labelWidth = renderer.textWidth(mOutputs[i].name.c_str());
+            renderer.text(px - 8 * scale - labelWidth, py + 3 * scale, mOutputs[i].name.c_str());
          }
       }
 
@@ -203,9 +216,9 @@ namespace bespoke {
          : Module(id, "oscillator", "Oscillator", ModuleCategory::Synth)
       {
          setSize(160, 110);
-         addInput("note", PortType::Note);
-         addInput("mod", PortType::Modulation);
-         addOutput("audio", PortType::Audio);
+         addInput("Pitch", PortType::Note);
+         addInput("Mod", PortType::Modulation);
+         addOutput("Audio", PortType::Audio);
       }
 
       void OscillatorModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
@@ -216,25 +229,32 @@ namespace bespoke {
          float screenY = (mY + offsetY) * scale;
 
          // Draw frequency display
-         float contentY = screenY + kTitleBarHeight * scale + 25 * scale;
-         renderer.fillColor(Color(0.7f, 0.7f, 0.75f, 1.0f));
+         float contentX = screenX + 36 * scale;
+         float contentY = screenY + kTitleBarHeight * scale + 17 * scale;
+         renderer.fillColor(UITheme::kTextPrimary);
          renderer.fontSize(10.0f * scale);
 
          char freqText[32];
-         snprintf(freqText, sizeof(freqText), "%.1f Hz", mFrequency);
+         formatFrequency(freqText, sizeof(freqText), mFrequency);
          renderer.fillColor(UITheme::kTextValue);
-         renderer.text(screenX + 10 * scale, contentY, freqText);
+         renderer.text(contentX, contentY, freqText);
 
          // Draw waveform indicator
-         const char* waveNames[] = { "Sine", "Saw", "Square", "Tri" };
+         const char* waveNames[] = { "Sine", "Saw", "Square", "Triangle" };
          renderer.fillColor(UITheme::kTextPrimary);
-         renderer.text(screenX + 10 * scale, contentY + 15 * scale, waveNames[mWaveform % 4]);
+         renderer.text(contentX, contentY + 13 * scale, waveNames[mWaveform % 4]);
+
+         char levelText[32];
+         snprintf(levelText, sizeof(levelText), "Level: %.0f%%", mVolume * 100.0f);
+         renderer.fillColor(UITheme::kTextSecondary);
+         renderer.fontSize(9.0f * scale);
+         renderer.text(contentX, contentY + 25 * scale, levelText);
 
          // Draw mini waveform preview
-         float wfX = screenX + 10 * scale;
-         float wfY = contentY + 25 * scale;
-         float wfW = 60 * scale;
-         float wfH = 25 * scale;
+         float wfX = contentX;
+         float wfY = contentY + 31 * scale;
+         float wfW = 95 * scale;
+         float wfH = 16 * scale;
 
          renderer.strokeColor(Color(0.3f, 0.8f, 0.5f, 0.8f));
          renderer.strokeWidth(1.5f * scale);
@@ -278,9 +298,9 @@ namespace bespoke {
          : Module(id, "gain", "Gain", ModuleCategory::AudioEffect)
       {
          setSize(120, 80);
-         addInput("audio", PortType::Audio);
-         addInput("mod", PortType::Modulation);
-         addOutput("audio", PortType::Audio);
+         addInput("In", PortType::Audio);
+         addInput("Mod", PortType::Modulation);
+         addOutput("Out", PortType::Audio);
       }
 
       void GainModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
@@ -291,9 +311,9 @@ namespace bespoke {
          float screenY = (mY + offsetY) * scale;
 
          // Draw gain slider
-         float sliderX = screenX + 10 * scale;
+         float sliderX = screenX + 20 * scale;
          float sliderY = screenY + (kTitleBarHeight + 20) * scale;
-         float sliderW = 100 * scale;
+         float sliderW = 80 * scale;
          float sliderH = 16 * scale;
 
          renderer.drawSlider(sliderX, sliderY, sliderW, sliderH,
@@ -303,7 +323,7 @@ namespace bespoke {
 
          char gainText[16];
          snprintf(gainText, sizeof(gainText), "%.1f dB", 20.0f * log10f(mGain + 0.001f));
-         renderer.fillColor(Color(0.7f, 0.7f, 0.75f, 1.0f));
+         renderer.fillColor(UITheme::kTextValue);
          renderer.fontSize(9.0f * scale);
          renderer.text(sliderX, sliderY + sliderH + 10 * scale, gainText);
       }
@@ -329,7 +349,7 @@ namespace bespoke {
          : Module(id, "output", "Output", ModuleCategory::Other)
       {
          setSize(120, 90);
-         addInput("audio", PortType::Audio);
+         addInput("In", PortType::Audio);
       }
 
       void OutputModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
@@ -352,7 +372,7 @@ namespace bespoke {
                               Color(0.2f, 0.8f, 0.3f, 1.0f),
                               Color(1.0f, 0.2f, 0.1f, 1.0f));
 
-         renderer.fillColor(Color(0.6f, 0.6f, 0.65f, 1.0f));
+         renderer.fillColor(UITheme::kTextSecondary);
          renderer.fontSize(9.0f * scale);
          renderer.text(meterX, meterY + 50 * scale, "L    R");
       }
@@ -365,9 +385,9 @@ namespace bespoke {
          : Module(id, "filter", "Filter", ModuleCategory::AudioEffect)
       {
          setSize(150, 100);
-         addInput("audio", PortType::Audio);
-         addInput("cutoff", PortType::Modulation);
-         addOutput("audio", PortType::Audio);
+         addInput("In", PortType::Audio);
+         addInput("Cutoff", PortType::Modulation);
+         addOutput("Out", PortType::Audio);
       }
 
       void FilterModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
@@ -377,26 +397,29 @@ namespace bespoke {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
 
-         float contentY = screenY + kTitleBarHeight * scale + 20 * scale;
-         renderer.fillColor(Color(0.7f, 0.7f, 0.75f, 1.0f));
+         float contentX = screenX + 36 * scale;
+         float contentY = screenY + kTitleBarHeight * scale + 14 * scale;
+         renderer.fillColor(UITheme::kTextSecondary);
          renderer.fontSize(9.0f * scale);
 
-         const char* typeNames[] = { "LPF", "HPF", "BPF" };
-         renderer.text(screenX + 10 * scale, contentY, typeNames[mType % 3]);
+         const char* typeNames[] = { "Low-pass", "High-pass", "Band-pass" };
+         renderer.text(contentX, contentY, typeNames[mType % 3]);
 
          char cutText[32];
-         snprintf(cutText, sizeof(cutText), "%.0f Hz", mCutoff);
-         renderer.text(screenX + 10 * scale, contentY + 14 * scale, cutText);
+         formatFrequency(cutText, sizeof(cutText), mCutoff);
+         renderer.fillColor(UITheme::kTextValue);
+         renderer.text(contentX, contentY + 14 * scale, cutText);
 
          char resText[32];
-         snprintf(resText, sizeof(resText), "Q: %.2f", mResonance);
-         renderer.text(screenX + 10 * scale, contentY + 28 * scale, resText);
+         snprintf(resText, sizeof(resText), "Resonance: %.2f", mResonance);
+         renderer.fillColor(UITheme::kTextSecondary);
+         renderer.text(contentX, contentY + 26 * scale, resText);
 
          // Simple filter response curve
-         float curveX = screenX + 10 * scale;
-         float curveY = contentY + 40 * scale;
-         float curveW = 80 * scale;
-         float curveH = 20 * scale;
+         float curveX = contentX;
+         float curveY = contentY + 34 * scale;
+         float curveW = 96 * scale;
+         float curveH = 16 * scale;
 
          renderer.strokeColor(Color(0.8f, 0.5f, 0.2f, 0.8f));
          renderer.strokeWidth(1.5f * scale);
@@ -441,7 +464,7 @@ namespace bespoke {
          : Module(id, "lfo", "LFO", ModuleCategory::Modulator)
       {
          setSize(130, 90);
-         addOutput("mod", PortType::Modulation);
+         addOutput("Out", PortType::Modulation);
       }
 
       void LFOModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
@@ -451,19 +474,28 @@ namespace bespoke {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
 
-         float contentY = screenY + kTitleBarHeight * scale + 15 * scale;
-         renderer.fillColor(Color(0.7f, 0.7f, 0.75f, 1.0f));
+         float contentX = screenX + 10 * scale;
+         float contentY = screenY + kTitleBarHeight * scale + 13 * scale;
+         renderer.fillColor(UITheme::kTextSecondary);
          renderer.fontSize(9.0f * scale);
 
          char rateText[32];
          snprintf(rateText, sizeof(rateText), "Rate: %.2f Hz", mRate);
-         renderer.text(screenX + 10 * scale, contentY, rateText);
+         renderer.text(contentX, contentY, rateText);
+
+         const char* shapeNames[] = { "Sine", "Triangle", "Square", "Saw" };
+         char depthText[32];
+         snprintf(depthText, sizeof(depthText), "Depth: %.0f%%", mDepth * 100.0f);
+         renderer.fillColor(UITheme::kTextValue);
+         renderer.text(contentX, contentY + 12 * scale, depthText);
+         renderer.fillColor(UITheme::kTextSecondary);
+         renderer.text(contentX, contentY + 24 * scale, shapeNames[mShape % 4]);
 
          // Draw LFO waveform
-         float wfX = screenX + 10 * scale;
-         float wfY = contentY + 15 * scale;
-         float wfW = 80 * scale;
-         float wfH = 30 * scale;
+         float wfX = contentX + 2 * scale;
+         float wfY = contentY + 30 * scale;
+         float wfW = 68 * scale;
+         float wfH = 18 * scale;
 
          renderer.strokeColor(Color(0.7f, 0.7f, 0.2f, 0.9f));
          renderer.strokeWidth(1.5f * scale);
@@ -554,26 +586,29 @@ namespace bespoke {
          // BPM display
          char bpmText[32];
          snprintf(bpmText, sizeof(bpmText), "%.1f BPM", mBPM);
-         renderer.fillColor(Color(0.9f, 0.9f, 0.95f, 1.0f));
-         renderer.fontSize(14.0f * scale);
-         renderer.text(btnX + 25 * scale, screenY + 26 * scale, bpmText);
+         renderer.fillColor(UITheme::kTextValue);
+         renderer.fontSize(13.0f * scale);
+         renderer.text(btnX + 24 * scale, screenY + 22 * scale, bpmText);
 
          // Time signature
          char timeSigText[16];
          snprintf(timeSigText, sizeof(timeSigText), "%d/%d", mTimeSigTop, mTimeSigBottom);
-         renderer.fillColor(Color(0.7f, 0.7f, 0.75f, 1.0f));
-         renderer.fontSize(11.0f * scale);
-         renderer.text(screenX + 140 * scale, screenY + 26 * scale, timeSigText);
+         renderer.fillColor(UITheme::kTextSecondary);
+         renderer.fontSize(10.0f * scale);
+         renderer.text(screenX + 135 * scale, screenY + 21 * scale, "Time Sig");
+         renderer.fillColor(UITheme::kTextPrimary);
+         renderer.text(screenX + 135 * scale, screenY + 33 * scale, timeSigText);
 
          // Swing
          char swingText[16];
-         snprintf(swingText, sizeof(swingText), "Sw:%.0f%%", mSwing * 100.0f);
-         renderer.text(screenX + 185 * scale, screenY + 26 * scale, swingText);
+         snprintf(swingText, sizeof(swingText), "Swing %.0f%%", mSwing * 100.0f);
+         renderer.fillColor(UITheme::kTextValue);
+         renderer.text(screenX + 182 * scale, screenY + 27 * scale, swingText);
 
          // Label
-         renderer.fillColor(Color(0.5f, 0.5f, 0.55f, 1.0f));
+         renderer.fillColor(UITheme::kTextSecondary);
          renderer.fontSize(9.0f * scale);
-         renderer.text(screenX + 10 * scale, screenY + 50 * scale, "Transport");
+         renderer.text(screenX + 10 * scale, screenY + 50 * scale, mPlaying ? "Transport: Playing" : "Transport: Stopped");
       }
 
       void TransportModule::setControlValue(const std::string& name, float value)
@@ -637,18 +672,24 @@ namespace bespoke {
          renderer.stroke();
 
          // Root note
-         renderer.fillColor(Color(0.9f, 0.9f, 0.95f, 1.0f));
-         renderer.fontSize(13.0f * scale);
-         renderer.text(screenX + 10 * scale, screenY + 22 * scale, kNoteNames[mRootNote % 12]);
+         renderer.fillColor(UITheme::kTextSecondary);
+         renderer.fontSize(10.0f * scale);
+         renderer.text(screenX + 10 * scale, screenY + 18 * scale, "Root");
+         renderer.fillColor(UITheme::kTextPrimary);
+         renderer.fontSize(12.0f * scale);
+         renderer.text(screenX + 10 * scale, screenY + 30 * scale, kNoteNames[mRootNote % 12]);
 
          // Scale type
-         renderer.fillColor(Color(0.7f, 0.7f, 0.75f, 1.0f));
+         renderer.fillColor(UITheme::kTextSecondary);
+         renderer.fontSize(10.0f * scale);
+         renderer.text(screenX + 45 * scale, screenY + 18 * scale, "Scale");
+         renderer.fillColor(UITheme::kTextPrimary);
          renderer.fontSize(11.0f * scale);
-         renderer.text(screenX + 35 * scale, screenY + 22 * scale, kScaleNames[mScaleType % 7]);
+         renderer.text(screenX + 45 * scale, screenY + 30 * scale, kScaleNames[mScaleType % 7]);
 
          // Piano keys visualization (mini)
          float keyX = screenX + 10 * scale;
-         float keyY = screenY + 35 * scale;
+         float keyY = screenY + 41 * scale;
          float keyW = 10 * scale;
          float keyH = 22 * scale;
 
@@ -674,10 +715,9 @@ namespace bespoke {
             renderer.fill();
          }
 
-         // Label
-         renderer.fillColor(Color(0.5f, 0.5f, 0.55f, 1.0f));
+         renderer.fillColor(UITheme::kTextSecondary);
          renderer.fontSize(9.0f * scale);
-         renderer.text(screenX + 140 * scale, screenY + 60 * scale, "Scale");
+         renderer.text(screenX + 108 * scale, screenY + 60 * scale, "Scale Quantizer");
       }
 
       void ScaleModule::setControlValue(const std::string& name, float value)
@@ -925,7 +965,7 @@ namespace bespoke {
          // Logo / title
          renderer.fillColor(Color(0.9f, 0.9f, 0.95f, 1.0f));
          renderer.fontSize(14.0f);
-         renderer.text(10, 26, "BespokeSynth");
+         renderer.text(10, 26, "BespokeSynth WASM");
 
          // Spawn menu buttons by category
          const char* catNames[] = {"Synth", "Audio FX", "Modulators", "Other"};
@@ -1070,12 +1110,12 @@ namespace bespoke {
          renderer.fillColor(Color(0.5f, 0.5f, 0.55f, 0.7f));
          renderer.fontSize(10.0f);
          char zoomText[32];
-         snprintf(zoomText, sizeof(zoomText), "%.0f%%", mScale * 100.0f);
-         renderer.text(static_cast<float>(viewWidth) - 50, static_cast<float>(viewHeight) - 15, zoomText);
+         snprintf(zoomText, sizeof(zoomText), "Zoom: %.0f%%", mScale * 100.0f);
+         renderer.text(static_cast<float>(viewWidth) - 95, static_cast<float>(viewHeight) - 15, zoomText);
 
          // Module count
          char countText[64];
-         snprintf(countText, sizeof(countText), "Modules: %d | Connections: %d",
+         snprintf(countText, sizeof(countText), "Modules: %d | Cables: %d",
                   static_cast<int>(mModules.size()), static_cast<int>(mConnections.size()));
          renderer.text(10, static_cast<float>(viewHeight) - 15, countText);
       }

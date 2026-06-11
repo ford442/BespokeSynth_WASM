@@ -77,6 +77,8 @@ std::string Knob::getDisplayString() const {
         } else {
             snprintf(buffer, sizeof(buffer), "%.0f Hz", v);
         }
+    } else if (mBipolar && mUnit.empty()) {
+        snprintf(buffer, sizeof(buffer), "%+.*f", mDisplayPrecision, v);
     } else if (mUnit == "%" || mUnit.empty()) {
         snprintf(buffer, sizeof(buffer), "%.*f%s", mDisplayPrecision, v * (mUnit == "%" ? 100.0f : 1.0f), mUnit.c_str());
     } else if (mUnit == "ms" || mUnit == "s") {

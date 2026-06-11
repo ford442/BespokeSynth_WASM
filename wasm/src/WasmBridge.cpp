@@ -18,6 +18,7 @@
 #include <memory>
 #include <vector>
 #include <atomic>
+#include <cmath>
 #include <emscripten.h>  // Required for emscripten_run_script
 
 // Key code constants
@@ -398,7 +399,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                Color(0.3f, 0.7f, 0.9f, 1.0f));
                                                gKnobs.push_back(std::move(knob2));
 
-                                               auto knob3 = std::make_unique<Knob>("Filter", 0.3f);
+                                               auto knob3 = std::make_unique<Knob>("Cutoff", 0.3f);
                                                knob3->setRange(20.0f, 20000.0f);
                                                knob3->setUnit("Hz");
                                                knob3->setDisplayPrecision(0);
@@ -574,10 +575,10 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
 
       char statusText[256];
       snprintf(statusText, sizeof(statusText),
-               "Audio: %s | %d Hz | Tab: switch view",
+               "Audio: %s | %d Hz | Tab: Legacy Panels",
                (gAudioBackend && gAudioBackend->isRunning()) ? "Running" : "Stopped",
                bespoke_get_sample_rate());
-      gRenderer->text(static_cast<float>(gWidth) - 280, static_cast<float>(gHeight) - 15, statusText);
+      gRenderer->text(static_cast<float>(gWidth) - 290, static_cast<float>(gHeight) - 15, statusText);
    }
    else
    {
@@ -601,7 +602,7 @@ static void renderDemoPanels()
    // Draw title
    gRenderer->fillColor(Color(0.9f, 0.9f, 0.95f, 1.0f));
    gRenderer->fontSize(24.0f);
-   gRenderer->text(20, 40, "BespokeSynth WASM - WebGPU Demo");
+   gRenderer->text(20, 40, "BespokeSynth WASM - Legacy Demo Panels");
 
    // Draw panel tabs
    float tabY = 70.0f;
@@ -744,31 +745,31 @@ static void renderDemoPanels()
          // Mixer sliders – live values driven by gKnobs
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
-         gRenderer->text(sliderX, sliderY - 10, "Channel 1");
+         gRenderer->text(sliderX, sliderY - 10, "Channel 1 Level");
          gRenderer->drawSlider(sliderX, sliderY, 200, 20, ch1Val,
                                UITheme::kBgTrack, UITheme::kAccentGreen);
 
-         char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%.2f", ch1Val);
+         char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%.0f%%", ch1Val * 100.0f);
          gRenderer->fillColor(UITheme::kTextValue);
          gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 5, vbuf);
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
-         gRenderer->text(sliderX, sliderY + 40, "Channel 2");
+         gRenderer->text(sliderX, sliderY + 40, "Channel 2 Pan");
          gRenderer->drawSlider(sliderX, sliderY + 50, 200, 20, ch2Val,
                                UITheme::kBgTrack, UITheme::kAccentCyan);
-         snprintf(vbuf, sizeof(vbuf), "%.2f", ch2Val);
+         snprintf(vbuf, sizeof(vbuf), "%.0f%%", ch2Val * 100.0f);
          gRenderer->fillColor(UITheme::kTextValue);
          gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 55, vbuf);
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
-         gRenderer->text(sliderX, sliderY + 90, "Master");
+         gRenderer->text(sliderX, sliderY + 90, "Master Level");
          gRenderer->drawSlider(sliderX, sliderY + 100, 200, 20, masterVal,
                                UITheme::kBgTrack, UITheme::kAccentMagenta);
-         snprintf(vbuf, sizeof(vbuf), "%.2f", masterVal);
+         snprintf(vbuf, sizeof(vbuf), "%.1f dB", 20.0f * log10f(masterVal + 0.001f));
          gRenderer->fillColor(UITheme::kTextValue);
          gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 105, vbuf);
@@ -799,34 +800,35 @@ static void renderDemoPanels()
          float effectY = panelY + 50;
 
          // Live values: Filter → Reverb Mix / Chorus Depth; Frequency → Delay Time; Pan → Distortion
-         float reverbMix     = knobNormalized(2);         // Filter knob normalised
+         float reverbMix     = knobNormalized(2);         // Cutoff knob normalised
          float delayTime     = knobNormalized(0);         // Frequency knob normalised
          float chorusDepth   = knobNormalized(1);         // Volume knob normalised
          float distortion    = 1.0f - knobNormalized(2); // Inverted filter
+         float delayMs = 50.0f + delayTime * 950.0f;
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY - 10, "Reverb Mix");
          gRenderer->drawSlider(effectX, effectY, 250, 20, reverbMix, UITheme::kBgTrack, UITheme::kAccentMagenta);
-         { char v[32]; snprintf(v, sizeof(v), "%.2f", reverbMix); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 5, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f%%", reverbMix * 100.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 5, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 40, "Delay Time");
          gRenderer->drawSlider(effectX, effectY + 50, 250, 20, delayTime, UITheme::kBgTrack, UITheme::kAccentAmber);
-         { char v[32]; snprintf(v, sizeof(v), "%.2f", delayTime); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 55, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f ms", delayMs); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 55, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 90, "Chorus Depth");
          gRenderer->drawSlider(effectX, effectY + 100, 250, 20, chorusDepth, UITheme::kBgTrack, UITheme::kAccentCyan);
-         { char v[32]; snprintf(v, sizeof(v), "%.2f", chorusDepth); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 105, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f%%", chorusDepth * 100.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 105, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
-         gRenderer->text(effectX, effectY + 140, "Distortion");
+         gRenderer->text(effectX, effectY + 140, "Distortion Drive");
          gRenderer->drawSlider(effectX, effectY + 150, 250, 20, distortion, UITheme::kBgTrack, UITheme::kAccentMagenta);
-         { char v[32]; snprintf(v, sizeof(v), "%.2f", distortion); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 155, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f%%", distortion * 100.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 155, v); }
 
          // Draw effect visualizer
          float vizX = panelX + panelW - 200;
@@ -871,7 +873,7 @@ static void renderDemoPanels()
          gRenderer->drawSlider(seqX, seqY, 150, 20, bpmNorm,
                                Color(0.25f, 0.25f, 0.28f, 1.0f),
                                Color(0.5f, 0.8f, 0.4f, 1.0f));
-         { char v[32]; snprintf(v, sizeof(v), "%.0f", bpmDisplay); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(seqX + 155, seqY + 5, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f BPM", bpmDisplay); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(seqX + 155, seqY + 5, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
@@ -892,7 +894,7 @@ static void renderDemoPanels()
          const int NUM_ROWS = 4;
          const int STEP_PATTERN_INTERVAL = 3; // Pattern interval for demo
 
-         gRenderer->text(gridX, gridY - 10, "Step Sequencer (16 steps x 4 notes)");
+         gRenderer->text(gridX, gridY - 10, "Step Sequencer (16 steps x 4 lanes)");
 
          for (int row = 0; row < NUM_ROWS; row++)
          {
@@ -932,18 +934,18 @@ static void renderDemoPanels()
 
    char statusText[256];
    snprintf(statusText, sizeof(statusText),
-            "Sample Rate: %d Hz | Buffer: %d | Audio: %s | Panel: %s",
-            bespoke_get_sample_rate(),
-            bespoke_get_buffer_size(),
-            (gAudioBackend && gAudioBackend->isRunning()) ? "Running" : "Stopped",
-            panelNames[gCurrentPanel]);
+           "Legacy Panel: %s | Sample Rate: %d Hz | Buffer: %d | Audio: %s",
+           panelNames[gCurrentPanel],
+           bespoke_get_sample_rate(),
+           bespoke_get_buffer_size(),
+           (gAudioBackend && gAudioBackend->isRunning()) ? "Running" : "Stopped");
 
    gRenderer->text(20, static_cast<float>(gHeight) - 20, statusText);
 
    // View switch hint
    gRenderer->fillColor(Color(0.5f, 0.5f, 0.55f, 0.7f));
    gRenderer->fontSize(10.0f);
-   gRenderer->text(static_cast<float>(gWidth) - 150, 20, "Tab: Modular Canvas");
+   gRenderer->text(static_cast<float>(gWidth) - 165, 20, "Tab: Module Canvas");
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_resize(int width, int height)
