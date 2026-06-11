@@ -399,7 +399,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                Color(0.3f, 0.7f, 0.9f, 1.0f));
                                                gKnobs.push_back(std::move(knob2));
 
-                                               auto knob3 = std::make_unique<Knob>("Cutoff", 0.3f);
+                                               auto knob3 = std::make_unique<Knob>("Filter Cutoff", 0.3f);
                                                knob3->setRange(20.0f, 20000.0f);
                                                knob3->setUnit("Hz");
                                                knob3->setDisplayPrecision(0);
@@ -800,11 +800,13 @@ static void renderDemoPanels()
          float effectY = panelY + 50;
 
          // Live values: Filter → Reverb Mix / Chorus Depth; Frequency → Delay Time; Pan → Distortion
+         constexpr float kMinDelayMs = 50.0f;
+         constexpr float kMaxDelayMs = 1000.0f;
          float reverbMix     = knobNormalized(2);         // Cutoff knob normalised
          float delayTime     = knobNormalized(0);         // Frequency knob normalised
          float chorusDepth   = knobNormalized(1);         // Volume knob normalised
          float distortion    = 1.0f - knobNormalized(2); // Inverted filter
-         float delayMs = 50.0f + delayTime * 950.0f;
+         float delayMs = kMinDelayMs + delayTime * (kMaxDelayMs - kMinDelayMs);
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);

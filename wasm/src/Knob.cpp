@@ -80,7 +80,8 @@ std::string Knob::getDisplayString() const {
     } else if (mBipolar && mUnit.empty()) {
         snprintf(buffer, sizeof(buffer), "%+.*f", mDisplayPrecision, v);
     } else if (mUnit == "%" || mUnit.empty()) {
-        snprintf(buffer, sizeof(buffer), "%.*f%s", mDisplayPrecision, v * (mUnit == "%" ? 100.0f : 1.0f), mUnit.c_str());
+        const float displayValue = (mUnit == "%") ? (v * 100.0f) : v;
+        snprintf(buffer, sizeof(buffer), "%.*f%s", mDisplayPrecision, displayValue, mUnit.c_str());
     } else if (mUnit == "ms" || mUnit == "s") {
         snprintf(buffer, sizeof(buffer), "%.0f %s", v, mUnit.c_str());
     } else {

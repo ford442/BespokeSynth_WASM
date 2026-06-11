@@ -608,7 +608,8 @@ namespace bespoke {
          // Label
          renderer.fillColor(UITheme::kTextSecondary);
          renderer.fontSize(9.0f * scale);
-         renderer.text(screenX + 10 * scale, screenY + 50 * scale, mPlaying ? "Transport: Playing" : "Transport: Stopped");
+         const char* statusLabel = mPlaying ? "Transport: Playing" : "Transport: Stopped";
+         renderer.text(screenX + 10 * scale, screenY + 50 * scale, statusLabel);
       }
 
       void TransportModule::setControlValue(const std::string& name, float value)
