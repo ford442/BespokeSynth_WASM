@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "IRenderer.h"
 #include "WebGPUContext.h"
 #include <vector>
 #include <string>
@@ -19,29 +20,8 @@ namespace bespoke
    namespace wasm
    {
 
-      // Color structure for WebGPU rendering
-      struct Color
-      {
-         float r, g, b, a;
-
-         Color()
-         : r(1.0f)
-         , g(1.0f)
-         , b(1.0f)
-         , a(1.0f)
-         {}
-         Color(float r, float g, float b, float a = 1.0f)
-         : r(r)
-         , g(g)
-         , b(b)
-         , a(a)
-         {}
-
-         static Color fromRGBA8(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255)
-         {
-            return Color(r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f);
-         }
-      };
+      // Color is defined in IRenderer.h (included above) and is available here
+      // within the bespoke::wasm namespace.
 
       // Vertex structure for 2D rendering
       struct Vertex2D
@@ -93,11 +73,11 @@ namespace bespoke
  * WebGPU-based 2D renderer
  * Provides NanoVG-like API for drawing UI elements
  */
-   class WebGPURenderer
+   class WebGPURenderer : public IRenderer
    {
    public:
       WebGPURenderer(WebGPUContext& context);
-      ~WebGPURenderer();
+      ~WebGPURenderer() override;
 
       // Initialize the renderer (create pipelines, buffers, etc.)
       bool initialize();
@@ -183,6 +163,16 @@ namespace bespoke
       void drawSpectrumRainbow(float x, float y, float w, float h, float* data, int count);
       void drawCircularScope(float x, float y, float w, float h);
       void drawEchoTrail(float x, float y, float w, float h);
+
+      // IRenderer backend identification
+      RendererBackend getBackend() const override { return RendererBackend::WebGPU; }
+
+      // IRenderer screenshot (WebGPU requires async buffer readback — returns nullptr for now)
+      uint8_t* captureFrame(int& outWidth, int& outHeight) override
+      {
+         outWidth = mWidth; outHeight = mHeight;
+         return nullptr;
+      }
 
    private:
       // Per-frame draw call record: all vertices are uploaded once at endFrame()

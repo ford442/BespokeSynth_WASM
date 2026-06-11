@@ -1142,9 +1142,10 @@ fn fs_xy_pad(input: VertexOutput) -> @location(0) vec4<f32> {
 // ============================================================================
 // PIXEL FONT TEXT RENDERING
 // ============================================================================
-// 5x7 bitmap font for ASCII 32-90 (space through 'Z')
-// Each character has 5 column values; bit N = row N (0=top, 6=bottom)
-// Lowercase a-z is mapped to uppercase by the caller.
+// 5x7 bitmap font: indices 0-58 = ASCII 32-90 (space through 'Z'),
+//                  indices 59-84 = ASCII 97-122 (lowercase a-z).
+// Each character has 5 column values; bit N = row N (0=top, 6=bottom).
+// Total: 85 characters × 5 columns = 425 u32 values.
 
 const FONT_COLS = array<u32, 425>(
     // 32 ' '
@@ -1266,68 +1267,75 @@ const FONT_COLS = array<u32, 425>(
     // 90 'Z'
     97u, 81u, 73u, 69u, 67u,
 
-    // --- Extended lowercase (a-z) : indices 59-84 (duplicates of A-Z for readability) ---
-    // 97 'a'
-    62u, 65u, 65u, 65u, 62u,
-    // 98 'b'
-    127u, 9u, 25u, 41u, 70u,
-    // 99 'c'
-    70u, 73u, 73u, 73u, 49u,
-    // 100 'd'
-    1u, 1u, 127u, 1u, 1u,
-    // 101 'e'
-    63u, 64u, 64u, 64u, 63u,
-    // 102 'f'
-    31u, 32u, 64u, 32u, 31u,
-    // 103 'g'
-    63u, 64u, 56u, 64u, 63u,
-    // 104 'h'
-    99u, 20u, 8u, 20u, 99u,
-    // 105 'i'
-    7u, 8u, 112u, 8u, 7u,
-    // 106 'j'
-    97u, 81u, 73u, 69u, 67u,
-    // 107 'k' (re-use X bitmap for simplicity)
-    99u, 20u, 8u, 20u, 99u,
-    // 108 'l'
-    63u, 64u, 64u, 64u, 63u,
-    // 109 'm'
-    31u, 32u, 64u, 32u, 31u,
-    // 110 'n'
-    63u, 64u, 56u, 64u, 63u,
-    // 111 'o'
-    62u, 65u, 65u, 65u, 62u,
-    // 112 'p'
-    127u, 9u, 25u, 41u, 70u,
-    // 113 'q'
-    70u, 73u, 73u, 73u, 49u,
-    // 114 'r'
-    1u, 1u, 127u, 1u, 1u,
-    // 115 's'
-    63u, 64u, 64u, 64u, 63u,
-    // 116 't'
-    31u, 32u, 64u, 32u, 31u,
-    // 117 'u'
-    63u, 64u, 56u, 64u, 63u,
-    // 118 'v'
-    99u, 20u, 8u, 20u, 99u,
-    // 119 'w'
-    7u, 8u, 112u, 8u, 7u,
-    // 120 'x'
-    97u, 81u, 73u, 69u, 67u,
-    // 121 'y'
-    99u, 20u, 8u, 20u, 99u,
-    // 122 'z'
-    97u, 81u, 73u, 69u, 67u
+    // --- Lowercase a-z: indices 59-84 ---
+    // Each glyph uses the lower portion of the 7-row cell (rows 2-6).
+    // Ascenders (b,d,f,h,k,l,t) and descenders (g,j,p,q,y) use extra rows.
+    // Bit N of each column byte = row N (0=top, 6=bottom).
+
+    // 97 'a' — open counter, rows 2-6
+    32u, 84u, 84u, 84u, 120u,
+    // 98 'b' — left ascender + right bowl, rows 0-6
+    127u, 68u, 68u, 68u, 56u,
+    // 99 'c' — open right, rows 2-6
+    56u, 68u, 68u, 68u, 0u,
+    // 100 'd' — right ascender + left bowl, rows 0-6
+    56u, 68u, 68u, 68u, 127u,
+    // 101 'e' — closed with midbar, rows 2-6
+    56u, 92u, 84u, 84u, 88u,
+    // 102 'f' — hook top + crossbar, rows 0-6
+    4u, 126u, 5u, 1u, 0u,
+    // 103 'g' — bowl + descender, rows 1-6
+    12u, 82u, 82u, 82u, 62u,
+    // 104 'h' — left ascender + right arch, rows 0-6
+    127u, 4u, 4u, 4u, 120u,
+    // 105 'i' — dotted stem, dot at row 0, stem rows 2-6
+    0u, 0u, 125u, 0u, 0u,
+    // 106 'j' — dotted stem with descender hook, rows 0-6
+    32u, 64u, 64u, 61u, 0u,
+    // 107 'k' — left ascender + fork, rows 0-6
+    127u, 8u, 20u, 34u, 64u,
+    // 108 'l' — serif stem, rows 0-6
+    0u, 1u, 127u, 64u, 0u,
+    // 109 'm' — double-arch, rows 1-6
+    124u, 6u, 124u, 6u, 124u,
+    // 110 'n' — single arch, rows 2-6
+    124u, 4u, 4u, 4u, 120u,
+    // 111 'o' — closed oval, rows 2-6
+    56u, 68u, 68u, 68u, 56u,
+    // 112 'p' — bowl + left descender, rows 1-6
+    124u, 18u, 18u, 18u, 14u,
+    // 113 'q' — bowl + right descender, rows 1-6
+    28u, 18u, 18u, 18u, 126u,
+    // 114 'r' — stub arch, rows 2-6
+    120u, 4u, 4u, 8u, 0u,
+    // 115 's' — reversed Z curves, rows 2-6
+    8u, 84u, 84u, 84u, 32u,
+    // 116 't' — crossbar + foot, rows 0-6
+    4u, 63u, 68u, 68u, 0u,
+    // 117 'u' — open base, rows 2-6
+    60u, 64u, 64u, 64u, 124u,
+    // 118 'v' — chevron, rows 2-6
+    28u, 32u, 64u, 32u, 28u,
+    // 119 'w' — double-chevron, rows 2-6
+    60u, 64u, 112u, 64u, 60u,
+    // 120 'x' — cross diagonals, rows 2-6
+    68u, 40u, 16u, 40u, 68u,
+    // 121 'y' — v-shape + descender hook, rows 2-6
+    12u, 80u, 80u, 80u, 60u,
+    // 122 'z' — diagonal, rows 2-6
+    68u, 100u, 84u, 76u, 68u
 );
 
-// Pixel text shader - renders 5x7 bitmap font glyphs
-// texcoord.x = float(charIndex) + localX
-// charIndex: 0-58 = ASCII 32-90, 59-84 = a-z (lowercase support added)
+// Pixel text shader - renders 5x7 bitmap font glyphs.
+// texcoord.x encodes the glyph index with a small inset offset to avoid
+// floating-point boundary artifacts: u = charIndex + [0.02, 0.98].
+// charIndex 0-58 = ASCII 32-90; 59-84 = lowercase a-z.
 @fragment
 fn fs_pixel_text(input: VertexOutput) -> @location(0) vec4<f32> {
-    let charIdx = clamp(i32(floor(input.texcoord.x)), 0, 58);
-    let localX = fract(input.texcoord.x);
+    // Use truncation (toward zero) rather than floor to avoid the off-by-one
+    // that occurs when interpolated texcoord.x dips just below an integer.
+    let charIdx = clamp(i32(input.texcoord.x), 0, 84);
+    let localX = input.texcoord.x - f32(charIdx);
 
     let px = clamp(i32(localX * 5.0), 0, 4);
     let py = clamp(i32(input.texcoord.y * 7.0), 0, 6);
@@ -1998,13 +2006,19 @@ void WebGPURenderer::text(float x, float y, const char* string) {
         unsigned char c = static_cast<unsigned char>(string[i]);
         int charIdx = 0;
 
-        // Map lowercase to uppercase — the font table only has glyphs for ASCII 32-90
-        if (c >= 'a' && c <= 'z') c -= 32;
-
-        if (c >= 32 && c <= 90) {
+        // Map to font table index:
+        //   ASCII 32-90  → indices 0-58  (space, punctuation, digits, uppercase)
+        //   ASCII 97-122 → indices 59-84 (lowercase a-z)
+        if (c >= 'a' && c <= 'z') {
+            charIdx = 59 + (c - 'a');
+        } else if (c >= 32 && c <= 90) {
             charIdx = c - 32;
+        } else if (c >= 91 && c <= 96) {
+            // [ \ ] ^ _ ` — map to uppercase range with offset
+            charIdx = c - 32;
+            if (charIdx > 58) charIdx = 0; // space fallback
         } else {
-            charIdx = 0; // space
+            // Unsupported character — render as space
             currentX += charWidth + charSpacing;
             continue;
         }
@@ -2014,9 +2028,12 @@ void WebGPURenderer::text(float x, float y, const char* string) {
             continue;
         }
 
-        // texcoord.x encodes charIdx (integer part) + local x within glyph (fractional part)
-        float u0 = static_cast<float>(charIdx);
-        float u1 = static_cast<float>(charIdx) + 1.0f;
+        // texcoord.x encodes charIdx with a small inset offset [+0.02, +0.98]
+        // to avoid floating-point interpolation landing exactly on an integer
+        // boundary, which would cause the fragment shader to sample the wrong
+        // glyph column (one pixel artifact at glyph edges).
+        float u0 = static_cast<float>(charIdx) + 0.02f;
+        float u1 = static_cast<float>(charIdx) + 0.98f;
         float v0 = 0.0f;
         float v1 = 1.0f;
 

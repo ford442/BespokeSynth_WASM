@@ -6,8 +6,10 @@
  */
 
 #include "WasmBridge.h"
+#include "IRenderer.h"
 #include "WebGPUContext.h"
 #include "WebGPURenderer.h"
+#include "WebGL2Renderer.h"
 #include "SDL2AudioBackend.h"
 #include "ModuleCanvas.h"
 #include "Knob.h"
@@ -57,8 +59,11 @@ static void reportInitProgress(const char* step, const char* detail)
 
 // Global state
 static std::unique_ptr<WebGPUContext> gContext;
-static std::unique_ptr<WebGPURenderer> gRenderer;
+static std::unique_ptr<bespoke::wasm::IRenderer> gRenderer;
 static std::unique_ptr<SDL2AudioBackend> gAudioBackend;
+
+// Active renderer backend selection (0=Auto, 1=WebGPU, 2=WebGL2)
+static int gRendererBackendPref = 0;
 
 // Demo controls
 static std::vector<std::unique_ptr<Knob>> gKnobs;
@@ -325,10 +330,16 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                // Continue remaining initialization on success
                                                gContext->resize(gWidth, gHeight);
 
-                                               // Initialize renderer
+                                               // Initialize renderer (backend chosen by gRendererBackendPref)
                                                printf("WasmBridge: Initializing renderer...\n");
                                                reportInitProgress("renderer_init", "Creating shader pipelines...");
-                                               gRenderer = std::make_unique<WebGPURenderer>(*gContext);
+                                               if (gRendererBackendPref == static_cast<int>(bespoke::wasm::RendererBackend::WebGL2)) {
+                                                  printf("WasmBridge: Using WebGL2 renderer backend.\n");
+                                                  gRenderer = std::make_unique<bespoke::wasm::WebGL2Renderer>();
+                                               } else {
+                                                  printf("WasmBridge: Using WebGPU renderer backend.\n");
+                                                  gRenderer = std::make_unique<WebGPURenderer>(*gContext);
+                                               }
                                                if (!gRenderer->initialize())
                                                {
                                                   printf("BespokeSynth WASM: Failed to initialize renderer\n");
@@ -1445,6 +1456,60 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_theme_color(int colorId, float r, float g,
 EMSCRIPTEN_KEEPALIVE void bespoke_reset_theme(void)
 {
    gRuntimeTheme.reset();
+}
+
+// ---- Renderer backend selection API ----
+
+/**
+ * Set the preferred renderer backend before calling bespoke_init().
+ * Values: 0 = Auto (WebGPU preferred, WebGL2 fallback),
+ *         1 = WebGPU,
+ *         2 = WebGL2
+ */
+EMSCRIPTEN_KEEPALIVE void bespoke_set_renderer_backend(int backend)
+{
+   gRendererBackendPref = backend;
+   printf("WasmBridge: renderer backend preference set to %d\n", backend);
+}
+
+/**
+ * Returns the currently active renderer backend enum value
+ * (1=WebGPU, 2=WebGL2, or 0 if not yet initialized).
+ */
+EMSCRIPTEN_KEEPALIVE int bespoke_get_renderer_backend(void)
+{
+   if (!gRenderer) return 0;
+   return static_cast<int>(gRenderer->getBackend());
+}
+
+// ---- Screenshot / canvas capture API ----
+
+/**
+ * Capture the current frame as an RGBA8 pixel buffer.
+ * Returns a pointer to a heap-allocated buffer (caller must free it with
+ * bespoke_free_capture_buffer()), or 0 on failure.
+ * outWidth and outHeight are written via the provided int* pointers.
+ *
+ * NOTE: For the WebGPU backend this currently returns 0 (WebGPU requires
+ * an asynchronous buffer readback that is not yet implemented).
+ * The WebGL2 backend returns full RGBA data immediately.
+ */
+EMSCRIPTEN_KEEPALIVE uint8_t* bespoke_capture_frame(int* outWidth, int* outHeight)
+{
+   if (!gRenderer || !outWidth || !outHeight) return nullptr;
+   int w = 0, h = 0;
+   uint8_t* pixels = gRenderer->captureFrame(w, h);
+   *outWidth  = w;
+   *outHeight = h;
+   return pixels;
+}
+
+/**
+ * Free a pixel buffer previously returned by bespoke_capture_frame().
+ */
+EMSCRIPTEN_KEEPALIVE void bespoke_free_capture_buffer(uint8_t* buf)
+{
+   delete[] buf;
 }
 
 } // extern "C"

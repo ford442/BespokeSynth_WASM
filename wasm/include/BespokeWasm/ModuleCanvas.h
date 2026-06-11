@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "WebGPURenderer.h"
+#include "IRenderer.h"
 #include <string>
 #include <vector>
 #include <memory>
@@ -100,7 +100,7 @@ namespace bespoke {
          const std::vector<Port>& getOutputs() const { return mOutputs; }
 
          // Rendering
-         virtual void render(WebGPURenderer& renderer, float canvasOffsetX, float canvasOffsetY, float scale);
+         virtual void render(IRenderer& renderer, float canvasOffsetX, float canvasOffsetY, float scale);
 
          // Hit testing
          bool hitTest(float worldX, float worldY) const;
@@ -113,8 +113,8 @@ namespace bespoke {
       protected:
          void addInput(const std::string& name, PortType type);
          void addOutput(const std::string& name, PortType type);
-         void renderTitleBar(WebGPURenderer& renderer, float screenX, float screenY, float scale);
-         void renderPorts(WebGPURenderer& renderer, float screenX, float screenY, float scale);
+         void renderTitleBar(IRenderer& renderer, float screenX, float screenY, float scale);
+         void renderPorts(IRenderer& renderer, float screenX, float screenY, float scale);
 
          int mId;
          std::string mType;
@@ -138,7 +138,7 @@ namespace bespoke {
       {
       public:
          OscillatorModule(int id);
-         void render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale) override;
+         void render(IRenderer& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
 
@@ -152,7 +152,7 @@ namespace bespoke {
       {
       public:
          GainModule(int id);
-         void render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale) override;
+         void render(IRenderer& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
 
@@ -164,7 +164,7 @@ namespace bespoke {
       {
       public:
          OutputModule(int id);
-         void render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale) override;
+         void render(IRenderer& renderer, float offsetX, float offsetY, float scale) override;
 
       private:
          float mLevel = 0.0f;
@@ -174,7 +174,7 @@ namespace bespoke {
       {
       public:
          FilterModule(int id);
-         void render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale) override;
+         void render(IRenderer& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
 
@@ -188,7 +188,7 @@ namespace bespoke {
       {
       public:
          LFOModule(int id);
-         void render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale) override;
+         void render(IRenderer& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
 
@@ -203,7 +203,7 @@ namespace bespoke {
       {
       public:
          TransportModule(int id);
-         void render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale) override;
+         void render(IRenderer& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
 
@@ -225,7 +225,7 @@ namespace bespoke {
       {
       public:
          ScaleModule(int id);
-         void render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale) override;
+         void render(IRenderer& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
 
@@ -285,9 +285,9 @@ namespace bespoke {
          void zoom(float factor, float centerX, float centerY);
 
          // Rendering
-         void render(WebGPURenderer& renderer, int viewWidth, int viewHeight);
-         void renderTitleBar(WebGPURenderer& renderer, int viewWidth);
-         void renderTransport(WebGPURenderer& renderer, int viewWidth);
+         void render(IRenderer& renderer, int viewWidth, int viewHeight);
+         void renderTitleBar(IRenderer& renderer, int viewWidth);
+         void renderTransport(IRenderer& renderer, int viewWidth);
 
          // Input handling
          void onMouseDown(float x, float y, int button);

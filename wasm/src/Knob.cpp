@@ -87,7 +87,7 @@ std::string Knob::getDisplayString() const {
     return std::string(buffer);
 }
 
-void Knob::render(WebGPURenderer& renderer, float x, float y, float size) {
+void Knob::render(IRenderer& renderer, float x, float y, float size) {
     // Smooth animation
     mAnimatedValue += (mValue - mAnimatedValue) * mAnimationSpeed;
     
@@ -130,7 +130,7 @@ void Knob::render(WebGPURenderer& renderer, float x, float y, float size) {
     }
 }
 
-void Knob::renderClassicKnob(WebGPURenderer& renderer, float x, float y, float size) {
+void Knob::renderClassicKnob(IRenderer& renderer, float x, float y, float size) {
     float radius = size * 0.4f;
     float normalizedValue = getValueNormalized();
     
@@ -226,7 +226,7 @@ void Knob::renderClassicKnob(WebGPURenderer& renderer, float x, float y, float s
     }
 }
 
-void Knob::renderVintageKnob(WebGPURenderer& renderer, float x, float y, float size) {
+void Knob::renderVintageKnob(IRenderer& renderer, float x, float y, float size) {
     float radius = size * 0.4f;
     
     // Outer ring (metal)
@@ -261,7 +261,7 @@ void Knob::renderVintageKnob(WebGPURenderer& renderer, float x, float y, float s
     renderer.fill();
 }
 
-void Knob::renderModernKnob(WebGPURenderer& renderer, float x, float y, float size) {
+void Knob::renderModernKnob(IRenderer& renderer, float x, float y, float size) {
     float radius = size * 0.4f;
     float normalizedValue = getValueNormalized();
     
@@ -301,7 +301,7 @@ void Knob::renderModernKnob(WebGPURenderer& renderer, float x, float y, float si
     renderer.fill();
 }
 
-void Knob::renderLEDKnob(WebGPURenderer& renderer, float x, float y, float size) {
+void Knob::renderLEDKnob(IRenderer& renderer, float x, float y, float size) {
     float radius = size * 0.4f;
     float normalizedValue = getValueNormalized();
     int numLEDs = 11;
@@ -346,7 +346,7 @@ void Knob::renderLEDKnob(WebGPURenderer& renderer, float x, float y, float size)
     renderer.fill();
 }
 
-void Knob::renderMinimalKnob(WebGPURenderer& renderer, float x, float y, float size) {
+void Knob::renderMinimalKnob(IRenderer& renderer, float x, float y, float size) {
     float radius = size * 0.4f;
     
     // Simple circle

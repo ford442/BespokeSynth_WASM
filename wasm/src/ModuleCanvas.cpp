@@ -56,7 +56,7 @@ namespace bespoke {
                 worldY >= mY && worldY <= mY + kTitleBarHeight;
       }
 
-      void Module::renderTitleBar(WebGPURenderer& renderer, float screenX, float screenY, float scale)
+      void Module::renderTitleBar(IRenderer& renderer, float screenX, float screenY, float scale)
       {
          float w = mWidth * scale;
          float h = kTitleBarHeight * scale;
@@ -106,7 +106,7 @@ namespace bespoke {
          }
       }
 
-      void Module::renderPorts(WebGPURenderer& renderer, float screenX, float screenY, float scale)
+      void Module::renderPorts(IRenderer& renderer, float screenX, float screenY, float scale)
       {
          float portSpacing = 15.0f * scale;
 
@@ -172,7 +172,7 @@ namespace bespoke {
          }
       }
 
-      void Module::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void Module::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
       {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
@@ -208,7 +208,7 @@ namespace bespoke {
          addOutput("audio", PortType::Audio);
       }
 
-      void OscillatorModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void OscillatorModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -283,7 +283,7 @@ namespace bespoke {
          addOutput("audio", PortType::Audio);
       }
 
-      void GainModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void GainModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -332,7 +332,7 @@ namespace bespoke {
          addInput("audio", PortType::Audio);
       }
 
-      void OutputModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void OutputModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -370,7 +370,7 @@ namespace bespoke {
          addOutput("audio", PortType::Audio);
       }
 
-      void FilterModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void FilterModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -444,7 +444,7 @@ namespace bespoke {
          addOutput("mod", PortType::Modulation);
       }
 
-      void LFOModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void LFOModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -509,7 +509,7 @@ namespace bespoke {
          setSize(250, 60);
       }
 
-      void TransportModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void TransportModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
       {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
@@ -619,7 +619,7 @@ namespace bespoke {
          setSize(180, 70);
       }
 
-      void ScaleModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void ScaleModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
       {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
@@ -908,7 +908,7 @@ namespace bespoke {
          }
       }
 
-      void ModuleCanvas::renderTitleBar(WebGPURenderer& renderer, int viewWidth)
+      void ModuleCanvas::renderTitleBar(IRenderer& renderer, int viewWidth)
       {
          float w = static_cast<float>(viewWidth);
 
@@ -999,7 +999,7 @@ namespace bespoke {
          }
       }
 
-      void ModuleCanvas::render(WebGPURenderer& renderer, int viewWidth, int viewHeight)
+      void ModuleCanvas::render(IRenderer& renderer, int viewWidth, int viewHeight)
       {
          float canvasTop = kTitleBarHeight;
          float canvasHeight = static_cast<float>(viewHeight) - canvasTop;
