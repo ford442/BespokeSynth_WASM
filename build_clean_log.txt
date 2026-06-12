@@ -1,0 +1,35 @@
+[  3%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/src/WasmMain.cpp.o
+[  6%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/src/WebGPUContext.cpp.o
+[  9%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/src/WebGPURenderer.cpp.o
+[ 12%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/src/SDL2AudioBackend.cpp.o
+[ 16%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/src/WasmBridge.cpp.o
+[ 19%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/src/Knob.cpp.o
+[ 22%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/src/ModuleCanvas.cpp.o
+[ 25%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/libs/JUCE/modules/juce_core/juce_core.cpp.o
+[ 29%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/libs/JUCE/modules/juce_audio_basics/juce_audio_basics.cpp.o
+[ 32%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/libs/JUCE/modules/juce_events/juce_events.cpp.o
+[ 35%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/libs/JUCE/modules/juce_graphics/juce_graphics.cpp.o
+[ 38%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/libs/JUCE/modules/juce_data_structures/juce_data_structures.cpp.o
+[ 41%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/SynthGlobals.cpp.o
+[ 45%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/OpenFrameworksPort.cpp.o
+[ 48%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/ChannelBuffer.cpp.o
+[ 51%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/RollingBuffer.cpp.o
+[ 54%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/ADSR.cpp.o
+[ 58%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/BiquadFilter.cpp.o
+[ 61%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/Oscillator.cpp.o
+[ 64%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/LFO.cpp.o
+[ 67%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/Scale.cpp.o
+[ 70%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/Transport.cpp.o
+[ 74%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/MathUtils.cpp.o
+[ 77%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/Ramp.cpp.o
+[ 80%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/PerlinNoise.cpp.o
+[  3%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/PeakTracker.cpp.o
+[  6%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/JumpBlender.cpp.o
+[  9%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/Curve.cpp.o
+[ 12%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/FileStream.cpp.o
+[ 16%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/content/BespokeSynth_WASM/Source/ModulationChain.cpp.o
+[ 19%] Linking CXX executable BespokeSynthWASM.html
+warning: JS library symbol '$allocateUTF8' is deprecated. Please open a bug if you have a continuing need for this symbol [-Wdeprecated]
+em++: warning: warnings in JS library compilation [-Wjs-compiler]
+Copying resources to build directory
+Built target BespokeSynthWASM

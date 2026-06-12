@@ -11,6 +11,7 @@ extern "C" {
     void bespoke_mouse_wheel(float x, float y);
     void bespoke_key_down(int key, int modifiers);
     void bespoke_key_up(int key, int modifiers);
+    void bespoke_render(void);
 }
 
 // -------------------------------------------------------------------------
@@ -75,6 +76,13 @@ EM_BOOL on_key_up(int eventType, const EmscriptenKeyboardEvent* keyEvent, void* 
 // Main Entry Point
 // -------------------------------------------------------------------------
 
+EM_BOOL on_animation_frame(double time, void* userData) {
+    (void)time;
+    (void)userData;
+    bespoke_render();
+    return EM_TRUE;
+}
+
 int main() {
     // Register Resize
     emscripten_set_resize_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, nullptr, true, on_resize);
@@ -88,6 +96,9 @@ int main() {
     // Register Keyboard
     emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, nullptr, true, on_key_down);
     emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT,   nullptr, true, on_key_up);
+
+    // Drive rendering via the Emscripten animation-frame loop (required for WebGPU canvas presentation)
+    emscripten_request_animation_frame_loop(on_animation_frame, nullptr);
 
     // Keep the runtime alive
     emscripten_exit_with_live_runtime();
