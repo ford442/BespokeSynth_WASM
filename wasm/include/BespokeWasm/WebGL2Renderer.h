@@ -114,6 +114,8 @@ private:
       GLPipelineKind pipeline;
       uint32_t firstVertex;
       uint32_t vertexCount;
+      bool hasScissor;
+      float scissor[4];
    };
 
    struct State

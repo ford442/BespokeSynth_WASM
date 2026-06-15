@@ -5,12 +5,10 @@
  * Licensed under GNU GPL v3
  */
 
-#include "WasmBridge.h"
+#include "BespokeWasm/WasmBridge.h"
 #include "Renderer2D.h"
 #include "WebGPUContext.h"
-#include "WebGPURenderer.h"
 #include "WebGL2Context.h"
-#include "WebGL2Renderer.h"
 #include "SDL2AudioBackend.h"
 #include "ModuleCanvas.h"
 #include "Knob.h"
@@ -393,7 +391,7 @@ static bool initializeWebGL2Renderer(int sampleRate, int bufferSize)
    gWebGL2Context->resize(gWidth, gHeight);
    reportInitProgress("webgl_ready", "WebGL2 context acquired");
 
-   auto glRenderer = std::make_unique<WebGL2Renderer>(*gWebGL2Context);
+   auto glRenderer = createWebGL2Renderer(*gWebGL2Context);
    glRenderer->setDebugMode(gWebGLDebugMode);
    if (!glRenderer->initialize())
    {
@@ -459,7 +457,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
 
                                                printf("WasmBridge: Initializing renderer...\n");
                                                reportInitProgress("renderer_init", "Creating shader pipelines...");
-                                               auto gpuRenderer = std::make_unique<WebGPURenderer>(*gContext);
+                                               auto gpuRenderer = createWebGPURenderer(*gContext);
                                                if (!gpuRenderer->initialize())
                                                {
                                                   reportInitProgress("renderer_failed", "Shader pipeline compilation failed");

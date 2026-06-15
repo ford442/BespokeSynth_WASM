@@ -2374,5 +2374,11 @@ void WebGPURenderer::flushBatch() {
     mCurrentBatchFirstVertex = static_cast<uint32_t>(mVertices.size());
 }
 
+// Factory (declared in Renderer2D.h)
+std::unique_ptr<Renderer2D> createWebGPURenderer(WebGPUContext& context)
+{
+   return std::make_unique<WebGPURenderer>(context);
+}
+
 } // namespace wasm
 } // namespace bespoke

@@ -9,8 +9,17 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
+
+// Forward declarations for context types used by the renderer factories.
+// These classes are intentionally defined in the *global* namespace (their headers
+// do not wrap them in bespoke::wasm). Forwarding here lets us expose the tiny
+// creation helpers from this header without WasmBridge / call sites needing to
+// #include the concrete renderer headers (WebGPURenderer.h, WebGL2Renderer.h).
+class WebGPUContext;
+class WebGL2Context;
 
 namespace bespoke {
 namespace wasm {
@@ -148,6 +157,11 @@ public:
    virtual void setDebugMode(WebGLDebugMode mode) { (void)mode; }
    virtual WebGLDebugMode getDebugMode() const { return WebGLDebugMode::Normal; }
 };
+
+// Small factories (declared inside the namespace for the return/usage style of the rest of the
+// wasm code, but the parameter types refer to the global-namespace forwards above).
+std::unique_ptr<Renderer2D> createWebGPURenderer(WebGPUContext& context);
+std::unique_ptr<Renderer2D> createWebGL2Renderer(WebGL2Context& context);
 
 } // namespace wasm
 } // namespace bespoke

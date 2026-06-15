@@ -267,6 +267,14 @@ void WebGL2Renderer::flushBatch()
       dc.pipeline = mCurrentPipeline;
       dc.firstVertex = mCurrentBatchFirstVertex;
       dc.vertexCount = batchCount;
+      dc.hasScissor = mCurrentState.hasScissor;
+      if (dc.hasScissor)
+      {
+         dc.scissor[0] = mCurrentState.scissor[0];
+         dc.scissor[1] = mCurrentState.scissor[1];
+         dc.scissor[2] = mCurrentState.scissor[2];
+         dc.scissor[3] = mCurrentState.scissor[3];
+      }
       mDrawCalls.push_back(dc);
    }
    mCurrentBatchFirstVertex = static_cast<uint32_t>(mVertices.size());
@@ -317,10 +325,27 @@ void WebGL2Renderer::endFrame()
 
    const float viewSize[2] = { static_cast<float>(mWidth), static_cast<float>(mHeight) };
 
+   glDisable(GL_SCISSOR_TEST); // default for the frame
    for (const DrawCall& dc : mDrawCalls)
    {
       if (dc.vertexCount == 0)
          continue;
+
+      if (dc.hasScissor)
+      {
+         glEnable(GL_SCISSOR_TEST);
+         GLint sx = static_cast<GLint>(dc.scissor[0]);
+         GLint sy = mHeight - static_cast<GLint>(dc.scissor[1] + dc.scissor[3]);
+         GLint sw = static_cast<GLint>(dc.scissor[2]);
+         GLint sh = static_cast<GLint>(dc.scissor[3]);
+         if (sw < 0) sw = 0;
+         if (sh < 0) sh = 0;
+         glScissor(sx, sy, sw, sh);
+      }
+      else
+      {
+         glDisable(GL_SCISSOR_TEST);
+      }
 
       GLuint program = mSolidProgram;
       GLint viewLoc = mSolidViewSizeLoc;
@@ -349,6 +374,7 @@ void WebGL2Renderer::endFrame()
       glDrawArrays(GL_TRIANGLES, dc.firstVertex, dc.vertexCount);
    }
 
+   glDisable(GL_SCISSOR_TEST);
    glBindVertexArray(0);
    mContext.endFrame();
 }
@@ -419,16 +445,31 @@ void WebGL2Renderer::resetTransform()
 
 void WebGL2Renderer::scissor(float x, float y, float w, float h)
 {
-   mCurrentState.scissor[0] = x;
-   mCurrentState.scissor[1] = y;
-   mCurrentState.scissor[2] = w;
-   mCurrentState.scissor[3] = h;
-   mCurrentState.hasScissor = true;
+   bool was = mCurrentState.hasScissor;
+   bool same = was &&
+      mCurrentState.scissor[0] == x && mCurrentState.scissor[1] == y &&
+      mCurrentState.scissor[2] == w && mCurrentState.scissor[3] == h;
+   if (!same)
+   {
+      // flush pending geometry that was recorded under previous clip state
+      if (mCurrentBatchFirstVertex != static_cast<uint32_t>(mVertices.size()))
+         flushBatch();
+      mCurrentState.scissor[0] = x;
+      mCurrentState.scissor[1] = y;
+      mCurrentState.scissor[2] = w;
+      mCurrentState.scissor[3] = h;
+      mCurrentState.hasScissor = true;
+   }
 }
 
 void WebGL2Renderer::resetScissor()
 {
-   mCurrentState.hasScissor = false;
+   if (mCurrentState.hasScissor)
+   {
+      if (mCurrentBatchFirstVertex != static_cast<uint32_t>(mVertices.size()))
+         flushBatch();
+      mCurrentState.hasScissor = false;
+   }
 }
 
 void WebGL2Renderer::fillColor(const Color& color)
@@ -601,15 +642,15 @@ void WebGL2Renderer::stroke()
       if (len < 0.0001f)
          continue;
 
-      if (mCurrentState.strokeWidth <= 1.5f || mDebugMode == WebGLDebugMode::Wireframe)
-      {
-         pushVertex(x1, y1, 0.0f, 0.0f, mCurrentState.strokeColor);
-         pushVertex(x2, y2, 0.0f, 0.0f, mCurrentState.strokeColor);
-         continue;
-      }
+      // Always emit as triangles (quads) for thick or thin strokes; our batch
+      // is drawn with GL_TRIANGLES and solid/wire programs. Use at least 1px
+      // for visibility of "thin" strokes/polylines.
+      float w = mCurrentState.strokeWidth;
+      if (w < 1.0f || mDebugMode == WebGLDebugMode::Wireframe)
+         w = 1.0f;
 
-      const float nx = -dy / len * mCurrentState.strokeWidth * 0.5f;
-      const float ny = dx / len * mCurrentState.strokeWidth * 0.5f;
+      const float nx = -dy / len * w * 0.5f;
+      const float ny = dx / len * w * 0.5f;
       pushVertex(x1 - nx, y1 - ny, 0.0f, 0.0f, mCurrentState.strokeColor);
       pushVertex(x1 + nx, y1 + ny, 0.0f, 0.0f, mCurrentState.strokeColor);
       pushVertex(x2 + nx, y2 + ny, 0.0f, 0.0f, mCurrentState.strokeColor);
@@ -1084,6 +1125,12 @@ void WebGL2Renderer::drawCircularScope(float x, float y, float w, float h)
 void WebGL2Renderer::drawEchoTrail(float x, float y, float w, float h)
 {
    drawPanel(x, y, w, h, true);
+}
+
+// Factory (declared in Renderer2D.h)
+std::unique_ptr<Renderer2D> createWebGL2Renderer(WebGL2Context& context)
+{
+   return std::make_unique<WebGL2Renderer>(context);
 }
 
 } // namespace wasm
