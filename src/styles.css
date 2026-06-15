@@ -87,6 +87,19 @@ body {
     transform: scale(0.98);
 }
 
+.renderer-select {
+    padding: 8px 10px;
+    border: 1px solid #3a3a40;
+    border-radius: 4px;
+    background: #1e1e22;
+    color: #e8e8ec;
+    font-size: 13px;
+}
+
+.renderer-select:disabled {
+    opacity: 0.45;
+}
+
 /* Canvas Container */
 #canvas-container {
     flex: 1;

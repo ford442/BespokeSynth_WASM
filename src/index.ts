@@ -6,6 +6,14 @@
  */
 
 import './styles.css';
+import {
+  resolveRendererBackend,
+  publishRendererBreadcrumbs,
+  switchRendererPreference,
+  captureCanvasScreenshot,
+  downloadScreenshot,
+  type RendererBackend,
+} from './rendererMode';
 
 // Initialization step definitions
 interface InitStep {
@@ -90,6 +98,8 @@ class BespokeSynthApp {
   private guiOverlay: HTMLElement | null = null;
   // Reusable label elements keyed by control index
   private labelElements: Map<number, HTMLElement> = new Map();
+  private rendererBackend: RendererBackend = resolveRendererBackend();
+  private rendererFallbackReason: string | null = null;
 
   getModule(): any {
     return this.module;
@@ -111,13 +121,19 @@ class BespokeSynthApp {
 
     // Initialize progress UI
     this.initializeProgressUI();
+    this.setupRendererDebugUI();
 
     try {
       // Step 1: Load WASM module
       this.setActiveStep('wasm_load');
-      this.module = await loadWasmModule();
+      this.module = await loadWasmModule(this.canvas ?? undefined);
       this.completeStep('wasm_load');
       console.log('WASM module loaded successfully');
+
+      // Select renderer backend before C++ init
+      const backendCode = this.rendererBackend === 'webgl' ? 1 : 0;
+      this.module._bespoke_set_renderer_backend?.(backendCode);
+      publishRendererBreadcrumbs(this.rendererBackend, this.rendererFallbackReason);
 
       // Initialize synth - this will trigger async WebGPU initialization
       const sampleRate = 44100;
@@ -140,19 +156,126 @@ class BespokeSynthApp {
         clearInterval(statePollInterval);
         this.completeAllSteps();
         this.isInitialized = true;
+        publishRendererBreadcrumbs(
+          this.module._bespoke_get_renderer_backend?.() === 1 ? 'webgl' : 'webgpu',
+          this.rendererFallbackReason,
+        );
         this.showReadyState();
         this.setupEventListeners();
         this.startRenderLoop();
         console.log('BespokeSynth initialized successfully (sync)');
       } else if (result === 1) {
         // Initialization is pending asynchronously
-        await this.waitForAsyncInit(statePollInterval);
+        try {
+          await this.waitForAsyncInit(statePollInterval);
+        } catch (asyncError) {
+          const canFallback =
+            this.rendererBackend === 'webgpu' &&
+            !this.wasWebGPUExplicitlyRequested() &&
+            this.module?._bespoke_shutdown;
+
+          if (canFallback && await this.retryWithWebGL2(sampleRate, bufferSize)) {
+            clearInterval(statePollInterval);
+            this.completeAllSteps();
+            this.isInitialized = true;
+            publishRendererBreadcrumbs('webgl', this.rendererFallbackReason);
+            this.showReadyState();
+            this.setupEventListeners();
+            this.startRenderLoop();
+            console.log('BespokeSynth initialized with WebGL2 fallback');
+            return;
+          }
+          throw asyncError;
+        }
       } else {
         throw new Error(`Initialization failed with code: ${result}`);
       }
     } catch (error) {
       console.error('Failed to initialize BespokeSynth:', error);
       this.showErrorState(error instanceof Error ? error.message : 'Unknown error');
+    }
+  }
+
+  private wasWebGPUExplicitlyRequested(): boolean {
+    const params = new URLSearchParams(window.location.search);
+    const explicit = params.get('renderer')?.toLowerCase();
+    return explicit === 'webgpu' || params.has('webgpu');
+  }
+
+  private async retryWithWebGL2(sampleRate: number, bufferSize: number): Promise<boolean> {
+    if (!this.canvas || !this.module) return false;
+
+    console.warn('WebGPU init failed; retrying with WebGL2 fallback...');
+    this.module._bespoke_shutdown?.();
+    this.rendererBackend = 'webgl';
+    this.rendererFallbackReason = 'WebGPU initialization failed; fell back to WebGL2';
+    this.module._bespoke_set_renderer_backend?.(1);
+    publishRendererBreadcrumbs(this.rendererBackend, this.rendererFallbackReason);
+
+    const debugSelect = document.getElementById('webglDebugSelect') as HTMLSelectElement | null;
+    if (debugSelect) debugSelect.disabled = false;
+
+    const result = this.module._bespoke_init?.(
+      this.canvas.width,
+      this.canvas.height,
+      sampleRate,
+      bufferSize,
+    );
+    return result === 0;
+  }
+
+  private setupRendererDebugUI(): void {
+    const headerControls = document.querySelector('#header .controls');
+    if (!headerControls) return;
+
+    const rendererSelect = document.createElement('select');
+    rendererSelect.id = 'rendererSelect';
+    rendererSelect.className = 'renderer-select';
+    rendererSelect.innerHTML = `
+      <option value="webgpu">WebGPU</option>
+      <option value="webgl">WebGL2</option>
+    `;
+    rendererSelect.value = this.rendererBackend;
+    rendererSelect.title = 'Renderer backend (reloads page)';
+    rendererSelect.addEventListener('change', () => {
+      switchRendererPreference(rendererSelect.value as RendererBackend);
+    });
+
+    const debugSelect = document.createElement('select');
+    debugSelect.id = 'webglDebugSelect';
+    debugSelect.className = 'renderer-select';
+    debugSelect.title = 'WebGL2 debug mode';
+    debugSelect.innerHTML = `
+      <option value="0">Normal</option>
+      <option value="1">Wireframe</option>
+      <option value="2">Connection debug</option>
+      <option value="3">Simplified modules</option>
+    `;
+    debugSelect.disabled = this.rendererBackend !== 'webgl';
+    debugSelect.addEventListener('change', () => {
+      const mode = Number(debugSelect.value);
+      this.module?._bespoke_set_webgl_debug_mode?.(mode);
+    });
+
+    const screenshotBtn = document.createElement('button');
+    screenshotBtn.id = 'screenshotBtn';
+    screenshotBtn.className = 'btn';
+    screenshotBtn.textContent = 'Screenshot';
+    screenshotBtn.title = 'Capture canvas PNG (works best in WebGL2 mode)';
+    screenshotBtn.addEventListener('click', () => void this.captureScreenshot());
+
+    headerControls.appendChild(rendererSelect);
+    headerControls.appendChild(debugSelect);
+    headerControls.appendChild(screenshotBtn);
+  }
+
+  private async captureScreenshot(): Promise<void> {
+    if (!this.canvas) return;
+    try {
+      const dataUrl = await captureCanvasScreenshot(this.canvas);
+      downloadScreenshot(dataUrl);
+    } catch (error) {
+      console.error('Screenshot capture failed:', error);
     }
   }
 
@@ -327,6 +450,10 @@ class BespokeSynthApp {
     }).then(() => {
       // Initialization completed successfully
       this.isInitialized = true;
+      publishRendererBreadcrumbs(
+        this.module?._bespoke_get_renderer_backend?.() === 1 ? 'webgl' : 'webgpu',
+        this.rendererFallbackReason,
+      );
       this.showReadyState();
       this.setupEventListeners();
       this.startRenderLoop();
@@ -669,6 +796,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       const mod = app.getModule();
       mod?._bespoke_reset_theme?.();
     },
+    captureScreenshot: async () => {
+      const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+      if (!canvas) return null;
+      return captureCanvasScreenshot(canvas);
+    },
+    getRendererBackend: () => resolveRendererBackend(),
   };
 
   // Cleanup on page unload

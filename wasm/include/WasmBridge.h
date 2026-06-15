@@ -75,6 +75,11 @@ EMSCRIPTEN_KEEPALIVE int bespoke_is_panel_running(int panelIndex);
 EMSCRIPTEN_KEEPALIVE int bespoke_get_panel_frame_count(int panelIndex);
 EMSCRIPTEN_KEEPALIVE void bespoke_log_all_panels_status(void);
 
+// Initialization state queries
+EMSCRIPTEN_KEEPALIVE int bespoke_get_init_state(void);
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_init_error(void);
+EMSCRIPTEN_KEEPALIVE int bespoke_is_fully_initialized(void);
+
 // Control enumeration / inspection API
 EMSCRIPTEN_KEEPALIVE int bespoke_get_control_count(void);
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_control_info(int index);
@@ -82,6 +87,13 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_control_info(int index);
 // Theming API – runtime color overrides
 EMSCRIPTEN_KEEPALIVE void bespoke_set_theme_color(int colorId, float r, float g, float b, float a);
 EMSCRIPTEN_KEEPALIVE void bespoke_reset_theme(void);
+
+// Renderer backend selection (call before bespoke_init)
+EMSCRIPTEN_KEEPALIVE void bespoke_set_renderer_backend(int backend);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_renderer_backend(void);
+EMSCRIPTEN_KEEPALIVE void bespoke_set_webgl_debug_mode(int mode);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_webgl_debug_mode(void);
+EMSCRIPTEN_KEEPALIVE int bespoke_capture_screenshot(int* outWidth, int* outHeight);
 
 #ifdef __cplusplus
 }

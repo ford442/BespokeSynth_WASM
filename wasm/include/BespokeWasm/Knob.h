@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "WebGPURenderer.h"
+#include "Renderer2D.h"
 #include <string>
 #include <functional>
 
@@ -38,7 +38,7 @@ public:
     ~Knob() = default;
     
     // Rendering
-    void render(WebGPURenderer& renderer, float x, float y, float size);
+    void render(Renderer2D& renderer, float x, float y, float size);
     
     // Value access
     float getValue() const { return mValue; }
@@ -100,11 +100,11 @@ public:
     std::string getDisplayString() const;   // e.g. "440 Hz" or "0.75"
 
 private:
-    void renderClassicKnob(WebGPURenderer& renderer, float x, float y, float size);
-    void renderVintageKnob(WebGPURenderer& renderer, float x, float y, float size);
-    void renderModernKnob(WebGPURenderer& renderer, float x, float y, float size);
-    void renderLEDKnob(WebGPURenderer& renderer, float x, float y, float size);
-    void renderMinimalKnob(WebGPURenderer& renderer, float x, float y, float size);
+    void renderClassicKnob(Renderer2D& renderer, float x, float y, float size);
+    void renderVintageKnob(Renderer2D& renderer, float x, float y, float size);
+    void renderModernKnob(Renderer2D& renderer, float x, float y, float size);
+    void renderLEDKnob(Renderer2D& renderer, float x, float y, float size);
+    void renderMinimalKnob(Renderer2D& renderer, float x, float y, float size);
     
     float valueToAngle(float value) const;
     void notifyValueChanged();

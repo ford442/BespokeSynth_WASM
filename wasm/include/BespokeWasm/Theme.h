@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "WebGPURenderer.h"
+#include "Renderer2D.h"
 
 namespace bespoke {
 namespace wasm {

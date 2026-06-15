@@ -14,7 +14,9 @@ See [INITIALIZATION_FIXES.md](INITIALIZATION_FIXES.md) for detailed information 
 
 ## Features
 
-- **WebGPU Rendering**: Modern GPU-accelerated 2D rendering for smooth UI
+- **WebGPU Rendering**: Modern GPU-accelerated 2D rendering for smooth UI (default)
+- **WebGL2 Fallback**: Opt-in reference renderer for debugging and automated screenshots (`?renderer=webgl`)
+- **Shared Renderer2D API**: Module canvas, knobs, and demo panels render through one interface
 - **SDL2 Audio**: Cross-platform audio backend with low latency
 - **Knob Controls**: Skeuomorphic rotary knobs with multiple styles
 - **Cable/Wire Rendering**: Visual patch cables with realistic sag
@@ -32,11 +34,10 @@ See [INITIALIZATION_FIXES.md](INITIALIZATION_FIXES.md) for detailed information 
 
 ### For Running
 
-- A WebGPU-capable browser:
-  - Chrome 113+ with WebGPU enabled
-  - Edge 113+ with WebGPU enabled
-  - Firefox Nightly with `dom.webgpu.enabled` = true
-- A web server for local development
+- **WebGPU path (default):** Chrome 113+, Edge 113+, or Firefox Nightly with `dom.webgpu.enabled`
+- **WebGL2 fallback:** Any browser with WebGL2 — use `?renderer=webgl` for debugging without WebGPU
+
+See [docs/webgl-fallback.md](../docs/webgl-fallback.md) for renderer selection, debug modes, and screenshot capture.
 
 ## Building
 

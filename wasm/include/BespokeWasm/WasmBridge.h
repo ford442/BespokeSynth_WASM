@@ -98,6 +98,18 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_theme_color(int colorId, float r, float g,
 // Reset all overrides back to built-in defaults.
 EMSCRIPTEN_KEEPALIVE void bespoke_reset_theme(void);
 
+// Renderer backend selection (call before bespoke_init)
+// backend: 0 = WebGPU (default), 1 = WebGL2
+EMSCRIPTEN_KEEPALIVE void bespoke_set_renderer_backend(int backend);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_renderer_backend(void);
+
+// WebGL2-only debug modes (see WebGLDebugMode in Renderer2D.h)
+EMSCRIPTEN_KEEPALIVE void bespoke_set_webgl_debug_mode(int mode);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_webgl_debug_mode(void);
+
+// Returns active backend type; width/height written when pointers are non-null.
+EMSCRIPTEN_KEEPALIVE int bespoke_capture_screenshot(int* outWidth, int* outHeight);
+
 #ifdef __cplusplus
 }
 #endif

@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "Renderer2D.h"
 #include "WebGPUContext.h"
 #include <vector>
 #include <string>
@@ -18,38 +19,6 @@ namespace bespoke
 {
    namespace wasm
    {
-
-      // Color structure for WebGPU rendering
-      struct Color
-      {
-         float r, g, b, a;
-
-         Color()
-         : r(1.0f)
-         , g(1.0f)
-         , b(1.0f)
-         , a(1.0f)
-         {}
-         Color(float r, float g, float b, float a = 1.0f)
-         : r(r)
-         , g(g)
-         , b(b)
-         , a(a)
-         {}
-
-         static Color fromRGBA8(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255)
-         {
-            return Color(r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f);
-         }
-      };
-
-      // Vertex structure for 2D rendering
-      struct Vertex2D
-      {
-         float x, y;
-         float u, v;
-         Color color;
-      };
 
       // Shader Pipelines storage
       struct Pipelines
@@ -93,96 +62,86 @@ namespace bespoke
  * WebGPU-based 2D renderer
  * Provides NanoVG-like API for drawing UI elements
  */
-   class WebGPURenderer
+   class WebGPURenderer : public Renderer2D
    {
    public:
       WebGPURenderer(WebGPUContext& context);
-      ~WebGPURenderer();
+      ~WebGPURenderer() override;
 
-      // Initialize the renderer (create pipelines, buffers, etc.)
-      bool initialize();
+      RendererBackendType getBackendType() const override { return RendererBackendType::WebGPU; }
 
-      // Begin/end frame
-      void beginFrame(int width, int height, float pixelRatio, float time = 0.0f);
-      void endFrame();
+      bool initialize() override;
 
-      // State management
-      void save();
-      void restore();
-      void reset();
+      void beginFrame(int width, int height, float pixelRatio, float time = 0.0f) override;
+      void endFrame() override;
 
-      // Transform operations
-      void translate(float x, float y);
-      void rotate(float angle);
-      void scale(float x, float y);
-      void resetTransform();
+      void save() override;
+      void restore() override;
+      void reset() override;
 
-      // Scissor/clip
-      void scissor(float x, float y, float w, float h);
-      void resetScissor();
+      void translate(float x, float y) override;
+      void rotate(float angle) override;
+      void scale(float x, float y) override;
+      void resetTransform() override;
 
-      // Style
-      void fillColor(const Color& color);
-      void strokeColor(const Color& color);
-      void strokeWidth(float width);
+      void scissor(float x, float y, float w, float h) override;
+      void resetScissor() override;
 
-      // Path operations
-      void beginPath();
-      void moveTo(float x, float y);
-      void lineTo(float x, float y);
-      void bezierTo(float c1x, float c1y, float c2x, float c2y, float x, float y);
-      void quadTo(float cx, float cy, float x, float y);
-      void arc(float cx, float cy, float r, float a0, float a1, int dir);
-      void arcTo(float x1, float y1, float x2, float y2, float radius);
-      void closePath();
+      void fillColor(const Color& color) override;
+      void strokeColor(const Color& color) override;
+      void strokeWidth(float width) override;
 
-      // Drawing
-      void fill();
-      void stroke();
+      void beginPath() override;
+      void moveTo(float x, float y) override;
+      void lineTo(float x, float y) override;
+      void bezierTo(float c1x, float c1y, float c2x, float c2y, float x, float y) override;
+      void quadTo(float cx, float cy, float x, float y) override;
+      void arc(float cx, float cy, float r, float a0, float a1, int dir) override;
+      void arcTo(float x1, float y1, float x2, float y2, float radius) override;
+      void closePath() override;
 
-      // Shapes
-      void rect(float x, float y, float w, float h);
-      void roundedRect(float x, float y, float w, float h, float r);
-      void circle(float cx, float cy, float r);
-      void ellipse(float cx, float cy, float rx, float ry);
-      void line(float x1, float y1, float x2, float y2);
+      void fill() override;
+      void stroke() override;
 
-      // Text (basic support)
-      void fontSize(float size);
-      void fontFace(const char* name);
-      void text(float x, float y, const char* string);
-      float textWidth(const char* string);
+      void rect(float x, float y, float w, float h) override;
+      void roundedRect(float x, float y, float w, float h, float r) override;
+      void circle(float cx, float cy, float r) override;
+      void ellipse(float cx, float cy, float rx, float ry) override;
+      void line(float x1, float y1, float x2, float y2) override;
 
-      // Specialized synth UI elements
-      void drawKnob(float cx, float cy, float radius, float value, const Color& bgColor, const Color& fgColor);
-      void drawWire(float x1, float y1, float x2, float y2, const Color& color, float thickness = 2.0f);
-      void drawCableWithSag(float x1, float y1, float x2, float y2, const Color& color, float thickness = 3.0f, float sag = 0.3f);
-      void drawSlider(float x, float y, float w, float h, float value, const Color& bgColor, const Color& fgColor);
-      void drawVUMeter(float x, float y, float w, float h, float level, const Color& lowColor, const Color& highColor);
+      void fontSize(float size) override;
+      void fontFace(const char* name) override;
+      void text(float x, float y, const char* string) override;
+      float textWidth(const char* string) override;
+      float textHeight() const override { return mFontSize; }
 
-      // New UI elements
-      void drawButton(float x, float y, float w, float h, const char* label, bool pressed, bool hover);
-      void drawToggle(float x, float y, float w, float h, bool state);
-      void drawFader(float x, float y, float w, float h, float value);
-      void drawModWheel(float x, float y, float w, float h, float value);
-      void drawADSR(float x, float y, float w, float h, float a, float d, float s, float r);
-      void drawWaveform(float x, float y, float w, float h, const float* data, int count, bool filled);
-      void drawSpectrum(float x, float y, float w, float h, const float* data, int count);
-      void drawScope(float x, float y, float w, float h, const float* data, int count);
-      void drawPanel(float x, float y, float w, float h, bool bordered);
-      void drawLED(float x, float y, float w, float h, bool on);
-      void drawProgressBar(float x, float y, float w, float h, float value);
+      void drawKnob(float cx, float cy, float radius, float value, const Color& bgColor, const Color& fgColor) override;
+      void drawWire(float x1, float y1, float x2, float y2, const Color& color, float thickness = 2.0f) override;
+      void drawCableWithSag(float x1, float y1, float x2, float y2, const Color& color, float thickness = 3.0f, float sag = 0.3f) override;
+      void drawSlider(float x, float y, float w, float h, float value, const Color& bgColor, const Color& fgColor) override;
+      void drawVUMeter(float x, float y, float w, float h, float level, const Color& lowColor, const Color& highColor) override;
 
-      // New drawing methods
-      void drawXYPad(float x, float y, float w, float h, float cx, float cy);
-      void drawFilterResponse(float x, float y, float w, float h);
-      void drawLFOWaveform(float x, float y, float w, float h);
-      void drawSequencerStep(float x, float y, float w, float h, bool active);
-      void drawSpectrumWaterfall(float x, float y, float w, float h);
-      void drawPianoKey(float x, float y, float w, float h, bool black, bool pressed);
-      void drawSpectrumRainbow(float x, float y, float w, float h, float* data, int count);
-      void drawCircularScope(float x, float y, float w, float h);
-      void drawEchoTrail(float x, float y, float w, float h);
+      void drawButton(float x, float y, float w, float h, const char* label, bool pressed, bool hover) override;
+      void drawToggle(float x, float y, float w, float h, bool state) override;
+      void drawFader(float x, float y, float w, float h, float value) override;
+      void drawModWheel(float x, float y, float w, float h, float value) override;
+      void drawADSR(float x, float y, float w, float h, float a, float d, float s, float r) override;
+      void drawWaveform(float x, float y, float w, float h, const float* data, int count, bool filled) override;
+      void drawSpectrum(float x, float y, float w, float h, const float* data, int count) override;
+      void drawScope(float x, float y, float w, float h, const float* data, int count) override;
+      void drawPanel(float x, float y, float w, float h, bool bordered) override;
+      void drawLED(float x, float y, float w, float h, bool on) override;
+      void drawProgressBar(float x, float y, float w, float h, float value) override;
+
+      void drawXYPad(float x, float y, float w, float h, float cx, float cy) override;
+      void drawFilterResponse(float x, float y, float w, float h) override;
+      void drawLFOWaveform(float x, float y, float w, float h) override;
+      void drawSequencerStep(float x, float y, float w, float h, bool active) override;
+      void drawSpectrumWaterfall(float x, float y, float w, float h) override;
+      void drawPianoKey(float x, float y, float w, float h, bool black, bool pressed) override;
+      void drawSpectrumRainbow(float x, float y, float w, float h, float* data, int count) override;
+      void drawCircularScope(float x, float y, float w, float h) override;
+      void drawEchoTrail(float x, float y, float w, float h) override;
 
    private:
       // Per-frame draw call record: all vertices are uploaded once at endFrame()

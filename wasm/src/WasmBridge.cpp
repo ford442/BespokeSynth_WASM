@@ -6,8 +6,11 @@
  */
 
 #include "WasmBridge.h"
+#include "Renderer2D.h"
 #include "WebGPUContext.h"
 #include "WebGPURenderer.h"
+#include "WebGL2Context.h"
+#include "WebGL2Renderer.h"
 #include "SDL2AudioBackend.h"
 #include "ModuleCanvas.h"
 #include "Knob.h"
@@ -56,8 +59,11 @@ static void reportInitProgress(const char* step, const char* detail)
 }
 
 // Global state
+static RendererBackendType gRendererBackend = RendererBackendType::WebGPU;
+static WebGLDebugMode gWebGLDebugMode = WebGLDebugMode::Normal;
 static std::unique_ptr<WebGPUContext> gContext;
-static std::unique_ptr<WebGPURenderer> gRenderer;
+static std::unique_ptr<WebGL2Context> gWebGL2Context;
+static std::unique_ptr<Renderer2D> gRenderer;
 static std::unique_ptr<SDL2AudioBackend> gAudioBackend;
 
 // Demo controls
@@ -280,12 +286,135 @@ static void markPanelRunning(int panelIndex)
    }
 }
 
+static bool initializeAudioAndControls(int sampleRate, int bufferSize)
+{
+   printf("WasmBridge: Initializing audio backend...\n");
+   reportInitProgress("audio_init", "Opening audio device...");
+   gAudioBackend = std::make_unique<SDL2AudioBackend>();
+   if (!gAudioBackend->initialize(sampleRate, bufferSize, 2, 0))
+   {
+      printf("BespokeSynth WASM: Failed to initialize audio\n");
+      reportInitProgress("audio_failed", "Audio device initialization failed");
+      gInitState = InitState::Failed;
+      gInitErrorMessage = "Audio backend initialization failed";
+      return false;
+   }
+
+   printf("WasmBridge: Audio backend initialized successfully\n");
+   reportInitProgress("audio_ready", "Audio device opened successfully");
+   gInitState = InitState::AudioReady;
+   gAudioBackend->setCallback(audioCallback);
+   reportInitProgress("audio_ready", "Audio ready - click play to start");
+
+   printf("WasmBridge: Creating demo controls...\n");
+   reportInitProgress("controls_init", "Creating UI controls...");
+   gKnobs.clear();
+
+   auto knob1 = std::make_unique<Knob>("Frequency", 0.5f);
+   knob1->setRange(100.0f, 900.0f);
+   knob1->setUnit("Hz");
+   knob1->setDisplayPrecision(0);
+   knob1->setStyle(KnobStyle::Classic);
+   knob1->setColors(
+      Color(0.25f, 0.25f, 0.28f, 1.0f),
+      Color(0.7f, 0.7f, 0.75f, 1.0f),
+      Color(0.4f, 0.8f, 0.5f, 1.0f));
+   gKnobs.push_back(std::move(knob1));
+
+   auto knob2 = std::make_unique<Knob>("Volume", 0.7f);
+   knob2->setRange(0.0f, 1.0f);
+   knob2->setUnit("%");
+   knob2->setDisplayPrecision(0);
+   knob2->setStyle(KnobStyle::Modern);
+   knob2->setColors(
+      Color(0.2f, 0.2f, 0.22f, 1.0f),
+      Color(0.6f, 0.6f, 0.65f, 1.0f),
+      Color(0.3f, 0.7f, 0.9f, 1.0f));
+   gKnobs.push_back(std::move(knob2));
+
+   auto knob3 = std::make_unique<Knob>("Filter", 0.3f);
+   knob3->setRange(20.0f, 20000.0f);
+   knob3->setUnit("Hz");
+   knob3->setDisplayPrecision(0);
+   knob3->setStyle(KnobStyle::LED);
+   knob3->setColors(
+      Color(0.15f, 0.15f, 0.18f, 1.0f),
+      Color(0.5f, 0.5f, 0.55f, 1.0f),
+      Color(0.9f, 0.4f, 0.2f, 1.0f));
+   gKnobs.push_back(std::move(knob3));
+
+   auto knob4 = std::make_unique<Knob>("Pan", 0.5f);
+   knob4->setRange(-1.0f, 1.0f);
+   knob4->setUnit("");
+   knob4->setDisplayPrecision(2);
+   knob4->setBipolar(true);
+   knob4->setStyle(KnobStyle::Vintage);
+   gKnobs.push_back(std::move(knob4));
+
+   for (int i = 0; i < PANEL_COUNT; i++)
+      markPanelLoaded(i);
+
+   printf("WasmBridge: Creating modular canvas...\n");
+   gCanvas = std::make_unique<bespoke::wasm::ModuleCanvas>();
+
+   const int oscId = gCanvas->createModule("oscillator", 100, 150);
+   const int gainId = gCanvas->createModule("gain", 320, 160);
+   const int outputId = gCanvas->createModule("output", 500, 170);
+   gOscillatorModuleId = oscId;
+   gGainModuleId = gainId;
+
+   if (oscId > 0 && gainId > 0 && outputId > 0)
+   {
+      gCanvas->connectModules(oscId, 0, gainId, 0);
+      gCanvas->connectModules(gainId, 0, outputId, 0);
+   }
+
+   gInitState = InitState::FullyInitialized;
+   gInitialized = true;
+   reportInitProgress("init_complete", "All subsystems ready");
+   printf("BespokeSynth WASM: Initialization complete - all subsystems ready\n");
+   return true;
+}
+
+static bool initializeWebGL2Renderer(int sampleRate, int bufferSize)
+{
+   gInitState = InitState::WebGPURequested;
+   reportInitProgress("webgl_requested", "Creating WebGL2 context");
+
+   gWebGL2Context = std::make_unique<WebGL2Context>();
+   if (!gWebGL2Context->initialize("#canvas"))
+   {
+      gInitState = InitState::Failed;
+      gInitErrorMessage = "WebGL2 initialization failed";
+      reportInitProgress("webgl_failed", gInitErrorMessage.c_str());
+      return false;
+   }
+
+   gWebGL2Context->resize(gWidth, gHeight);
+   reportInitProgress("webgl_ready", "WebGL2 context acquired");
+
+   auto glRenderer = std::make_unique<WebGL2Renderer>(*gWebGL2Context);
+   glRenderer->setDebugMode(gWebGLDebugMode);
+   if (!glRenderer->initialize())
+   {
+      gInitState = InitState::Failed;
+      gInitErrorMessage = "WebGL2 renderer initialization failed";
+      reportInitProgress("renderer_failed", gInitErrorMessage.c_str());
+      return false;
+   }
+
+   gRenderer = std::move(glRenderer);
+   gInitState = InitState::RendererReady;
+   reportInitProgress("renderer_ready", "WebGL2 renderer ready");
+   return initializeAudioAndControls(sampleRate, bufferSize);
+}
+
 extern "C" {
 
 EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int bufferSize)
 {
-   printf("BespokeSynth WASM: Initializing (%dx%d, %dHz, %d samples)\n",
-          width, height, sampleRate, bufferSize);
+   printf("BespokeSynth WASM: Initializing (%dx%d, %dHz, %d samples, backend=%d)\n",
+          width, height, sampleRate, bufferSize, static_cast<int>(gRendererBackend));
    reportInitProgress("init_start", "Beginning initialization");
 
    if (gInitState != InitState::NotStarted)
@@ -296,10 +425,18 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
 
    gWidth = width;
    gHeight = height;
+
+   if (gRendererBackend == RendererBackendType::WebGL2)
+   {
+      if (!initializeWebGL2Renderer(sampleRate, bufferSize))
+         return -5;
+      emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(0);");
+      return 0;
+   }
+
    gInitState = InitState::WebGPURequested;
    reportInitProgress("webgpu_requested", "Creating WebGPU instance and surface");
 
-   // Initialize WebGPU context (asynchronous)
    gContext = std::make_unique<WebGPUContext>();
    printf("WasmBridge: starting async WebGPU initialization (selector=#canvas)\n");
 
@@ -308,31 +445,23 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                if (!success)
                                                {
                                                   printf("BespokeSynth WASM: Failed to initialize WebGPU\n");
-                                                  printf("WasmBridge: notifying JS of init failure (-1)\n");
                                                   reportInitProgress("webgpu_failed", "WebGPU initialization failed - browser may not support WebGPU");
                                                   gInitState = InitState::Failed;
                                                   gInitErrorMessage = "WebGPU initialization failed";
-                                                  // Notify JS that initialization failed
                                                   emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-1);");
                                                   return;
                                                }
 
-                                               // WebGPU initialized successfully
                                                printf("WasmBridge: WebGPU context ready, proceeding with remaining initialization\n");
                                                gInitState = InitState::WebGPUReady;
                                                reportInitProgress("webgpu_ready", "GPU adapter and device acquired successfully");
-
-                                               // Continue remaining initialization on success
                                                gContext->resize(gWidth, gHeight);
 
-                                               // Initialize renderer
                                                printf("WasmBridge: Initializing renderer...\n");
                                                reportInitProgress("renderer_init", "Creating shader pipelines...");
-                                               gRenderer = std::make_unique<WebGPURenderer>(*gContext);
-                                               if (!gRenderer->initialize())
+                                               auto gpuRenderer = std::make_unique<WebGPURenderer>(*gContext);
+                                               if (!gpuRenderer->initialize())
                                                {
-                                                  printf("BespokeSynth WASM: Failed to initialize renderer\n");
-                                                  printf("WasmBridge: notifying JS of init failure (-2)\n");
                                                   reportInitProgress("renderer_failed", "Shader pipeline compilation failed");
                                                   gInitState = InitState::Failed;
                                                   gInitErrorMessage = "Renderer initialization failed";
@@ -340,120 +469,16 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                   return;
                                                }
 
-                                               printf("WasmBridge: Renderer initialized successfully\n");
+                                               gRenderer = std::move(gpuRenderer);
                                                reportInitProgress("renderer_ready", "All shader pipelines compiled successfully");
                                                gInitState = InitState::RendererReady;
 
-                                               // Initialize audio backend
-                                               printf("WasmBridge: Initializing audio backend...\n");
-                                               reportInitProgress("audio_init", "Opening audio device...");
-                                               gAudioBackend = std::make_unique<SDL2AudioBackend>();
-                                               if (!gAudioBackend->initialize(sampleRate, bufferSize, 2, 0))
+                                               if (!initializeAudioAndControls(sampleRate, bufferSize))
                                                {
-                                                  printf("BespokeSynth WASM: Failed to initialize audio\n");
-                                                  printf("WasmBridge: notifying JS of init failure (-3)\n");
-                                                  reportInitProgress("audio_failed", "Audio device initialization failed");
-                                                  gInitState = InitState::Failed;
-                                                  gInitErrorMessage = "Audio backend initialization failed";
                                                   emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-3);");
                                                   return;
                                                }
 
-                                               printf("WasmBridge: Audio backend initialized successfully\n");
-                                               reportInitProgress("audio_ready", "Audio device opened successfully");
-                                               gInitState = InitState::AudioReady;
-
-                                               // Set audio callback
-                                               gAudioBackend->setCallback(audioCallback);
-
-                                               // Audio is NOT auto-started (browser policy requires user interaction)
-                                               // Audio will be started when user clicks the play button
-                                               printf("WasmBridge: Audio ready (will start on user interaction)\n");
-                                               reportInitProgress("audio_ready", "Audio ready - click play to start");
-
-                                               // Create some demo knobs
-                                               printf("WasmBridge: Creating demo controls...\n");
-                                               reportInitProgress("controls_init", "Creating UI controls...");
-                                               gKnobs.clear();
-
-                                               auto knob1 = std::make_unique<Knob>("Frequency", 0.5f);
-                                               knob1->setRange(100.0f, 900.0f);
-                                               knob1->setUnit("Hz");
-                                               knob1->setDisplayPrecision(0);
-                                               knob1->setStyle(KnobStyle::Classic);
-                                               knob1->setColors(
-                                               Color(0.25f, 0.25f, 0.28f, 1.0f),
-                                               Color(0.7f, 0.7f, 0.75f, 1.0f),
-                                               Color(0.4f, 0.8f, 0.5f, 1.0f));
-                                               gKnobs.push_back(std::move(knob1));
-
-                                               auto knob2 = std::make_unique<Knob>("Volume", 0.7f);
-                                               knob2->setRange(0.0f, 1.0f);
-                                               knob2->setUnit("%");
-                                               knob2->setDisplayPrecision(0);
-                                               knob2->setStyle(KnobStyle::Modern);
-                                               knob2->setColors(
-                                               Color(0.2f, 0.2f, 0.22f, 1.0f),
-                                               Color(0.6f, 0.6f, 0.65f, 1.0f),
-                                               Color(0.3f, 0.7f, 0.9f, 1.0f));
-                                               gKnobs.push_back(std::move(knob2));
-
-                                               auto knob3 = std::make_unique<Knob>("Filter", 0.3f);
-                                               knob3->setRange(20.0f, 20000.0f);
-                                               knob3->setUnit("Hz");
-                                               knob3->setDisplayPrecision(0);
-                                               knob3->setStyle(KnobStyle::LED);
-                                               knob3->setColors(
-                                               Color(0.15f, 0.15f, 0.18f, 1.0f),
-                                               Color(0.5f, 0.5f, 0.55f, 1.0f),
-                                               Color(0.9f, 0.4f, 0.2f, 1.0f));
-                                               gKnobs.push_back(std::move(knob3));
-
-                                               auto knob4 = std::make_unique<Knob>("Pan", 0.5f);
-                                               knob4->setRange(-1.0f, 1.0f);
-                                               knob4->setUnit("");
-                                               knob4->setDisplayPrecision(2);
-                                               knob4->setBipolar(true);
-                                               knob4->setStyle(KnobStyle::Vintage);
-                                               gKnobs.push_back(std::move(knob4));
-
-                                               // Mark all panels as loaded
-                                               printf("\n=== DEBUG: Panel Initialization ===\n");
-                                               for (int i = 0; i < PANEL_COUNT; i++)
-                                               {
-                                                  markPanelLoaded(i);
-                                               }
-                                               printf("=== Panel Initialization Complete ===\n\n");
-
-                                               // Initialize the modular canvas
-                                               printf("WasmBridge: Creating modular canvas...\n");
-                                               gCanvas = std::make_unique<bespoke::wasm::ModuleCanvas>();
-
-                                               // Create a default starter patch
-                                               int oscId = gCanvas->createModule("oscillator", 100, 150);
-                                               int gainId = gCanvas->createModule("gain", 320, 160);
-                                               int outputId = gCanvas->createModule("output", 500, 170);
-
-                                               // Track module IDs for audio callback use
-                                               gOscillatorModuleId = oscId;
-                                               gGainModuleId = gainId;
-
-                                               // Connect oscillator -> gain -> output
-                                               if (oscId > 0 && gainId > 0 && outputId > 0)
-                                               {
-                                                  gCanvas->connectModules(oscId, 0, gainId, 0);
-                                                  gCanvas->connectModules(gainId, 0, outputId, 0);
-                                               }
-
-                                               printf("WasmBridge: Modular canvas ready with starter patch\n");
-
-                                               gInitState = InitState::FullyInitialized;
-                                               gInitialized = true;
-                                               reportInitProgress("init_complete", "All subsystems ready");
-                                               printf("BespokeSynth WASM: Initialization complete - all subsystems ready\n");
-                                               printf("WasmBridge: notifying JS of init complete (0)\n");
-
-                                               // Notify JS that initialization finished successfully
                                                emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(0);");
                                             });
 
@@ -505,6 +530,7 @@ EMSCRIPTEN_KEEPALIVE void bespoke_shutdown(void)
    // Cleanup renderer and context
    gRenderer.reset();
    gContext.reset();
+   gWebGL2Context.reset();
 
    // Reset state
    gInitialized = false;
@@ -555,7 +581,10 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
       return;
    }
 
-   gTime += 0.016f; // Approximate 60fps
+   if (!gRenderer)
+      return;
+
+   gTime += 0.016f;
    gRenderer->beginFrame(gWidth, gHeight, 1.0f, gTime);
 
    // Clear background
@@ -601,7 +630,7 @@ static void renderDemoPanels()
    // Draw title
    gRenderer->fillColor(Color(0.9f, 0.9f, 0.95f, 1.0f));
    gRenderer->fontSize(24.0f);
-   gRenderer->text(20, 40, "BespokeSynth WASM - WebGPU Demo");
+   gRenderer->text(20, 40, "BespokeSynth WASM - Demo Panels");
 
    // Draw panel tabs
    float tabY = 70.0f;
@@ -952,9 +981,9 @@ EMSCRIPTEN_KEEPALIVE void bespoke_resize(int width, int height)
    gHeight = height;
 
    if (gContext)
-   {
       gContext->resize(width, height);
-   }
+   if (gWebGL2Context)
+      gWebGL2Context->resize(width, height);
 
    printf("BespokeSynth WASM: Resized to %dx%d\n", width, height);
 }
@@ -1445,6 +1474,40 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_theme_color(int colorId, float r, float g,
 EMSCRIPTEN_KEEPALIVE void bespoke_reset_theme(void)
 {
    gRuntimeTheme.reset();
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_renderer_backend(int backend)
+{
+   if (gInitState == InitState::NotStarted)
+      gRendererBackend = (backend == 1) ? RendererBackendType::WebGL2 : RendererBackendType::WebGPU;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_renderer_backend(void)
+{
+   return static_cast<int>(gRendererBackend);
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_webgl_debug_mode(int mode)
+{
+   gWebGLDebugMode = static_cast<WebGLDebugMode>(mode);
+   if (gRenderer)
+      gRenderer->setDebugMode(gWebGLDebugMode);
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_webgl_debug_mode(void)
+{
+   return static_cast<int>(gWebGLDebugMode);
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_capture_screenshot(int* outWidth, int* outHeight)
+{
+   if (outWidth)
+      *outWidth = gWidth;
+   if (outHeight)
+      *outHeight = gHeight;
+   // WebGL2 screenshots are captured from JS via canvas.toDataURL().
+   // WebGPU readback is also handled in TypeScript for now.
+   return gRenderer ? static_cast<int>(gRenderer->getBackendType()) : -1;
 }
 
 } // extern "C"

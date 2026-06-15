@@ -279,6 +279,25 @@ enum class InitState {
 
 **Critical**: Always check `bespoke_is_fully_initialized()` before rendering or audio operations.
 
+### Renderer Abstraction (WebGPU + WebGL2)
+
+All UI code renders through `Renderer2D` (`wasm/include/BespokeWasm/Renderer2D.h`):
+
+| Backend | Implementation | Use case |
+|---------|----------------|----------|
+| WebGPU (default) | `WebGPURenderer` | Production quality, full WGSL shader set |
+| WebGL2 (opt-in) | `WebGL2Renderer` | Debugging, Playwright screenshots, GLSL reference |
+
+**Select backend before init:**
+
+```js
+Module._bespoke_set_renderer_backend(1); // 0=WebGPU, 1=WebGL2
+```
+
+Or from the browser: `?renderer=webgl`, header dropdown, or `localStorage.bespokesynth.renderer`.
+
+See [docs/webgl-fallback.md](../docs/webgl-fallback.md) for debug modes, screenshot workflow, and WGSL→GLSL porting notes.
+
 ### WebGPU Renderer
 
 The WebGPU renderer implements a NanoVG-like API for 2D UI rendering:
