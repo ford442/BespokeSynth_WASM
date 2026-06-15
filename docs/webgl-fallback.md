@@ -95,3 +95,47 @@ WebGL2 is enabled via Emscripten link flags in `wasm/CMakeLists.txt`:
 ```
 
 Both backends compile into the same WASM binary; selection happens at runtime.
+
+## Emscripten + HTML5 Canvas Requirements
+
+The WebGL2 path uses Emscripten's HTML5 WebGL API (`emscripten_webgl_create_context`, `emscripten_webgl_make_context_current`, `emscripten_webgl_destroy_context`). The canvas and page must satisfy:
+
+| Requirement | WebGPU (default) | WebGL2 (`?renderer=webgl`) |
+|-------------|------------------|----------------------------|
+| Canvas element | `<canvas id="canvas">` must exist before `bespoke_init()` | Same |
+| Context ownership | WebGPU surface binds to `#canvas` via `WGPUEmscriptenSurfaceSourceCanvasHTMLSelector` | Emscripten creates a WebGL2 context on the same element |
+| Mutual exclusion | Do not call `canvas.getContext('webgl2')` before init when using WebGPU | Do not initialize WebGPU on the same canvas when WebGL2 is selected |
+| `preserveDrawingBuffer` | Not required | Enabled in `WebGL2Context` for `canvas.toDataURL()` screenshots |
+| COOP/COEP headers | Required for SharedArrayBuffer (webpack dev server sets these) | Same — WebGL2 works under cross-origin isolation |
+| Emscripten module `canvas` | Pass `canvas` in the `createBespokeSynth({ canvas })` factory config | Same |
+
+Probe support before init (from TypeScript or the shell):
+
+```js
+Module._bespoke_set_renderer_backend(1); // optional, before probe
+const ok = Module._bespoke_is_webgl2_supported() === 1;
+if (!ok) {
+  const reason = Module.UTF8ToString(Module._bespoke_get_webgl2_error());
+  console.warn('WebGL2 unavailable:', reason);
+}
+```
+
+Init state values exposed by `bespoke_get_init_state()`:
+
+| Value | State | Backend |
+|-------|-------|---------|
+| 0 | NotStarted | — |
+| 1 | WebGPURequested | WebGPU |
+| 2 | WebGPUReady | WebGPU |
+| 6 | WebGL2Requested | WebGL2 |
+| 7 | WebGL2Ready | WebGL2 |
+| 3 | RendererReady | Both |
+| 4 | AudioReady | Both |
+| 5 | FullyInitialized | Both |
+| -1 | Failed | Both |
+
+Progress callbacks (`window.__bespoke_on_init_progress(step, detail)`) emit backend-specific steps such as `webgpu_requested` / `webgl_requested` so the UI can show the correct path.
+
+### Fallback behaviour
+
+When WebGPU init fails and the user did not force `?renderer=webgpu`, `src/index.ts` shuts down and retries with WebGL2 automatically. If WebGL2 is also unavailable, `bespoke_get_webgl2_error()` returns a human-readable reason (missing canvas, blocked WebGL, or canvas already bound to another API).

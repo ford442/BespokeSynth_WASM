@@ -263,17 +263,19 @@ int bespoke_is_panel_running(int panelIndex);
 
 ### Initialization States
 
-The WASM bridge tracks initialization through 7 states:
+The WASM bridge tracks initialization through distinct WebGPU and WebGL2 graphics states:
 
 ```cpp
 enum class InitState {
     NotStarted = 0,      // Initial state
-    WebGPURequested,     // Async init started
-    WebGPUReady,         // Adapter/device acquired
-    RendererReady,       // Pipelines created
-    AudioReady,          // Audio backend ready
-    FullyInitialized,    // All subsystems ready
-    Failed               // Initialization failed
+    WebGPURequested = 1, // WebGPU async init started
+    WebGPUReady = 2,     // Adapter/device acquired
+    RendererReady = 3,   // Pipelines created (both backends)
+    AudioReady = 4,      // Audio backend ready
+    FullyInitialized = 5,// All subsystems ready
+    WebGL2Requested = 6, // WebGL2 context creation started
+    WebGL2Ready = 7,     // WebGL2 context acquired
+    Failed = -1          // Initialization failed
 };
 ```
 

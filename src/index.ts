@@ -23,7 +23,7 @@ interface InitStep {
 }
 
 // Define all initialization steps with their approximate weights
-const INIT_STEPS: InitStep[] = [
+const WEBGPU_INIT_STEPS: InitStep[] = [
   { id: 'wasm_load', label: 'Loading WebAssembly module', weight: 10 },
   { id: 'webgpu_instance', label: 'Creating WebGPU instance', weight: 15 },
   { id: 'webgpu_surface', label: 'Creating WebGPU surface', weight: 10 },
@@ -32,6 +32,15 @@ const INIT_STEPS: InitStep[] = [
   { id: 'renderer_pipelines', label: 'Compiling shader pipelines', weight: 20 },
   { id: 'audio_init', label: 'Initializing audio backend', weight: 10 },
   { id: 'controls_create', label: 'Creating UI controls', weight: 5 },
+];
+
+const WEBGL2_INIT_STEPS: InitStep[] = [
+  { id: 'wasm_load', label: 'Loading WebAssembly module', weight: 10 },
+  { id: 'webgl_context', label: 'Creating WebGL2 context', weight: 25 },
+  { id: 'webgl_capabilities', label: 'Querying GL capabilities', weight: 15 },
+  { id: 'renderer_pipelines', label: 'Compiling GLSL shader programs', weight: 25 },
+  { id: 'audio_init', label: 'Initializing audio backend', weight: 15 },
+  { id: 'controls_create', label: 'Creating UI controls', weight: 10 },
 ];
 
 // Load WASM module script dynamically
@@ -100,6 +109,8 @@ class BespokeSynthApp {
   private labelElements: Map<number, HTMLElement> = new Map();
   private rendererBackend: RendererBackend = resolveRendererBackend();
   private rendererFallbackReason: string | null = null;
+  private initSteps: InitStep[] =
+    resolveRendererBackend() === 'webgl' ? WEBGL2_INIT_STEPS : WEBGPU_INIT_STEPS;
 
   getModule(): any {
     return this.module;
@@ -120,8 +131,18 @@ class BespokeSynthApp {
     window.addEventListener('resize', () => this.resizeCanvas());
 
     // Initialize progress UI
+    this.initSteps = this.rendererBackend === 'webgl' ? WEBGL2_INIT_STEPS : WEBGPU_INIT_STEPS;
     this.initializeProgressUI();
+    this.setupInitProgressCallback();
     this.setupRendererDebugUI();
+
+    const statusSubheader = document.querySelector('#status .status-subheader');
+    if (statusSubheader) {
+      statusSubheader.textContent =
+        this.rendererBackend === 'webgl'
+          ? 'Setting up WebGL2 and audio...'
+          : 'Setting up WebGPU and audio...';
+    }
 
     try {
       // Step 1: Load WASM module
@@ -134,6 +155,19 @@ class BespokeSynthApp {
       const backendCode = this.rendererBackend === 'webgl' ? 1 : 0;
       this.module._bespoke_set_renderer_backend?.(backendCode);
       publishRendererBreadcrumbs(this.rendererBackend, this.rendererFallbackReason);
+
+      if (this.rendererBackend === 'webgl') {
+        const webglSupported = this.module._bespoke_is_webgl2_supported?.() === 1;
+        if (!webglSupported) {
+          const detail = this.module.UTF8ToString?.(
+            this.module._bespoke_get_webgl2_error?.() ?? 0,
+          );
+          throw new Error(
+            detail ||
+              'WebGL2 is not available in this browser. Try ?renderer=webgpu or use Chrome/Edge/Firefox.',
+          );
+        }
+      }
 
       // Initialize synth - this will trigger async WebGPU initialization
       const sampleRate = 44100;
@@ -209,6 +243,8 @@ class BespokeSynthApp {
     this.module._bespoke_shutdown?.();
     this.rendererBackend = 'webgl';
     this.rendererFallbackReason = 'WebGPU initialization failed; fell back to WebGL2';
+    this.initSteps = WEBGL2_INIT_STEPS;
+    this.initializeProgressUI();
     this.module._bespoke_set_renderer_backend?.(1);
     publishRendererBreadcrumbs(this.rendererBackend, this.rendererFallbackReason);
 
@@ -279,12 +315,50 @@ class BespokeSynthApp {
     }
   }
 
+  private setupInitProgressCallback(): void {
+    (window as any).__bespoke_on_init_progress = (step: string, detail: string) => {
+      console.log(`[InitProgress] ${step}: ${detail}`);
+
+      const progressToStep: Record<string, string> = {
+        init_start: 'wasm_load',
+        webgpu_requested: 'webgpu_instance',
+        webgpu_ready: 'webgpu_adapter',
+        webgl_requested: 'webgl_context',
+        webgl_ready: 'webgl_capabilities',
+        renderer_init: 'renderer_pipelines',
+        renderer_ready: 'renderer_pipelines',
+        audio_init: 'audio_init',
+        audio_ready: 'audio_init',
+        controls_init: 'controls_create',
+        init_complete: 'controls_create',
+      };
+
+      const mapped = progressToStep[step];
+      if (mapped) {
+        this.setActiveStep(mapped);
+      }
+
+      if (step.endsWith('_ready') || step === 'init_complete') {
+        if (mapped) {
+          this.completeStep(mapped);
+        }
+      }
+
+      if (step.endsWith('_failed') || step === 'webgpu_start_failed') {
+        const subheader = document.querySelector('#status .status-subheader');
+        if (subheader) {
+          subheader.textContent = detail;
+        }
+      }
+    };
+  }
+
   private initializeProgressUI(): void {
     const stepsContainer = document.getElementById('init-steps');
     if (!stepsContainer) return;
 
     stepsContainer.innerHTML = '';
-    INIT_STEPS.forEach((step) => {
+    this.initSteps.forEach((step) => {
       const stepEl = document.createElement('div');
       stepEl.className = 'init-step';
       stepEl.id = `step-${step.id}`;
@@ -331,14 +405,14 @@ class BespokeSynthApp {
   }
 
   private completeAllSteps(): void {
-    INIT_STEPS.forEach(step => this.completeStep(step.id));
+    this.initSteps.forEach(step => this.completeStep(step.id));
   }
 
   private updateProgress(): void {
     let progress = 0;
-    
+
     // Add completed steps
-    INIT_STEPS.forEach(step => {
+    this.initSteps.forEach(step => {
       if (this.completedSteps.has(step.id)) {
         progress += step.weight;
       }
@@ -346,7 +420,7 @@ class BespokeSynthApp {
 
     // Add partial progress for active step (50% of its weight)
     if (this.activeStep) {
-      const activeStepData = INIT_STEPS.find(s => s.id === this.activeStep);
+      const activeStepData = this.initSteps.find(s => s.id === this.activeStep);
       if (activeStepData) {
         progress += activeStepData.weight * 0.5;
       }
@@ -378,30 +452,34 @@ class BespokeSynthApp {
     // Get current init state from C++
     const state = this.module._bespoke_get_init_state?.() ?? 0;
 
-    // Map C++ InitState enum values to the UI step that becomes active at that state.
-    // The C++ collapses several WebGPU sub-steps into two states (1 and 2), so some
-    // INIT_STEPS ('webgpu_surface', 'webgpu_device') are not directly mapped here but
-    // are completed transitively by the index-based loop below.
-    const stateToStep: Record<number, string> = {
-      0: 'wasm_load',           // NotStarted
-      1: 'webgpu_instance',     // WebGPURequested (instance + surface + adapter request)
-      2: 'webgpu_adapter',      // WebGPUReady (adapter + device acquired)
-      3: 'renderer_pipelines',  // RendererReady
-      4: 'audio_init',          // AudioReady
-      5: 'controls_create',     // FullyInitialized
+    const webgpuStateToStep: Record<number, string> = {
+      0: 'wasm_load',
+      1: 'webgpu_instance',
+      2: 'webgpu_adapter',
+      3: 'renderer_pipelines',
+      4: 'audio_init',
+      5: 'controls_create',
     };
 
+    const webglStateToStep: Record<number, string> = {
+      0: 'wasm_load',
+      6: 'webgl_context',
+      7: 'webgl_capabilities',
+      3: 'renderer_pipelines',
+      4: 'audio_init',
+      5: 'controls_create',
+    };
+
+    const stateToStep =
+      this.rendererBackend === 'webgl' ? webglStateToStep : webgpuStateToStep;
     const currentMappedStep = stateToStep[state];
     const currentStepIndex = currentMappedStep
-      ? INIT_STEPS.findIndex(s => s.id === currentMappedStep)
+      ? this.initSteps.findIndex(s => s.id === currentMappedStep)
       : -1;
 
-    // Complete ALL INIT_STEPS that come before the current mapped step (by list order).
-    // This ensures intermediate steps like 'webgpu_surface' and 'webgpu_device' that
-    // have no direct C++ state mapping are marked complete when the state advances past them.
     if (currentStepIndex > 0) {
       for (let i = 0; i < currentStepIndex; i++) {
-        const stepId = INIT_STEPS[i].id;
+        const stepId = this.initSteps[i].id;
         if (!this.completedSteps.has(stepId)) {
           this.completeStep(stepId);
         }
@@ -464,11 +542,18 @@ class BespokeSynthApp {
   }
 
   private getInitErrorMessage(code: number): string {
+    const cppError = this.module?._bespoke_get_init_error?.();
+    if (typeof cppError === 'number' && this.module?.UTF8ToString) {
+      const detail = this.module.UTF8ToString(cppError);
+      if (detail) return detail;
+    }
+
     const messages: Record<number, string> = {
       [-1]: 'WebGPU initialization failed - browser may not support WebGPU',
       [-2]: 'Renderer initialization failed - shader compilation error',
       [-3]: 'Audio backend initialization failed',
       [-4]: 'Failed to start async WebGPU initialization',
+      [-5]: 'WebGL2 initialization failed - see console for details',
     };
     return messages[code] || 'Unknown error';
   }

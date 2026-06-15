@@ -33,11 +33,13 @@ using namespace bespoke::wasm;
 enum class InitState
 {
    NotStarted = 0,
-   WebGPURequested = 1, // Creating WebGPU instance and surface
-   WebGPUReady = 2, // Adapter and device acquired
-   RendererReady = 3, // Shader pipelines compiled
+   WebGPURequested = 1, // WebGPU async init started (instance + surface + adapter)
+   WebGPUReady = 2, // WebGPU adapter and device acquired
+   RendererReady = 3, // Renderer pipelines compiled (both backends)
    AudioReady = 4, // Audio backend initialized
    FullyInitialized = 5, // All subsystems ready
+   WebGL2Requested = 6, // WebGL2 context creation started
+   WebGL2Ready = 7, // WebGL2 context acquired and extensions queried
    Failed = -1
 };
 
@@ -376,27 +378,49 @@ static bool initializeAudioAndControls(int sampleRate, int bufferSize)
 
 static bool initializeWebGL2Renderer(int sampleRate, int bufferSize)
 {
-   gInitState = InitState::WebGPURequested;
-   reportInitProgress("webgl_requested", "Creating WebGL2 context");
+   gInitState = InitState::WebGL2Requested;
+   reportInitProgress("webgl_requested", "Creating WebGL2 context on #canvas");
+
+   if (!WebGL2Context::probeSupport("#canvas"))
+   {
+      gInitState = InitState::Failed;
+      gInitErrorMessage = WebGL2Context::getLastError();
+      if (gInitErrorMessage.empty())
+         gInitErrorMessage = "WebGL2 is not supported in this browser";
+      reportInitProgress("webgl_failed", gInitErrorMessage.c_str());
+      return false;
+   }
 
    gWebGL2Context = std::make_unique<WebGL2Context>();
    if (!gWebGL2Context->initialize("#canvas"))
    {
       gInitState = InitState::Failed;
-      gInitErrorMessage = "WebGL2 initialization failed";
+      gInitErrorMessage = WebGL2Context::getLastError();
+      if (gInitErrorMessage.empty())
+         gInitErrorMessage = "WebGL2 context creation failed";
       reportInitProgress("webgl_failed", gInitErrorMessage.c_str());
       return false;
    }
 
    gWebGL2Context->resize(gWidth, gHeight);
-   reportInitProgress("webgl_ready", "WebGL2 context acquired");
+   gInitState = InitState::WebGL2Ready;
 
+   const auto& caps = gWebGL2Context->getCapabilities();
+   char readyDetail[256];
+   snprintf(readyDetail, sizeof(readyDetail),
+            "WebGL2 context ready (maxTexture=%d, VAO=%s, instancing=%s)",
+            caps.maxTextureSize,
+            caps.vertexArrayObject ? "yes" : "no",
+            caps.instancedArrays ? "yes" : "no");
+   reportInitProgress("webgl_ready", readyDetail);
+
+   reportInitProgress("renderer_init", "Creating WebGL2 shader programs...");
    auto glRenderer = createWebGL2Renderer(*gWebGL2Context);
    glRenderer->setDebugMode(gWebGLDebugMode);
    if (!glRenderer->initialize())
    {
       gInitState = InitState::Failed;
-      gInitErrorMessage = "WebGL2 renderer initialization failed";
+      gInitErrorMessage = "WebGL2 renderer initialization failed — shader compilation error";
       reportInitProgress("renderer_failed", gInitErrorMessage.c_str());
       return false;
    }
@@ -1478,6 +1502,16 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_renderer_backend(int backend)
 {
    if (gInitState == InitState::NotStarted)
       gRendererBackend = (backend == 1) ? RendererBackendType::WebGL2 : RendererBackendType::WebGPU;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_is_webgl2_supported(void)
+{
+   return WebGL2Context::probeSupport("#canvas") ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_webgl2_error(void)
+{
+   return WebGL2Context::getLastError();
 }
 
 EMSCRIPTEN_KEEPALIVE int bespoke_get_renderer_backend(void)

@@ -85,6 +85,9 @@ wasm/
 ├── include/             # Header files
 │   ├── WebGPUContext.h
 │   ├── WebGPURenderer.h
+│   ├── WebGL2Context.h
+│   ├── WebGL2Renderer.h
+│   ├── Renderer2D.h
 │   ├── SDL2AudioBackend.h
 │   ├── Knob.h
 │   └── WasmBridge.h
@@ -93,6 +96,8 @@ wasm/
 │   ├── WasmBridge.cpp
 │   ├── WebGPUContext.cpp
 │   ├── WebGPURenderer.cpp
+│   ├── WebGL2Context.cpp
+│   ├── WebGL2Renderer.cpp
 │   ├── SDL2AudioBackend.cpp
 │   └── Knob.cpp
 ├── types/               # TypeScript definitions
