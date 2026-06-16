@@ -56,24 +56,85 @@ Available when `?renderer=webgl` (header **Debug** dropdown or `bespoke_set_webg
 
 ## Screenshots
 
-WebGL2 mode supports standard canvas readback:
+### WebGL2 (recommended for CI/agents)
+
+WebGL2 enables `preserveDrawingBuffer` so standard canvas readback works:
 
 ```js
-const png = await window.__bespoke.captureScreenshot();
-// or click the Screenshot button in the header
+await window.__bespoke.captureScreenshot();
+// Header button or Ctrl+Shift+S
 ```
 
-WebGPU screenshots currently use the same JS helper; full GPU texture readback may be added later.
+C++ triggers a fresh frame via `bespoke_capture_screenshot()` (returns `1` for WebGL2).
+
+### WebGPU
+
+`bespoke_capture_screenshot()` copies the swap-chain texture to CPU memory (BGRA→RGBA) and returns `0`. Pixels are read with:
+
+```js
+const wPtr = Module._malloc(4), hPtr = Module._malloc(4);
+const code = Module._bespoke_capture_screenshot(wPtr, hPtr);
+const lenPtr = Module._malloc(4);
+const ptr = Module._bespoke_get_screenshot_pixels(lenPtr);
+// HEAPU8.subarray(ptr, ptr + HEAP32[lenPtr >> 2])
+```
+
+TypeScript wraps both paths in `captureCanvasScreenshot()` (`src/rendererMode.ts`).
+
+### Cropping
+
+```js
+await window.__bespoke.captureScreenshot({ x: 0, y: 40, width: 800, height: 500 });
+```
+
+### Callbacks
+
+```js
+window.__bespoke.onScreenshotCaptured((dataUrl, { width, height, backend }) => {
+  // e.g. post to an agent or CI artifact store
+});
+```
+
+## Render test mode
+
+Canonical scene for PNG diffing:
+
+```text
+?renderTest=1
+?renderer=webgl&renderTest=1
+```
+
+```js
+Module._bespoke_set_render_test_mode(1);
+Module._bespoke_get_render_test_mode(); // 1 when active
+```
+
+Opens `wasm/render_test.html` for quick links. Modules placed at fixed positions with known control values and cable colors.
 
 ## Pixel Font / Label Fixes
 
-Both backends share `PixelFont.cpp`:
+Both backends share `PixelFont.cpp` and `pixel_font_glyphs.inc`:
 
-- ASCII 32–126 coverage with proper lowercase glyphs
+- ASCII 32–126 coverage with corrected lowercase glyphs (no shuffled/copied uppercase patterns)
+- Extended glyphs: musical sharp/flat (UTF-8 U+266F/U+266D) and arrow symbols
 - No forced uppercasing in `text()`
-- Improved `textWidth()` metrics for module titles, port labels, and value readouts
+- Per-glyph `textWidth()` with narrower space advance and improved baseline metrics
+- WGSL reference shader kept in sync via `npm run sync:font`
+
+Visual regression overlay:
+
+```js
+Module._bespoke_set_font_test_visible(1); // toggle with 0 to hide
+```
 
 ## Porting WGSL Effects to GLSL
+
+WebGL2 uses GLSL ES 3.0 fragment shaders ported from the WebGPU/WGSL set. Sources live in:
+
+- `wasm/src/WebGL2Shaders.cpp` (embedded at runtime)
+- `wasm/shaders/render2d_gl2*.frag` (reference copies)
+
+Pipelines wired into `WebGL2Renderer` mirror the WebGPU `drawKnob`, `drawSlider`, `drawCableWithSag`, `drawButton`, `drawToggle`, `drawVUMeter`, `drawPanel`, `drawLED`, `drawSpectrum`, `drawProgressBar`, `drawFader`, `drawModWheel`, `drawADSR`, and `text()` helpers. Animated shaders receive `uTime` from the frame clock.
 
 1. Prototype in `wasm/src/WebGL2Renderer.cpp` when Playwright or manual screenshots need visible pixels.
 2. Keep uniform/state names aligned with the WebGPU equivalents in `WebGPURenderer.cpp`.

@@ -10,6 +10,7 @@
 #include "Renderer2D.h"
 #include "WebGL2Context.h"
 #include <GLES3/gl3.h>
+#include <array>
 #include <vector>
 #include <string>
 
@@ -20,8 +21,34 @@ enum class GLPipelineKind
 {
    Solid,
    PixelText,
+   KnobHighlight,
+   DialTicks,
    WireGlow,
-   KnobHighlight
+   ConnectionPulse,
+   SliderTrack,
+   SliderFill,
+   SliderHandle,
+   Button,
+   ButtonHover,
+   ToggleSwitch,
+   ToggleThumb,
+   VUMeter,
+   ADSRGrid,
+   ADSREnvelope,
+   PanelBackground,
+   PanelBordered,
+   LEDOn,
+   LEDOff,
+   Waveform,
+   WaveformFilled,
+   SpectrumBar,
+   SpectrumPeak,
+   ProgressBar,
+   ModWheel,
+   ScopeGrid,
+   FaderGroove,
+   FaderCap,
+   Count
 };
 
 class WebGL2Renderer : public Renderer2D
@@ -109,6 +136,13 @@ public:
    WebGLDebugMode getDebugMode() const override { return mDebugMode; }
 
 private:
+   struct GL2Program
+   {
+      GLuint program = 0;
+      GLint uViewSize = -1;
+      GLint uTime = -1;
+   };
+
    struct DrawCall
    {
       GLPipelineKind pipeline;
@@ -130,6 +164,7 @@ private:
 
    GLuint compileShader(GLenum type, const char* source);
    GLuint linkProgram(GLuint vertexShader, GLuint fragmentShader);
+   bool buildProgram(GLPipelineKind kind, const char* fragmentSrc, bool needsTime);
    void createPrograms();
    void createBuffers();
    void flushBatch();
@@ -137,19 +172,12 @@ private:
    void pushVertex(float x, float y, float u, float v, const Color& color);
    void transformPoint(float& x, float& y);
    void drawQuad(float x, float y, float w, float h, GLPipelineKind pipeline);
-   void drawSolidQuad(float x, float y, float w, float h, const Color& color);
+   const GL2Program& programFor(GLPipelineKind kind) const;
 
    WebGL2Context& mContext;
 
-   GLuint mSolidProgram = 0;
-   GLuint mPixelTextProgram = 0;
-   GLuint mWireGlowProgram = 0;
-   GLuint mKnobHighlightProgram = 0;
-
-   GLint mSolidViewSizeLoc = -1;
-   GLint mPixelTextViewSizeLoc = -1;
-   GLint mWireGlowViewSizeLoc = -1;
-   GLint mKnobViewSizeLoc = -1;
+   GLuint mSharedVertexShader = 0;
+   std::array<GL2Program, static_cast<size_t>(GLPipelineKind::Count)> mPrograms{};
 
    GLuint mVertexBuffer = 0;
    GLuint mVertexArray = 0;

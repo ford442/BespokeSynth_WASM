@@ -3,8 +3,8 @@ precision highp float;
 in vec2 vTexcoord;
 in vec4 vColor;
 out vec4 fragColor;
-const int FONT_GLYPHS = 94; /* placeholder, actual substituted at runtime with kPixelFontGlyphCount */
-uniform int uFontCols[475];
+const int FONT_GLYPHS = 101;
+uniform int uFontCols[505];
 void main() {
     int charIdx = clamp(int(floor(vTexcoord.x)), 0, FONT_GLYPHS - 1);
     float localX = fract(vTexcoord.x);

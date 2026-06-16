@@ -32,7 +32,8 @@ public:
     
     // Render Pass Management
     WGPURenderPassEncoder beginFrame();
-    void endFrame();
+    void endFrame(bool captureScreenshot = false);
+    bool readCapturedPixels(std::vector<uint8_t>& outRgba, int& outWidth, int& outHeight);
 
     WGPURenderPassEncoder getCurrentPass() const { return mCurrentPass; }
     WGPUDevice getDevice() const { return mDevice; }
@@ -62,4 +63,11 @@ private:
 
     int mWidth = 0;
     int mHeight = 0;
+
+    WGPUBuffer mScreenshotStagingBuffer = nullptr;
+    size_t mScreenshotStagingBytes = 0;
+    std::vector<uint8_t> mCapturedPixels;
+    int mCapturedWidth = 0;
+    int mCapturedHeight = 0;
+    bool mCaptureReady = false;
 };

@@ -101,7 +101,10 @@ WebGPUContext::WebGPUContext() {
     mCurrentState.color[0] = 1.0f; mCurrentState.color[1] = 1.0f; mCurrentState.color[2] = 1.0f; mCurrentState.color[3] = 1.0f;
 }
 
-WebGPUContext::~WebGPUContext() {}
+WebGPUContext::~WebGPUContext() {
+    if (mScreenshotStagingBuffer)
+        wgpuBufferRelease(mScreenshotStagingBuffer);
+}
 
 bool WebGPUContext::initializeAsync(const char* selector, std::function<void(bool)> onComplete) {
     mOnComplete = onComplete;
@@ -313,20 +316,126 @@ WGPURenderPassEncoder WebGPUContext::beginFrame() {
     return mCurrentPass;
 }
 
-void WebGPUContext::endFrame() {
+void WebGPUContext::endFrame(bool captureScreenshot) {
     if (mCurrentPass) {
         wgpuRenderPassEncoderEnd(mCurrentPass);
         wgpuRenderPassEncoderRelease(mCurrentPass);
         mCurrentPass = nullptr;
     }
 
-    if (mCurrentEncoder) {
+    WGPUCommandEncoder encoder = mCurrentEncoder;
+    WGPUBuffer captureBuffer = nullptr;
+    const uint32_t bytesPerRow = captureScreenshot && mWidth > 0
+        ? ((static_cast<uint32_t>(mWidth) * 4u + 255u) / 256u) * 256u
+        : 0u;
+    const size_t captureBytes = captureScreenshot && mHeight > 0
+        ? static_cast<size_t>(bytesPerRow) * static_cast<size_t>(mHeight)
+        : 0u;
+
+    if (captureScreenshot && encoder && mCurrentSurfaceTexture && mDevice && mQueue &&
+        mWidth > 0 && mHeight > 0)
+    {
+        if (!mScreenshotStagingBuffer || mScreenshotStagingBytes < captureBytes)
+        {
+            if (mScreenshotStagingBuffer)
+            {
+                wgpuBufferRelease(mScreenshotStagingBuffer);
+                mScreenshotStagingBuffer = nullptr;
+            }
+
+            WGPUBufferDescriptor bufferDesc = {};
+            bufferDesc.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
+            bufferDesc.size = captureBytes;
+            mScreenshotStagingBuffer = wgpuDeviceCreateBuffer(mDevice, &bufferDesc);
+            mScreenshotStagingBytes = captureBytes;
+        }
+
+        if (mScreenshotStagingBuffer)
+        {
+            WGPUImageCopyTexture src = {};
+            src.texture = mCurrentSurfaceTexture;
+            src.mipLevel = 0;
+            src.origin = {0, 0, 0};
+            src.aspect = WGPUTextureAspect_All;
+
+            WGPUImageCopyBuffer dst = {};
+            dst.buffer = mScreenshotStagingBuffer;
+            dst.layout.offset = 0;
+            dst.layout.bytesPerRow = bytesPerRow;
+            dst.layout.rowsPerImage = static_cast<uint32_t>(mHeight);
+
+            WGPUExtent3D copySize = {
+                static_cast<uint32_t>(mWidth),
+                static_cast<uint32_t>(mHeight),
+                1};
+
+            wgpuCommandEncoderCopyTextureToBuffer(encoder, &src, &dst, &copySize);
+            captureBuffer = mScreenshotStagingBuffer;
+        }
+    }
+
+    if (encoder) {
         WGPUCommandBufferDescriptor cmdBufDesc = {};
-        WGPUCommandBuffer cmdBuf = wgpuCommandEncoderFinish(mCurrentEncoder, &cmdBufDesc);
+        WGPUCommandBuffer cmdBuf = wgpuCommandEncoderFinish(encoder, &cmdBufDesc);
         wgpuQueueSubmit(mQueue, 1, &cmdBuf);
         wgpuCommandBufferRelease(cmdBuf);
-        wgpuCommandEncoderRelease(mCurrentEncoder);
+        wgpuCommandEncoderRelease(encoder);
         mCurrentEncoder = nullptr;
+    }
+
+    if (captureBuffer && mInstance)
+    {
+        struct MapState {
+            bool done = false;
+            WGPUMapAsyncStatus status = WGPUMapAsyncStatus_Success;
+        } mapState;
+
+        WGPUBufferMapCallbackInfo mapInfo = {};
+        mapInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+        mapInfo.callback = [](WGPUMapAsyncStatus status, WGPUStringView message, void* userdata1, void* userdata2) {
+            (void)message;
+            (void)userdata2;
+            auto* state = static_cast<MapState*>(userdata1);
+            state->status = status;
+            state->done = true;
+        };
+        mapInfo.userdata1 = &mapState;
+
+        wgpuBufferMapAsync(captureBuffer, WGPUMapMode_Read, 0, captureBytes, mapInfo);
+
+        int spin = 0;
+        while (!mapState.done && spin < 5000)
+        {
+            wgpuInstanceProcessEvents(mInstance);
+            ++spin;
+        }
+
+        if (mapState.status == WGPUMapAsyncStatus_Success)
+        {
+            const void* mapped = wgpuBufferGetConstMappedRange(captureBuffer, 0, captureBytes);
+            if (mapped)
+            {
+                mCapturedPixels.resize(static_cast<size_t>(mWidth) * static_cast<size_t>(mHeight) * 4u);
+                const auto* src = static_cast<const uint8_t*>(mapped);
+                for (int y = 0; y < mHeight; ++y)
+                {
+                    const uint8_t* row = src + static_cast<size_t>(y) * bytesPerRow;
+                    uint8_t* dstRow = mCapturedPixels.data() + static_cast<size_t>(y) * static_cast<size_t>(mWidth) * 4u;
+                    for (int x = 0; x < mWidth; ++x)
+                    {
+                        const uint8_t* px = row + static_cast<size_t>(x) * 4u;
+                        dstRow[x * 4 + 0] = px[2]; // BGRA -> RGBA
+                        dstRow[x * 4 + 1] = px[1];
+                        dstRow[x * 4 + 2] = px[0];
+                        dstRow[x * 4 + 3] = px[3];
+                    }
+                }
+                mCapturedWidth = mWidth;
+                mCapturedHeight = mHeight;
+                mCaptureReady = true;
+            }
+            wgpuBufferUnmap(captureBuffer);
+        }
     }
 
     if (mCurrentView) {
@@ -338,4 +447,16 @@ void WebGPUContext::endFrame() {
         wgpuTextureRelease(mCurrentSurfaceTexture);
         mCurrentSurfaceTexture = nullptr;
     }
+}
+
+bool WebGPUContext::readCapturedPixels(std::vector<uint8_t>& outRgba, int& outWidth, int& outHeight)
+{
+    if (!mCaptureReady || mCapturedPixels.empty())
+        return false;
+
+    outRgba = mCapturedPixels;
+    outWidth = mCapturedWidth;
+    outHeight = mCapturedHeight;
+    mCaptureReady = false;
+    return true;
 }

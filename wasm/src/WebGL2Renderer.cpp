@@ -6,6 +6,7 @@
  */
 
 #include "WebGL2Renderer.h"
+#include "WebGL2Shaders.h"
 #include "BespokeWasm/Theme.h"
 #include "PixelFont.h"
 #include <algorithm>
@@ -23,91 +24,6 @@ static const float PI = 3.14159265f;
 static const float TWO_PI = 6.28318530f;
 static const float HALF_PI = 1.57079632f;
 
-static const char* kVertexShaderSrc = R"(#version 300 es
-precision highp float;
-layout(location = 0) in vec2 aPosition;
-layout(location = 1) in vec2 aTexcoord;
-layout(location = 2) in vec4 aColor;
-uniform vec2 uViewSize;
-out vec2 vTexcoord;
-out vec4 vColor;
-void main() {
-    float clipX = (aPosition.x / uViewSize.x) * 2.0 - 1.0;
-    float clipY = 1.0 - (aPosition.y / uViewSize.y) * 2.0;
-    gl_Position = vec4(clipX, clipY, 0.0, 1.0);
-    vTexcoord = aTexcoord;
-    vColor = aColor;
-}
-)";
-
-static const char* kSolidFragmentSrc = R"(#version 300 es
-precision highp float;
-in vec2 vTexcoord;
-in vec4 vColor;
-out vec4 fragColor;
-void main() {
-    fragColor = vColor;
-}
-)";
-
-static const char* kWireGlowFragmentSrc = R"(#version 300 es
-precision highp float;
-in vec2 vTexcoord;
-in vec4 vColor;
-out vec4 fragColor;
-void main() {
-    float dist = abs(vTexcoord.y - 0.5) * 2.0;
-    float core = smoothstep(0.3, 0.0, dist);
-    float glow = smoothstep(1.0, 0.0, dist) * 0.5;
-    vec4 color = vColor;
-    color.a *= core + glow;
-    fragColor = color;
-}
-)";
-
-static const char* kKnobHighlightFragmentSrc = R"(#version 300 es
-precision highp float;
-in vec2 vTexcoord;
-in vec4 vColor;
-out vec4 fragColor;
-void main() {
-    vec2 center = vec2(0.5, 0.5);
-    float dist = distance(vTexcoord, center);
-    vec2 lightDir = normalize(vec2(-0.5, -0.5));
-    vec2 normal = normalize(vTexcoord - center);
-    float highlight = max(0.0, dot(normal, lightDir));
-    vec4 color = vColor;
-    color.rgb += highlight * 0.3;
-    float edgeDark = smoothstep(0.3, 0.5, dist);
-    color.rgb *= 1.0 - edgeDark * 0.3;
-    fragColor = color;
-}
-)";
-
-// Pixel font fragment shader - glyph index encoded in texcoord.x
-static const char* kPixelTextFragmentPrefix = R"(#version 300 es
-precision highp float;
-in vec2 vTexcoord;
-in vec4 vColor;
-out vec4 fragColor;
-const int FONT_GLYPHS = )";
-
-static const char* kPixelTextFragmentSuffix = R"(;
-uniform int uFontCols[475];
-void main() {
-    int charIdx = clamp(int(floor(vTexcoord.x)), 0, FONT_GLYPHS - 1);
-    float localX = fract(vTexcoord.x);
-    int px = clamp(int(localX * 5.0), 0, 4);
-    int py = clamp(int(vTexcoord.y * 7.0), 0, 6);
-    int colData = uFontCols[charIdx * 5 + px];
-    int pixelOn = (colData >> py) & 1;
-    if (pixelOn == 0) {
-        discard;
-    }
-    fragColor = vColor;
-}
-)";
-
 } // namespace
 
 WebGL2Renderer::WebGL2Renderer(WebGL2Context& context)
@@ -122,14 +38,13 @@ WebGL2Renderer::~WebGL2Renderer()
       glDeleteBuffers(1, &mVertexBuffer);
    if (mVertexArray)
       glDeleteVertexArrays(1, &mVertexArray);
-   if (mSolidProgram)
-      glDeleteProgram(mSolidProgram);
-   if (mPixelTextProgram)
-      glDeleteProgram(mPixelTextProgram);
-   if (mWireGlowProgram)
-      glDeleteProgram(mWireGlowProgram);
-   if (mKnobHighlightProgram)
-      glDeleteProgram(mKnobHighlightProgram);
+   for (GL2Program& prog : mPrograms)
+   {
+      if (prog.program)
+         glDeleteProgram(prog.program);
+   }
+   if (mSharedVertexShader)
+      glDeleteShader(mSharedVertexShader);
 }
 
 GLuint WebGL2Renderer::compileShader(GLenum type, const char* source)
@@ -171,45 +86,79 @@ GLuint WebGL2Renderer::linkProgram(GLuint vertexShader, GLuint fragmentShader)
    return program;
 }
 
+bool WebGL2Renderer::buildProgram(GLPipelineKind kind, const char* fragmentSrc, bool needsTime)
+{
+   GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentSrc);
+   if (!fs)
+      return false;
+
+   GLuint program = linkProgram(mSharedVertexShader, fs);
+   glDeleteShader(fs);
+   if (!program)
+      return false;
+
+   GL2Program& slot = mPrograms[static_cast<size_t>(kind)];
+   slot.program = program;
+   slot.uViewSize = glGetUniformLocation(program, "uViewSize");
+   slot.uTime = needsTime ? glGetUniformLocation(program, "uTime") : -1;
+   return true;
+}
+
 void WebGL2Renderer::createPrograms()
 {
-   GLuint vs = compileShader(GL_VERTEX_SHADER, kVertexShaderSrc);
+   mSharedVertexShader = compileShader(GL_VERTEX_SHADER, gl2VertexShaderSrc());
+   if (!mSharedVertexShader)
+      return;
 
-   GLuint fsSolid = compileShader(GL_FRAGMENT_SHADER, kSolidFragmentSrc);
-   mSolidProgram = linkProgram(vs, fsSolid);
-   mSolidViewSizeLoc = glGetUniformLocation(mSolidProgram, "uViewSize");
-   glDeleteShader(fsSolid);
+   buildProgram(GLPipelineKind::Solid, gl2SolidFragmentSrc(), false);
+   buildProgram(GLPipelineKind::KnobHighlight, gl2KnobHighlightFragmentSrc(), false);
+   buildProgram(GLPipelineKind::DialTicks, gl2DialTicksFragmentSrc(), false);
+   buildProgram(GLPipelineKind::WireGlow, gl2WireGlowFragmentSrc(), false);
+   buildProgram(GLPipelineKind::ConnectionPulse, gl2ConnectionPulseFragmentSrc(), true);
+   buildProgram(GLPipelineKind::SliderTrack, gl2SliderTrackFragmentSrc(), false);
+   buildProgram(GLPipelineKind::SliderFill, gl2SliderFillFragmentSrc(), true);
+   buildProgram(GLPipelineKind::SliderHandle, gl2SliderHandleFragmentSrc(), false);
+   buildProgram(GLPipelineKind::Button, gl2ButtonFragmentSrc(), false);
+   buildProgram(GLPipelineKind::ButtonHover, gl2ButtonHoverFragmentSrc(), true);
+   buildProgram(GLPipelineKind::ToggleSwitch, gl2ToggleSwitchFragmentSrc(), false);
+   buildProgram(GLPipelineKind::ToggleThumb, gl2ToggleThumbFragmentSrc(), false);
+   buildProgram(GLPipelineKind::VUMeter, gl2VUMeterFragmentSrc(), false);
+   buildProgram(GLPipelineKind::ADSRGrid, gl2ADSRGridFragmentSrc(), false);
+   buildProgram(GLPipelineKind::ADSREnvelope, gl2ADSREnvelopeFragmentSrc(), false);
+   buildProgram(GLPipelineKind::PanelBackground, gl2PanelBackgroundFragmentSrc(), false);
+   buildProgram(GLPipelineKind::PanelBordered, gl2PanelBorderedFragmentSrc(), false);
+   buildProgram(GLPipelineKind::LEDOn, gl2LEDOnFragmentSrc(), false);
+   buildProgram(GLPipelineKind::LEDOff, gl2LEDOffFragmentSrc(), false);
+   buildProgram(GLPipelineKind::Waveform, gl2WaveformFragmentSrc(), false);
+   buildProgram(GLPipelineKind::WaveformFilled, gl2WaveformFilledFragmentSrc(), false);
+   buildProgram(GLPipelineKind::SpectrumBar, gl2SpectrumBarFragmentSrc(), false);
+   buildProgram(GLPipelineKind::SpectrumPeak, gl2SpectrumPeakFragmentSrc(), false);
+   buildProgram(GLPipelineKind::ProgressBar, gl2ProgressBarFragmentSrc(), true);
+   buildProgram(GLPipelineKind::ModWheel, gl2ModWheelFragmentSrc(), false);
+   buildProgram(GLPipelineKind::ScopeGrid, gl2ScopeGridFragmentSrc(), false);
+   buildProgram(GLPipelineKind::FaderGroove, gl2FaderGrooveFragmentSrc(), false);
+   buildProgram(GLPipelineKind::FaderCap, gl2FaderCapFragmentSrc(), false);
 
-   GLuint fsWire = compileShader(GL_FRAGMENT_SHADER, kWireGlowFragmentSrc);
-   mWireGlowProgram = linkProgram(vs, fsWire);
-   mWireGlowViewSizeLoc = glGetUniformLocation(mWireGlowProgram, "uViewSize");
-   glDeleteShader(fsWire);
-
-   GLuint fsKnob = compileShader(GL_FRAGMENT_SHADER, kKnobHighlightFragmentSrc);
-   mKnobHighlightProgram = linkProgram(vs, fsKnob);
-   mKnobViewSizeLoc = glGetUniformLocation(mKnobHighlightProgram, "uViewSize");
-   glDeleteShader(fsKnob);
-
-   std::string pixelTextSrc = kPixelTextFragmentPrefix;
+   std::string pixelTextSrc = gl2PixelTextFragmentPrefix();
    pixelTextSrc += std::to_string(kPixelFontGlyphCount);
-   pixelTextSrc += kPixelTextFragmentSuffix;
-   GLuint fsText = compileShader(GL_FRAGMENT_SHADER, pixelTextSrc.c_str());
-   mPixelTextProgram = linkProgram(vs, fsText);
-   mPixelTextViewSizeLoc = glGetUniformLocation(mPixelTextProgram, "uViewSize");
+   pixelTextSrc += gl2PixelTextFragmentSuffix();
+   buildProgram(GLPipelineKind::PixelText, pixelTextSrc.c_str(), false);
 
-   const GLint fontColsLoc = glGetUniformLocation(mPixelTextProgram, "uFontCols");
+   const GLint fontColsLoc = glGetUniformLocation(programFor(GLPipelineKind::PixelText).program, "uFontCols");
    if (fontColsLoc >= 0)
    {
       const uint32_t* cols = getPixelFontColumns();
       std::vector<GLint> fontData(kPixelFontGlyphCount * kPixelFontColumnsPerGlyph);
       for (size_t i = 0; i < fontData.size(); ++i)
          fontData[i] = static_cast<GLint>(cols[i]);
-      glUseProgram(mPixelTextProgram);
+      glUseProgram(programFor(GLPipelineKind::PixelText).program);
       glUniform1iv(fontColsLoc, static_cast<GLsizei>(fontData.size()), fontData.data());
    }
+}
 
-   glDeleteShader(vs);
-   glDeleteShader(fsText);
+const WebGL2Renderer::GL2Program& WebGL2Renderer::programFor(GLPipelineKind kind) const
+{
+   return mPrograms[static_cast<size_t>(kind)];
 }
 
 void WebGL2Renderer::createBuffers()
@@ -239,7 +188,8 @@ bool WebGL2Renderer::initialize()
    emscripten_webgl_make_context_current(mContext.getContextHandle());
    createPrograms();
    createBuffers();
-   return mSolidProgram != 0 && mPixelTextProgram != 0;
+   return programFor(GLPipelineKind::Solid).program != 0
+      && programFor(GLPipelineKind::PixelText).program != 0;
 }
 
 void WebGL2Renderer::beginFrame(int width, int height, float pixelRatio, float time)
@@ -347,30 +297,16 @@ void WebGL2Renderer::endFrame()
          glDisable(GL_SCISSOR_TEST);
       }
 
-      GLuint program = mSolidProgram;
-      GLint viewLoc = mSolidViewSizeLoc;
-      switch (dc.pipeline)
-      {
-         case GLPipelineKind::Solid:
-            program = mSolidProgram;
-            viewLoc = mSolidViewSizeLoc;
-            break;
-         case GLPipelineKind::PixelText:
-            program = mPixelTextProgram;
-            viewLoc = mPixelTextViewSizeLoc;
-            break;
-         case GLPipelineKind::WireGlow:
-            program = mWireGlowProgram;
-            viewLoc = mWireGlowViewSizeLoc;
-            break;
-         case GLPipelineKind::KnobHighlight:
-            program = mKnobHighlightProgram;
-            viewLoc = mKnobViewSizeLoc;
-            break;
-      }
+      const GL2Program& prog = programFor(dc.pipeline);
+      if (!prog.program)
+         continue;
 
-      glUseProgram(program);
-      glUniform2fv(viewLoc, 1, viewSize);
+      glUseProgram(prog.program);
+      if (prog.uViewSize >= 0)
+         glUniform2fv(prog.uViewSize, 1, viewSize);
+      if (prog.uTime >= 0)
+         glUniform1f(prog.uTime, mTime);
+
       glDrawArrays(GL_TRIANGLES, dc.firstVertex, dc.vertexCount);
    }
 
@@ -743,7 +679,6 @@ void WebGL2Renderer::text(float x, float y, const char* string)
    if (!string || string[0] == '\0')
       return;
 
-   const float charWidth = mFontSize * kPixelFontCharWidthRatio;
    const float charHeight = mFontSize;
    const float charSpacing = mFontSize * kPixelFontCharSpacingRatio;
    const Color textColor = mCurrentState.fillColor;
@@ -752,18 +687,23 @@ void WebGL2Renderer::text(float x, float y, const char* string)
 
    float currentX = x;
    const size_t len = strlen(string);
-   for (size_t i = 0; i < len; ++i)
+   for (size_t i = 0; i < len;)
    {
-      const unsigned char c = static_cast<unsigned char>(string[i]);
-      const int charIdx = pixelFontCharIndex(c);
-      if (c == ' ')
+      const PixelFontGlyph glyph = pixelFontDecodeGlyph(string, i, len);
+      if (glyph.byteLength == 0)
+         break;
+
+      i += glyph.byteLength;
+
+      const float charWidth = pixelFontGlyphAdvance(glyph.index, mFontSize);
+      if (glyph.index == 0)
       {
          currentX += charWidth + charSpacing;
          continue;
       }
 
-      const float u0 = static_cast<float>(charIdx);
-      const float u1 = static_cast<float>(charIdx) + 1.0f;
+      const float u0 = static_cast<float>(glyph.index);
+      const float u1 = static_cast<float>(glyph.index) + 1.0f;
       const float x1 = currentX;
       const float y1 = y - charHeight * kPixelFontBaselineRatio;
       const float x2 = x1 + charWidth;
@@ -841,30 +781,51 @@ void WebGL2Renderer::drawKnob(float cx, float cy, float radius, float value, con
    drawQuad(cx - radius, cy - radius, size, size, GLPipelineKind::KnobHighlight);
 
    fillColor(fgColor);
-   circle(cx, cy, radius * 0.85f);
-   fill();
+   drawQuad(cx - radius, cy - radius, size, size, GLPipelineKind::DialTicks);
 
    const float startA = 0.75f * PI;
    const float valA = startA + value * 1.5f * PI;
+   const int arcSegs = 12;
    strokeColor(UITheme::kAccentCyan);
    strokeWidth(2.0f);
-   beginPath();
-   moveTo(cx, cy);
-   lineTo(cx + cosf(valA) * radius * 0.7f, cy + sinf(valA) * radius * 0.7f);
-   stroke();
+   for (int i = 0; i < arcSegs; ++i)
+   {
+      const float t0 = static_cast<float>(i) / arcSegs;
+      const float t1 = static_cast<float>(i + 1) / arcSegs;
+      const float a0 = startA + (valA - startA) * t0;
+      const float a1 = startA + (valA - startA) * t1;
+      const float r = radius * 0.88f;
+      line(cx + cosf(a0) * r, cy + sinf(a0) * r, cx + cosf(a1) * r, cy + sinf(a1) * r);
+   }
+
+   const float angle = startA + value * 1.5f * PI;
+   const float ix = cx + cosf(angle) * radius * 0.35f;
+   const float iy = cy + sinf(angle) * radius * 0.35f;
+   const float ix2 = cx + cosf(angle) * radius * 0.82f;
+   const float iy2 = cy + sinf(angle) * radius * 0.82f;
+   strokeColor(fgColor);
+   strokeWidth(2.2f);
+   line(ix, iy, ix2, iy2);
+   fillColor(UITheme::kKnobIndicator);
+   circle(ix2, iy2, radius * 0.07f);
+   fill();
 }
 
 void WebGL2Renderer::drawWire(float x1, float y1, float x2, float y2, const Color& color, float thickness)
 {
-   fillColor(color);
    const float dx = x2 - x1;
    const float dy = y2 - y1;
    const float len = sqrtf(dx * dx + dy * dy);
    if (len < 0.0001f)
       return;
-   const float nx = -dy / len * thickness * 0.5f;
-   const float ny = dx / len * thickness * 0.5f;
-   drawQuad(x1 - nx, y1 - ny, len, thickness, GLPipelineKind::WireGlow);
+
+   save();
+   translate(x1, y1);
+   rotate(atan2f(dy, dx));
+   fillColor(color);
+   drawQuad(0.0f, -thickness * 2.0f, len, thickness * 4.0f, GLPipelineKind::WireGlow);
+   drawQuad(0.0f, -thickness * 2.0f, len, thickness * 4.0f, GLPipelineKind::ConnectionPulse);
+   restore();
 }
 
 void WebGL2Renderer::drawCableWithSag(float x1, float y1, float x2, float y2, const Color& color, float thickness, float sag)
@@ -903,27 +864,58 @@ void WebGL2Renderer::drawCableWithSag(float x1, float y1, float x2, float y2, co
 void WebGL2Renderer::drawSlider(float x, float y, float w, float h, float value, const Color& bgColor, const Color& fgColor)
 {
    fillColor(bgColor);
-   drawQuad(x, y, w, h, GLPipelineKind::Solid);
+   drawQuad(x, y, w, h, GLPipelineKind::SliderTrack);
    fillColor(fgColor);
    if (h > w)
    {
       const float fillH = h * value;
-      drawQuad(x, y + h - fillH, w, fillH, GLPipelineKind::Solid);
+      drawQuad(x, y + h - fillH, w, fillH, GLPipelineKind::SliderFill);
+      const float handleH = w * 0.5f;
+      float handleY = y + h - fillH - handleH * 0.5f;
+      if (handleY < y) handleY = y;
+      if (handleY > y + h - handleH) handleY = y + h - handleH;
+      drawQuad(x, handleY, w, handleH, GLPipelineKind::SliderHandle);
    }
    else
    {
       const float fillW = w * value;
-      drawQuad(x, y, fillW, h, GLPipelineKind::Solid);
+      drawQuad(x, y, fillW, h, GLPipelineKind::SliderFill);
+      const float handleW = h * 0.5f;
+      float handleX = x + fillW - handleW * 0.5f;
+      if (handleX < x) handleX = x;
+      if (handleX > x + w - handleW) handleX = x + w - handleW;
+      drawQuad(handleX, y, handleW, h, GLPipelineKind::SliderHandle);
    }
 }
 
 void WebGL2Renderer::drawVUMeter(float x, float y, float w, float h, float level, const Color& lowColor, const Color& highColor)
 {
-   fillColor(Color(0.1f, 0.1f, 0.12f, 1.0f));
-   drawQuad(x, y, w, h, GLPipelineKind::Solid);
-   const float fillH = h * std::clamp(level, 0.0f, 1.0f);
-   fillColor(level > 0.85f ? highColor : lowColor);
-   drawQuad(x, y + h - fillH, w, fillH, GLPipelineKind::Solid);
+   fillColor(Color(0.1f, 0.1f, 0.1f, 1.0f));
+   rect(x, y, w, h);
+   fill();
+
+   const int numSegments = 10;
+   const float segmentHeight = h / numSegments;
+   const float gap = 2.0f;
+   for (int i = 0; i < numSegments; ++i)
+   {
+      const float segmentLevel = static_cast<float>(i + 1) / numSegments;
+      const float segmentY = y + h - (i + 1) * segmentHeight;
+      if (segmentLevel <= level)
+      {
+         const float t = static_cast<float>(i) / numSegments;
+         fillColor(Color(
+            lowColor.r + (highColor.r - lowColor.r) * t,
+            lowColor.g + (highColor.g - lowColor.g) * t,
+            lowColor.b + (highColor.b - lowColor.b) * t,
+            1.0f));
+      }
+      else
+      {
+         fillColor(Color(0.15f, 0.15f, 0.15f, 1.0f));
+      }
+      drawQuad(x + gap, segmentY + gap * 0.5f, w - gap * 2.0f, segmentHeight - gap, GLPipelineKind::VUMeter);
+   }
 }
 
 void WebGL2Renderer::drawButton(float x, float y, float w, float h, const char* label, bool pressed, bool hover)
@@ -936,15 +928,15 @@ void WebGL2Renderer::drawButton(float x, float y, float w, float h, const char* 
       baseColor.b *= 0.8f;
    }
    fillColor(baseColor);
-   drawQuad(x, y, w, h, GLPipelineKind::Solid);
+   drawQuad(x, y, w, h, GLPipelineKind::Button);
    if (hover)
    {
       fillColor(Color(1.0f, 1.0f, 1.0f, 0.2f));
-      drawQuad(x, y, w, h, GLPipelineKind::Solid);
+      drawQuad(x, y, w, h, GLPipelineKind::ButtonHover);
    }
    if (label && label[0])
    {
-      fillColor(UITheme::kTextPrimary);
+      fillColor(Color(1.0f, 1.0f, 1.0f, 0.9f));
       fontSize(11.0f);
       const float labelW = textWidth(label);
       text(x + (w - labelW) * 0.5f, y + h * 0.65f, label);
@@ -953,38 +945,41 @@ void WebGL2Renderer::drawButton(float x, float y, float w, float h, const char* 
 
 void WebGL2Renderer::drawToggle(float x, float y, float w, float h, bool state)
 {
-   fillColor(Color(0.2f, 0.2f, 0.22f, 1.0f));
-   drawQuad(x, y, w, h, GLPipelineKind::Solid);
-   fillColor(state ? UITheme::kAccentGreen : Color(0.35f, 0.35f, 0.38f, 1.0f));
-   const float pad = 2.0f;
-   const float thumbW = (w - pad * 3.0f) * 0.5f;
-   const float thumbX = state ? x + w - pad - thumbW : x + pad;
-   drawQuad(thumbX, y + pad, thumbW, h - pad * 2.0f, GLPipelineKind::Solid);
+   fillColor(mCurrentState.fillColor);
+   drawQuad(x, y, w, h, GLPipelineKind::ToggleSwitch);
+   const float thumbSize = h;
+   const float thumbX = state ? (x + w - thumbSize) : x;
+   fillColor(Color(0.9f, 0.9f, 0.95f, 1.0f));
+   drawQuad(thumbX, y, thumbSize, thumbSize, GLPipelineKind::ToggleThumb);
 }
 
 void WebGL2Renderer::drawFader(float x, float y, float w, float h, float value)
 {
-   drawSlider(x, y, w, h, value, Color(0.15f, 0.15f, 0.17f, 1.0f), UITheme::kAccentCyan);
+   fillColor(Color(0.1f, 0.1f, 0.1f, 1.0f));
+   drawQuad(x, y, w, h, GLPipelineKind::FaderGroove);
+   const float capHeight = 30.0f;
+   float capY = y + h - (h * value) - capHeight * 0.5f;
+   if (capY < y) capY = y;
+   if (capY > y + h - capHeight) capY = y + h - capHeight;
+   fillColor(Color(0.8f, 0.8f, 0.85f, 1.0f));
+   drawQuad(x - 5.0f, capY, w + 10.0f, capHeight, GLPipelineKind::FaderCap);
 }
 
 void WebGL2Renderer::drawModWheel(float x, float y, float w, float h, float value)
 {
-   drawSlider(x, y, w, h, value, Color(0.12f, 0.12f, 0.14f, 1.0f), UITheme::kAccentMagenta);
+   (void)value;
+   fillColor(mCurrentState.fillColor);
+   drawQuad(x, y, w, h, GLPipelineKind::ModWheel);
 }
 
 void WebGL2Renderer::drawADSR(float x, float y, float w, float h, float a, float d, float s, float r)
 {
-   fillColor(Color(0.1f, 0.1f, 0.12f, 1.0f));
-   drawQuad(x, y, w, h, GLPipelineKind::Solid);
-   strokeColor(UITheme::kAccentCyan);
-   strokeWidth(2.0f);
-   beginPath();
-   moveTo(x, y + h);
-   lineTo(x + w * a * 0.25f, y);
-   lineTo(x + w * (a * 0.25f + d * 0.25f), y + h * (1.0f - s));
-   lineTo(x + w * 0.75f, y + h * (1.0f - s));
-   lineTo(x + w, y + h);
-   stroke();
+   (void)a;
+   (void)d;
+   (void)s;
+   (void)r;
+   fillColor(Color(0.2f, 0.2f, 0.25f, 1.0f));
+   drawQuad(x, y, w, h, GLPipelineKind::ADSRGrid);
 }
 
 void WebGL2Renderer::drawWaveform(float x, float y, float w, float h, const float* data, int count, bool filled)
@@ -1022,38 +1017,40 @@ void WebGL2Renderer::drawSpectrum(float x, float y, float w, float h, const floa
    for (int i = 0; i < count; ++i)
    {
       const float barH = data[i] * h;
-      fillColor(UITheme::kAccentGreen);
-      drawQuad(x + i * barW, y + h - barH, barW - 1.0f, barH, GLPipelineKind::Solid);
+      const float barX = x + i * barW;
+      const float barY = y + h - barH;
+      fillColor(Color(0.0f, 1.0f, 0.0f, 1.0f));
+      drawQuad(barX, barY, barW - 1.0f, barH, GLPipelineKind::SpectrumBar);
+      drawQuad(barX, barY - 2.0f, barW - 1.0f, 2.0f, GLPipelineKind::SpectrumPeak);
    }
 }
 
 void WebGL2Renderer::drawScope(float x, float y, float w, float h, const float* data, int count)
 {
+   fillColor(Color(0.0f, 0.2f, 0.0f, 1.0f));
+   drawQuad(x, y, w, h, GLPipelineKind::ScopeGrid);
    drawWaveform(x, y, w, h, data, count, false);
 }
 
 void WebGL2Renderer::drawPanel(float x, float y, float w, float h, bool bordered)
 {
-   fillColor(UITheme::kBgPanel);
-   drawQuad(x, y, w, h, GLPipelineKind::Solid);
-   if (bordered)
-   {
-      strokeColor(Color(0.35f, 0.35f, 0.4f, 1.0f));
-      strokeWidth(1.0f);
-      rect(x, y, w, h);
-      stroke();
-   }
+   fillColor(mCurrentState.fillColor);
+   drawQuad(x, y, w, h, bordered ? GLPipelineKind::PanelBordered : GLPipelineKind::PanelBackground);
 }
 
 void WebGL2Renderer::drawLED(float x, float y, float w, float h, bool on)
 {
-   fillColor(on ? UITheme::kAccentGreen : Color(0.2f, 0.2f, 0.22f, 1.0f));
-   drawQuad(x, y, w, h, GLPipelineKind::Solid);
+   fillColor(mCurrentState.fillColor);
+   drawQuad(x, y, w, h, on ? GLPipelineKind::LEDOn : GLPipelineKind::LEDOff);
 }
 
 void WebGL2Renderer::drawProgressBar(float x, float y, float w, float h, float value)
 {
-   drawSlider(x, y, w, h, value, Color(0.15f, 0.15f, 0.17f, 1.0f), UITheme::kAccentAmber);
+   fillColor(Color(0.2f, 0.2f, 0.2f, 1.0f));
+   rect(x, y, w, h);
+   fill();
+   fillColor(mCurrentState.fillColor);
+   drawQuad(x, y, w * value, h, GLPipelineKind::ProgressBar);
 }
 
 void WebGL2Renderer::drawXYPad(float x, float y, float w, float h, float cx, float cy)
@@ -1092,7 +1089,7 @@ void WebGL2Renderer::drawLFOWaveform(float x, float y, float w, float h)
 void WebGL2Renderer::drawSequencerStep(float x, float y, float w, float h, bool active)
 {
    fillColor(active ? UITheme::kAccentCyan : Color(0.2f, 0.2f, 0.22f, 1.0f));
-   drawQuad(x, y, w, h, GLPipelineKind::Solid);
+   drawQuad(x, y, w, h, GLPipelineKind::Button);
 }
 
 void WebGL2Renderer::drawSpectrumWaterfall(float x, float y, float w, float h)

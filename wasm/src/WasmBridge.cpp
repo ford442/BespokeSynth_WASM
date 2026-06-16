@@ -60,6 +60,11 @@ static void reportInitProgress(const char* step, const char* detail)
 
 // Global state
 static RendererBackendType gRendererBackend = RendererBackendType::WebGPU;
+bool gBespokePendingScreenshotCapture = false;
+static bool gRenderTestMode = false;
+static std::vector<uint8_t> gScreenshotPixels;
+static int gScreenshotWidth = 0;
+static int gScreenshotHeight = 0;
 static WebGLDebugMode gWebGLDebugMode = WebGLDebugMode::Normal;
 static std::unique_ptr<WebGPUContext> gContext;
 static std::unique_ptr<WebGL2Context> gWebGL2Context;
@@ -76,6 +81,7 @@ static int gGainModuleId = -1;
 
 // View modes: 0 = modular canvas (default), 1 = legacy demo panels
 static int gViewMode = 0;
+static bool gFontTestVisible = false;
 
 static int gWidth = 800;
 static int gHeight = 600;
@@ -367,6 +373,15 @@ static bool initializeAudioAndControls(int sampleRate, int bufferSize)
    {
       gCanvas->connectModules(oscId, 0, gainId, 0);
       gCanvas->connectModules(gainId, 0, outputId, 0);
+
+      // Seed canvas module values from demo knobs
+      if (auto* osc = gCanvas->getModule(oscId))
+      {
+         osc->setControlValue("frequency", gKnobs[0]->getValue());
+         osc->setControlValue("volume", gKnobs[1]->getValue());
+      }
+      if (auto* gain = gCanvas->getModule(gainId))
+         gain->setControlValue("gain", gKnobs[1]->getValue());
    }
 
    gInitState = InitState::FullyInitialized;
@@ -590,6 +605,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_buffer_size(void)
 
 // Forward declaration
 static void renderDemoPanels();
+static void renderFontTestPanel();
 
 EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
 {
@@ -616,25 +632,29 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
 
    if (gViewMode == 0 && gCanvas)
    {
+      // Keep transport play state and audio backend in sync
+      if (gCanvas->getTransport() && gAudioBackend)
+      {
+         const bool playing = gCanvas->getTransport()->isPlaying();
+         if (playing && !gAudioBackend->isRunning())
+            gAudioBackend->start();
+         else if (!playing && gAudioBackend->isRunning())
+            gAudioBackend->stop();
+
+         gCanvas->setOutputLevel(gAudioBackend->getOutputLevel());
+      }
+
       // Modular canvas view
       gCanvas->render(*gRenderer, gWidth, gHeight);
-
-      // Status bar
-      gRenderer->fillColor(Color(0.6f, 0.6f, 0.65f, 1.0f));
-      gRenderer->fontSize(10.0f);
-
-      char statusText[256];
-      snprintf(statusText, sizeof(statusText),
-               "Audio: %s | %d Hz | Tab: switch view",
-               (gAudioBackend && gAudioBackend->isRunning()) ? "Running" : "Stopped",
-               bespoke_get_sample_rate());
-      gRenderer->text(static_cast<float>(gWidth) - 280, static_cast<float>(gHeight) - 15, statusText);
    }
    else
    {
       // Legacy demo panel view
       renderDemoPanels();
    }
+
+   if (gFontTestVisible)
+      renderFontTestPanel();
 
    gRenderer->endFrame();
 }
@@ -650,12 +670,17 @@ static void renderDemoPanels()
       return (range > 0.0f) ? (k.getValue() - k.getMin()) / range : 0.5f;
    };
    // Draw title
-   gRenderer->fillColor(Color(0.9f, 0.9f, 0.95f, 1.0f));
-   gRenderer->fontSize(24.0f);
-   gRenderer->text(20, 40, "BespokeSynth WASM - Demo Panels");
+   gRenderer->fillColor(UITheme::kTextPrimary);
+   gRenderer->fontSize(22.0f);
+   gRenderer->text(20, 36, "BespokeSynth WASM");
+
+   // Legacy demo banner
+   gRenderer->fillColor(UITheme::kAccentAmber);
+   gRenderer->fontSize(11.0f);
+   gRenderer->text(20, 56, "Legacy demo panels — Tab switches to Modular Canvas (recommended)");
 
    // Draw panel tabs
-   float tabY = 70.0f;
+   float tabY = 78.0f;
    float tabHeight = 35.0f;
    float tabWidth = 150.0f;
    float tabSpacing = 5.0f;
@@ -799,7 +824,7 @@ static void renderDemoPanels()
          gRenderer->drawSlider(sliderX, sliderY, 200, 20, ch1Val,
                                UITheme::kBgTrack, UITheme::kAccentGreen);
 
-         char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%.2f", ch1Val);
+         char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%.0f%%", ch1Val * 100.0f);
          gRenderer->fillColor(UITheme::kTextValue);
          gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 5, vbuf);
@@ -809,7 +834,7 @@ static void renderDemoPanels()
          gRenderer->text(sliderX, sliderY + 40, "Channel 2");
          gRenderer->drawSlider(sliderX, sliderY + 50, 200, 20, ch2Val,
                                UITheme::kBgTrack, UITheme::kAccentCyan);
-         snprintf(vbuf, sizeof(vbuf), "%.2f", ch2Val);
+         snprintf(vbuf, sizeof(vbuf), "%.0f%%", ch2Val * 100.0f);
          gRenderer->fillColor(UITheme::kTextValue);
          gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 55, vbuf);
@@ -819,7 +844,7 @@ static void renderDemoPanels()
          gRenderer->text(sliderX, sliderY + 90, "Master");
          gRenderer->drawSlider(sliderX, sliderY + 100, 200, 20, masterVal,
                                UITheme::kBgTrack, UITheme::kAccentMagenta);
-         snprintf(vbuf, sizeof(vbuf), "%.2f", masterVal);
+         snprintf(vbuf, sizeof(vbuf), "%.0f%%", masterVal * 100.0f);
          gRenderer->fillColor(UITheme::kTextValue);
          gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 105, vbuf);
@@ -859,25 +884,25 @@ static void renderDemoPanels()
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY - 10, "Reverb Mix");
          gRenderer->drawSlider(effectX, effectY, 250, 20, reverbMix, UITheme::kBgTrack, UITheme::kAccentMagenta);
-         { char v[32]; snprintf(v, sizeof(v), "%.2f", reverbMix); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 5, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f%%", reverbMix * 100.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 5, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 40, "Delay Time");
          gRenderer->drawSlider(effectX, effectY + 50, 250, 20, delayTime, UITheme::kBgTrack, UITheme::kAccentAmber);
-         { char v[32]; snprintf(v, sizeof(v), "%.2f", delayTime); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 55, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f ms", delayTime * 1000.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 55, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 90, "Chorus Depth");
          gRenderer->drawSlider(effectX, effectY + 100, 250, 20, chorusDepth, UITheme::kBgTrack, UITheme::kAccentCyan);
-         { char v[32]; snprintf(v, sizeof(v), "%.2f", chorusDepth); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 105, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f%%", chorusDepth * 100.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 105, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 140, "Distortion");
          gRenderer->drawSlider(effectX, effectY + 150, 250, 20, distortion, UITheme::kBgTrack, UITheme::kAccentMagenta);
-         { char v[32]; snprintf(v, sizeof(v), "%.2f", distortion); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 155, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f%%", distortion * 100.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 155, v); }
 
          // Draw effect visualizer
          float vizX = panelX + panelW - 200;
@@ -922,7 +947,7 @@ static void renderDemoPanels()
          gRenderer->drawSlider(seqX, seqY, 150, 20, bpmNorm,
                                Color(0.25f, 0.25f, 0.28f, 1.0f),
                                Color(0.5f, 0.8f, 0.4f, 1.0f));
-         { char v[32]; snprintf(v, sizeof(v), "%.0f", bpmDisplay); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(seqX + 155, seqY + 5, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f BPM", bpmDisplay); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(seqX + 155, seqY + 5, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
@@ -982,11 +1007,12 @@ static void renderDemoPanels()
    gRenderer->fontSize(12.0f);
 
    char statusText[256];
+   const bool transportPlaying = gCanvas && gCanvas->getTransport() && gCanvas->getTransport()->isPlaying();
    snprintf(statusText, sizeof(statusText),
-            "Sample Rate: %d Hz | Buffer: %d | Audio: %s | Panel: %s",
+            "Sample rate: %d Hz | Buffer: %d | %s | Panel: %s | Tab: Modular Canvas",
             bespoke_get_sample_rate(),
             bespoke_get_buffer_size(),
-            (gAudioBackend && gAudioBackend->isRunning()) ? "Running" : "Stopped",
+            transportPlaying ? "Playing" : "Stopped",
             panelNames[gCurrentPanel]);
 
    gRenderer->text(20, static_cast<float>(gHeight) - 20, statusText);
@@ -995,6 +1021,67 @@ static void renderDemoPanels()
    gRenderer->fillColor(Color(0.5f, 0.5f, 0.55f, 0.7f));
    gRenderer->fontSize(10.0f);
    gRenderer->text(static_cast<float>(gWidth) - 150, 20, "Tab: Modular Canvas");
+}
+
+static void renderFontTestPanel()
+{
+   if (!gRenderer)
+      return;
+
+   const float panelX = 16.0f;
+   const float panelY = 52.0f;
+   const float panelW = static_cast<float>(gWidth) - 32.0f;
+   const float panelH = static_cast<float>(gHeight) - 84.0f;
+
+   gRenderer->fillColor(Color(0.06f, 0.06f, 0.08f, 0.94f));
+   gRenderer->roundedRect(panelX, panelY, panelW, panelH, 8.0f);
+   gRenderer->fill();
+
+   gRenderer->strokeColor(Color(0.35f, 0.35f, 0.42f, 1.0f));
+   gRenderer->strokeWidth(1.0f);
+   gRenderer->roundedRect(panelX, panelY, panelW, panelH, 8.0f);
+   gRenderer->stroke();
+
+   const char* kSharp = "C\xe2\x99\xaf";
+   const char* kFlat = "B\xe2\x99\xad";
+   char musicalLine[64];
+   snprintf(musicalLine, sizeof(musicalLine), "Musical: %smaj  %smin  A#  Db", kSharp, kFlat);
+
+   const char* rows[] = {
+      "Font Test Panel",
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      "abcdefghijklmnopqrstuvwxyz",
+      "0123456789  !@#$%^&*()-_=+<>?/\\|~",
+      "In Out Pitch Gate Cutoff Resonance",
+      "440 Hz  -12 dB  50%  1.50x",
+      musicalLine,
+   };
+
+   float y = panelY + 18.0f;
+   for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
+   {
+      gRenderer->fillColor(i == 0 ? UITheme::kTextValue : UITheme::kTextLabel);
+      gRenderer->fontSize(i == 0 ? 13.0f : 10.0f);
+      gRenderer->text(panelX + 12.0f, y, rows[i]);
+      y += gRenderer->textHeight() + 5.0f;
+   }
+
+   gRenderer->fillColor(UITheme::kTextLabel);
+   gRenderer->fontSize(10.0f);
+   float gx = panelX + 12.0f;
+   float gy = y + 8.0f;
+   for (int c = 32; c <= 126; ++c)
+   {
+      char ch[2] = { static_cast<char>(c), '\0' };
+      const float advance = gRenderer->textWidth(ch) + 2.0f;
+      gRenderer->text(gx, gy, ch);
+      gx += advance;
+      if (gx > panelX + panelW - 18.0f)
+      {
+         gx = panelX + 12.0f;
+         gy += gRenderer->textHeight() + 4.0f;
+      }
+   }
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_resize(int width, int height)
@@ -1162,16 +1249,18 @@ EMSCRIPTEN_KEEPALIVE void bespoke_key_down(int keyCode, int modifiers)
       }
    }
 
-   // Space to toggle audio
+   // Space toggles transport; audio backend follows play state
    if (keyCode == KEY_SPACE && gAudioBackend)
    {
-      if (gAudioBackend->isRunning())
+      if (gViewMode != 0 && gCanvas && gCanvas->getTransport())
+         gCanvas->getTransport()->setPlaying(!gCanvas->getTransport()->isPlaying());
+
+      if (gCanvas && gCanvas->getTransport())
       {
-         gAudioBackend->stop();
-      }
-      else
-      {
-         gAudioBackend->start();
+         if (gCanvas->getTransport()->isPlaying())
+            gAudioBackend->start();
+         else
+            gAudioBackend->stop();
       }
    }
 }
@@ -1533,13 +1622,80 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_webgl_debug_mode(void)
 
 EMSCRIPTEN_KEEPALIVE int bespoke_capture_screenshot(int* outWidth, int* outHeight)
 {
+   if (!gInitialized || !gRenderer)
+      return -1;
+
+   gScreenshotPixels.clear();
+   gScreenshotWidth = 0;
+   gScreenshotHeight = 0;
+
+   gBespokePendingScreenshotCapture = true;
+   bespoke_render();
+   gBespokePendingScreenshotCapture = false;
+
    if (outWidth)
       *outWidth = gWidth;
    if (outHeight)
       *outHeight = gHeight;
-   // WebGL2 screenshots are captured from JS via canvas.toDataURL().
-   // WebGPU readback is also handled in TypeScript for now.
-   return gRenderer ? static_cast<int>(gRenderer->getBackendType()) : -1;
+
+   if (gRendererBackend == RendererBackendType::WebGL2)
+      return 1;
+
+   if (gContext)
+   {
+      std::vector<uint8_t> pixels;
+      int w = 0;
+      int h = 0;
+      if (gContext->readCapturedPixels(pixels, w, h))
+      {
+         gScreenshotPixels = std::move(pixels);
+         gScreenshotWidth = w;
+         gScreenshotHeight = h;
+         if (outWidth)
+            *outWidth = w;
+         if (outHeight)
+            *outHeight = h;
+         return 0;
+      }
+   }
+
+   return -1;
+}
+
+EMSCRIPTEN_KEEPALIVE const unsigned char* bespoke_get_screenshot_pixels(int* outByteLength)
+{
+   if (outByteLength)
+      *outByteLength = static_cast<int>(gScreenshotPixels.size());
+   return gScreenshotPixels.empty() ? nullptr : gScreenshotPixels.data();
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_render_test_mode(int enabled)
+{
+   gRenderTestMode = enabled != 0;
+   if (!gCanvas)
+      return;
+
+   gViewMode = 0;
+   gCanvas->setupCanonicalRenderTestScene();
+   gOscillatorModuleId = gCanvas->findFirstModuleOfType("oscillator");
+   gGainModuleId = gCanvas->findFirstModuleOfType("gain");
+   if (gRenderTestMode)
+      gFontTestVisible = false;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_render_test_mode(void)
+{
+   return gRenderTestMode ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_font_test_visible(int visible)
+{
+   gFontTestVisible = visible != 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_font_test_visible(void)
+{
+   return gFontTestVisible ? 1 : 0;
 }
 
 } // extern "C"

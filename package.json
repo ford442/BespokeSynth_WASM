@@ -8,6 +8,7 @@
     "prebuild": "node scripts/prebuild.js",
     "build": "npm run build:wasm && npm run build:ts && npm run build:webpack",
     "build:wasm": "cd wasm && ./build.sh",
+    "sync:font": "python3 scripts/sync_pixel_font_shader.py",
     "build:ts": "tsc",
     "build:webpack": "webpack --mode production",
     "build:web-only": "npm run build:ts && npm run build:webpack",

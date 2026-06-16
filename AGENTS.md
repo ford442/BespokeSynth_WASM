@@ -296,7 +296,44 @@ All UI code renders through `Renderer2D` (`wasm/include/BespokeWasm/Renderer2D.h
 Module._bespoke_set_renderer_backend(1); // 0=WebGPU, 1=WebGL2
 ```
 
-Or from the browser: `?renderer=webgl`, header dropdown, or `localStorage.bespokesynth.renderer`.
+Or from the browser: `?renderer=webgl`, header dropdown, `localStorage.bespokesynth.renderer`, or **Ctrl+Shift+R** (reloads with the other backend).
+
+If WebGPU init fails and the user did not force `?renderer=webgpu`, `src/index.ts` automatically retries with WebGL2.
+
+### Screenshots for agents & CI
+
+Prefer WebGL2 for reliable canvas readback (`preserveDrawingBuffer` is enabled). WebGPU uses GPU texture readback via `bespoke_capture_screenshot()` + `bespoke_get_screenshot_pixels()`.
+
+```js
+// After the app is ready
+await window.__bespoke.captureScreenshot();
+await window.__bespoke.captureScreenshot({ x: 0, y: 40, width: 800, height: 500 }); // crop
+window.__bespoke.onScreenshotCaptured((dataUrl, info) => { /* post to agent */ });
+```
+
+Keyboard shortcut: **Ctrl+Shift+S**. Header **Screenshot** button also works.
+
+C API (from C++ or via `Module._bespoke_*`):
+
+```js
+Module._bespoke_capture_screenshot(widthPtr, heightPtr); // renders frame; returns 1=WebGL2, 0=WebGPU pixels ready
+Module._bespoke_get_screenshot_pixels(byteLenPtr);       // RGBA for WebGPU path
+```
+
+### Render test / visual regression
+
+Load a canonical module graph (transport, scale, osc→filter→gain→output, LFO→filter CV):
+
+```text
+?renderTest=1
+?renderer=webgl&renderTest=1   # recommended for PNG diffing
+```
+
+```js
+Module._bespoke_set_render_test_mode(1);
+```
+
+Harness page: `wasm/render_test.html`. Floating renderer FAB appears with `?debug=1`.
 
 See [docs/webgl-fallback.md](../docs/webgl-fallback.md) for debug modes, screenshot workflow, and WGSL→GLSL porting notes.
 

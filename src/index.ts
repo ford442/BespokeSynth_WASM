@@ -12,7 +12,10 @@ import {
   switchRendererPreference,
   captureCanvasScreenshot,
   downloadScreenshot,
+  isRenderTestRequested,
+  onScreenshotCaptured,
   type RendererBackend,
+  type CaptureScreenshotOptions,
 } from './rendererMode';
 
 // Initialization step definitions
@@ -135,6 +138,7 @@ class BespokeSynthApp {
     this.initializeProgressUI();
     this.setupInitProgressCallback();
     this.setupRendererDebugUI();
+    this.setupKeyboardShortcuts();
 
     const statusSubheader = document.querySelector('#status .status-subheader');
     if (statusSubheader) {
@@ -197,6 +201,7 @@ class BespokeSynthApp {
         this.showReadyState();
         this.setupEventListeners();
         this.startRenderLoop();
+        this.applyPostInitOptions();
         console.log('BespokeSynth initialized successfully (sync)');
       } else if (result === 1) {
         // Initialization is pending asynchronously
@@ -216,6 +221,7 @@ class BespokeSynthApp {
             this.showReadyState();
             this.setupEventListeners();
             this.startRenderLoop();
+            this.applyPostInitOptions();
             console.log('BespokeSynth initialized with WebGL2 fallback');
             return;
           }
@@ -297,21 +303,74 @@ class BespokeSynthApp {
     screenshotBtn.id = 'screenshotBtn';
     screenshotBtn.className = 'btn';
     screenshotBtn.textContent = 'Screenshot';
-    screenshotBtn.title = 'Capture canvas PNG (works best in WebGL2 mode)';
+    screenshotBtn.title = 'Capture canvas PNG (Ctrl+Shift+S)';
     screenshotBtn.addEventListener('click', () => void this.captureScreenshot());
 
     headerControls.appendChild(rendererSelect);
     headerControls.appendChild(debugSelect);
     headerControls.appendChild(screenshotBtn);
+
+    if (new URLSearchParams(window.location.search).has('debug')) {
+      this.setupFloatingRendererToggle();
+    }
   }
 
-  private async captureScreenshot(): Promise<void> {
-    if (!this.canvas) return;
+  private setupFloatingRendererToggle(): void {
+    const btn = document.createElement('button');
+    btn.id = 'rendererFab';
+    btn.className = 'renderer-fab';
+    btn.textContent = this.rendererBackend === 'webgl' ? 'GL2' : 'GPU';
+    btn.title = 'Toggle renderer backend (reloads page)';
+    btn.addEventListener('click', () => {
+      switchRendererPreference(this.rendererBackend === 'webgl' ? 'webgpu' : 'webgl');
+    });
+    document.body.appendChild(btn);
+  }
+
+  private setupKeyboardShortcuts(): void {
+    window.addEventListener('keydown', (event) => {
+      if (!event.ctrlKey || !event.shiftKey) return;
+
+      if (event.code === 'KeyS') {
+        event.preventDefault();
+        void this.captureScreenshot();
+      } else if (event.code === 'KeyR') {
+        event.preventDefault();
+        switchRendererPreference(this.rendererBackend === 'webgl' ? 'webgpu' : 'webgl');
+      }
+    });
+  }
+
+  private applyPostInitOptions(): void {
+    if (!this.module) return;
+
+    if (isRenderTestRequested()) {
+      this.module._bespoke_set_render_test_mode?.(1);
+      console.log('Render test mode: canonical scene loaded (?renderTest=1)');
+    }
+
+    const activeBackend = this.module._bespoke_get_renderer_backend?.() === 1 ? 'webgl' : 'webgpu';
+    this.rendererBackend = activeBackend;
+    publishRendererBreadcrumbs(activeBackend, this.rendererFallbackReason);
+
+    const debugSelect = document.getElementById('webglDebugSelect') as HTMLSelectElement | null;
+    if (debugSelect) debugSelect.disabled = activeBackend !== 'webgl';
+
+    const rendererSelect = document.getElementById('rendererSelect') as HTMLSelectElement | null;
+    if (rendererSelect) rendererSelect.value = activeBackend;
+  }
+
+  async captureScreenshot(options: CaptureScreenshotOptions = {}): Promise<string | null> {
+    if (!this.canvas) return null;
     try {
-      const dataUrl = await captureCanvasScreenshot(this.canvas);
-      downloadScreenshot(dataUrl);
+      const dataUrl = await captureCanvasScreenshot(this.canvas, this.module, options);
+      if (!options.x && !options.y && !options.width && !options.height) {
+        downloadScreenshot(dataUrl);
+      }
+      return dataUrl;
     } catch (error) {
       console.error('Screenshot capture failed:', error);
+      return null;
     }
   }
 
@@ -535,6 +594,7 @@ class BespokeSynthApp {
       this.showReadyState();
       this.setupEventListeners();
       this.startRenderLoop();
+      this.applyPostInitOptions();
       
       const elapsed = ((performance.now() - this.initStartTime) / 1000).toFixed(2);
       console.log(`BespokeSynth initialized successfully in ${elapsed}s`);
@@ -881,12 +941,29 @@ document.addEventListener('DOMContentLoaded', async () => {
       const mod = app.getModule();
       mod?._bespoke_reset_theme?.();
     },
-    captureScreenshot: async () => {
-      const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
-      if (!canvas) return null;
-      return captureCanvasScreenshot(canvas);
+    captureScreenshot: async (options?: CaptureScreenshotOptions) => app.captureScreenshot(options ?? {}),
+    downloadScreenshot,
+    onScreenshotCaptured,
+    setRendererBackend: (backend: RendererBackend) => switchRendererPreference(backend),
+    getRendererBackend: () => {
+      const mod = app.getModule();
+      if (mod?._bespoke_get_renderer_backend) {
+        return mod._bespoke_get_renderer_backend() === 1 ? 'webgl' : 'webgpu';
+      }
+      return resolveRendererBackend();
     },
-    getRendererBackend: () => resolveRendererBackend(),
+    setRenderTestMode: (enabled: boolean) => {
+      const mod = app.getModule();
+      mod?._bespoke_set_render_test_mode?.(enabled ? 1 : 0);
+    },
+    getRenderTestMode: () => {
+      const mod = app.getModule();
+      return mod?._bespoke_get_render_test_mode?.() === 1;
+    },
+    setWebGLDebugMode: (mode: number) => {
+      const mod = app.getModule();
+      mod?._bespoke_set_webgl_debug_mode?.(mode);
+    },
   };
 
   // Cleanup on page unload

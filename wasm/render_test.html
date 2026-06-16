@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BespokeSynth WASM — Render Test Harness</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #121216;
+      color: #e6e6eb;
+    }
+    header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #2f2f36;
+      background: #18181d;
+    }
+    h1 { margin: 0 0 8px; font-size: 20px; }
+    p { margin: 0; color: #a8a8b0; line-height: 1.5; }
+    code { background: #222228; padding: 2px 6px; border-radius: 4px; }
+    .actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+    button {
+      background: #3a7bd5;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    button.secondary { background: #2a2a32; border: 1px solid #444; }
+    #preview { margin: 16px 20px; max-width: 100%; border: 1px solid #333; display: none; }
+    .hint { margin: 12px 20px 20px; font-size: 13px; color: #8d8d97; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Render Test Harness</h1>
+    <p>
+      Opens the main app with <code>?renderTest=1</code> to load a canonical module graph for visual regression.
+      Prefer <code>?renderer=webgl</code> for reliable PNG capture in CI/agents.
+    </p>
+    <div class="actions">
+      <button id="openWebGL">Open WebGL2 render test</button>
+      <button id="openWebGPU" class="secondary">Open WebGPU render test</button>
+      <button id="captureDoc" class="secondary">Screenshot workflow</button>
+    </div>
+  </header>
+  <p class="hint">
+    After the app loads, run in the browser console:
+    <code>await window.__bespoke.captureScreenshot()</code> or
+    <code>await window.__bespoke.captureScreenshot({ x: 0, y: 40, width: 800, height: 500 })</code>
+  </p>
+  <img id="preview" alt="Last captured screenshot preview" />
+  <script>
+    const base = new URL('../dist/index.html', window.location.href);
+    document.getElementById('openWebGL').onclick = () => {
+      const url = new URL(base);
+      url.searchParams.set('renderer', 'webgl');
+      url.searchParams.set('renderTest', '1');
+      window.open(url.toString(), '_blank');
+    };
+    document.getElementById('openWebGPU').onclick = () => {
+      const url = new URL(base);
+      url.searchParams.set('renderer', 'webgpu');
+      url.searchParams.set('renderTest', '1');
+      window.open(url.toString(), '_blank');
+    };
+    document.getElementById('captureDoc').onclick = () => {
+      alert([
+        'Screenshot workflow:',
+        '1. Load app with ?renderer=webgl&renderTest=1',
+        '2. await window.__bespoke.captureScreenshot()',
+        '3. Optional crop: captureScreenshot({ x, y, width, height })',
+        '4. Register callback: window.__bespoke.onScreenshotCaptured((url) => ...)',
+      ].join('\n'));
+    };
+  </script>
+</body>
+</html>

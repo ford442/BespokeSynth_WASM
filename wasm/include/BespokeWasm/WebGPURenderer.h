@@ -9,6 +9,7 @@
 #pragma once
 
 #include "Renderer2D.h"
+#include "PixelFont.h"
 #include "WebGPUContext.h"
 #include <vector>
 #include <string>
@@ -113,7 +114,7 @@ namespace bespoke
       void fontFace(const char* name) override;
       void text(float x, float y, const char* string) override;
       float textWidth(const char* string) override;
-      float textHeight() const override { return mFontSize; }
+      float textHeight() const override { return pixelFontTextHeight(mFontSize); }
 
       void drawKnob(float cx, float cy, float radius, float value, const Color& bgColor, const Color& fgColor) override;
       void drawWire(float x1, float y1, float x2, float y2, const Color& color, float thickness = 2.0f) override;
