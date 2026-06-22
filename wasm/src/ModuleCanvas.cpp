@@ -15,13 +15,62 @@ namespace bespoke {
    namespace wasm {
 
       namespace {
-         static void formatFrequency(char* buffer, size_t bufferSize, float hz)
+
+         float textBaselineFromTop(Renderer2D& renderer, float topY)
+         {
+            return topY + renderer.textHeight() * 0.78f;
+         }
+
+         float textLineSpacing(Renderer2D& renderer, float scale)
+         {
+            return renderer.textHeight() + 4.0f * scale;
+         }
+
+         void drawText(Renderer2D& renderer, float x, float y, const char* text,
+                       const Color& color, float fontSize)
+         {
+            renderer.fillColor(color);
+            renderer.fontSize(fontSize);
+            renderer.text(x, y, text);
+         }
+
+         void formatFrequency(float hz, char* buf, size_t buflen)
          {
             if (hz >= 1000.0f)
-               snprintf(buffer, bufferSize, "%.2f kHz", hz / 1000.0f);
+               snprintf(buf, buflen, "%.2f kHz", hz / 1000.0f);
             else
-               snprintf(buffer, bufferSize, "%.0f Hz", hz);
+               snprintf(buf, buflen, "%.1f Hz", hz);
          }
+
+         void formatGainDb(float gain, char* buf, size_t buflen)
+         {
+            if (gain <= 0.0001f)
+               snprintf(buf, buflen, "-inf dB");
+            else
+               snprintf(buf, buflen, "%.1f dB", 20.0f * log10f(gain));
+         }
+
+         float waveformSample(int waveform, float t)
+         {
+            const float phase = fmodf(t, 1.0f) * 6.2831853f;
+            switch (waveform % 4)
+            {
+               case 1:
+                  return 2.0f * fmodf(t, 1.0f) - 1.0f;
+               case 2:
+                  return (fmodf(t, 1.0f) < 0.5f) ? 1.0f : -1.0f;
+               case 3:
+                  return fabsf(2.0f * fmodf(t + 0.25f, 1.0f) - 1.0f) * 2.0f - 1.0f;
+               default:
+                  return sinf(phase);
+            }
+         }
+
+         float portSpacingFor(Renderer2D& renderer, float scale)
+         {
+            return std::max(15.0f * scale, textLineSpacing(renderer, scale));
+         }
+
       } // namespace
 
       // ============================================================
@@ -66,7 +115,7 @@ namespace bespoke {
                 worldY >= mY && worldY <= mY + kTitleBarHeight;
       }
 
-      void Module::renderTitleBar(WebGPURenderer& renderer, float screenX, float screenY, float scale)
+      void Module::renderTitleBar(Renderer2D& renderer, float screenX, float screenY, float scale)
       {
          float w = mWidth * scale;
          float h = kTitleBarHeight * scale;
@@ -105,7 +154,9 @@ namespace bespoke {
          // Module name (theme)
          renderer.fillColor(UITheme::kTextPrimary);
          renderer.fontSize(11.0f * scale);
-         renderer.text(screenX + 5 * scale, screenY + 13 * scale, mName.c_str());
+         renderer.text(screenX + 5 * scale,
+                       textBaselineFromTop(renderer, screenY + 2 * scale),
+                       mName.c_str());
 
          // Enabled indicator
          if (!mEnabled)
@@ -116,13 +167,19 @@ namespace bespoke {
          }
       }
 
-      void Module::renderPorts(WebGPURenderer& renderer, float screenX, float screenY, float scale)
+      void Module::renderPorts(Renderer2D& renderer, float screenX, float screenY, float scale)
       {
+         const float labelFont = 9.0f * scale;
+         const float portStep = portSpacingFor(renderer, scale);
+         const float labelOffsetX = 8.0f * scale;
+
+         renderer.fontSize(labelFont);
+
          // Input ports on the left
          for (size_t i = 0; i < mInputs.size(); i++)
          {
             float px = screenX;
-            float py = screenY + (kTitleBarHeight + 10 + i * 15) * scale;
+            float py = screenY + (kTitleBarHeight + 10) * scale + static_cast<float>(i) * portStep;
 
             Color portColor;
             switch (mInputs[i].type)
@@ -145,9 +202,9 @@ namespace bespoke {
             renderer.circle(px, py, kPortRadius * scale);
             renderer.fill();
 
-            renderer.fillColor(UITheme::kTextSecondary);
-            renderer.fontSize(9.0f * scale);
-            renderer.text(px + 8 * scale, py + 3 * scale, mInputs[i].name.c_str());
+            drawText(renderer, px + labelOffsetX,
+                     textBaselineFromTop(renderer, py - renderer.textHeight() * 0.35f),
+                     mInputs[i].name.c_str(), UITheme::kTextSecondary, labelFont);
          }
 
          // Output ports on the right
@@ -155,7 +212,7 @@ namespace bespoke {
          for (size_t i = 0; i < mOutputs.size(); i++)
          {
             float px = moduleRight;
-            float py = screenY + (kTitleBarHeight + 10 + i * 15) * scale;
+            float py = screenY + (kTitleBarHeight + 10) * scale + static_cast<float>(i) * portStep;
 
             Color portColor;
             switch (mOutputs[i].type)
@@ -178,14 +235,14 @@ namespace bespoke {
             renderer.circle(px, py, kPortRadius * scale);
             renderer.fill();
 
-            renderer.fillColor(UITheme::kTextSecondary);
-            renderer.fontSize(9.0f * scale);
-            float labelWidth = renderer.textWidth(mOutputs[i].name.c_str());
-            renderer.text(px - 8 * scale - labelWidth, py + 3 * scale, mOutputs[i].name.c_str());
+            const float labelW = renderer.textWidth(mOutputs[i].name.c_str());
+            drawText(renderer, px - labelOffsetX - labelW,
+                     textBaselineFromTop(renderer, py - renderer.textHeight() * 0.35f),
+                     mOutputs[i].name.c_str(), UITheme::kTextSecondary, labelFont);
          }
       }
 
-      void Module::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void Module::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
       {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
@@ -215,55 +272,52 @@ namespace bespoke {
       OscillatorModule::OscillatorModule(int id)
          : Module(id, "oscillator", "Oscillator", ModuleCategory::Synth)
       {
-         setSize(160, 110);
+         setSize(160, 120);
          addInput("Pitch", PortType::Note);
          addInput("Mod", PortType::Modulation);
          addOutput("Audio", PortType::Audio);
       }
 
-      void OscillatorModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void OscillatorModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
+         const float valueFont = UITheme::kValueFontSize * scale;
+         const float labelFont = UITheme::kLabelFontSize * scale;
+         const float lineH = textLineSpacing(renderer, scale);
 
-         // Draw frequency display
-         float contentX = screenX + 36 * scale;
-         float contentY = screenY + kTitleBarHeight * scale + 17 * scale;
-         renderer.fillColor(UITheme::kTextPrimary);
-         renderer.fontSize(10.0f * scale);
+         float contentY = screenY + (kTitleBarHeight + 22) * scale;
 
          char freqText[32];
-         formatFrequency(freqText, sizeof(freqText), mFrequency);
-         renderer.fillColor(UITheme::kTextValue);
-         renderer.text(contentX, contentY, freqText);
+         formatFrequency(mFrequency, freqText, sizeof(freqText));
+         drawText(renderer, screenX + 10 * scale, contentY, freqText,
+                  UITheme::kTextValue, valueFont);
 
-         // Draw waveform indicator
          const char* waveNames[] = { "Sine", "Saw", "Square", "Triangle" };
-         renderer.fillColor(UITheme::kTextPrimary);
-         renderer.text(contentX, contentY + 13 * scale, waveNames[mWaveform % 4]);
+         drawText(renderer, screenX + 10 * scale, contentY + lineH,
+                  waveNames[mWaveform % 4], UITheme::kTextPrimary, labelFont);
 
-         char levelText[32];
-         snprintf(levelText, sizeof(levelText), "Level: %.0f%%", mVolume * 100.0f);
-         renderer.fillColor(UITheme::kTextSecondary);
-         renderer.fontSize(9.0f * scale);
-         renderer.text(contentX, contentY + 25 * scale, levelText);
+         char volText[32];
+         snprintf(volText, sizeof(volText), "Level %.0f%%", mVolume * 100.0f);
+         drawText(renderer, screenX + 10 * scale, contentY + lineH * 2.0f,
+                  volText, UITheme::kTextSecondary, valueFont);
 
-         // Draw mini waveform preview
-         float wfX = contentX;
-         float wfY = contentY + 31 * scale;
-         float wfW = 95 * scale;
-         float wfH = 16 * scale;
+         // Mini waveform preview (matches selected shape)
+         float wfX = screenX + 10 * scale;
+         float wfY = contentY + lineH * 3.0f;
+         float wfW = 70 * scale;
+         float wfH = 22 * scale;
 
-         renderer.strokeColor(Color(0.3f, 0.8f, 0.5f, 0.8f));
+         renderer.strokeColor(Color(0.3f, 0.8f, 0.5f, 0.85f));
          renderer.strokeWidth(1.5f * scale);
-         for (int i = 0; i < 20; i++)
+         for (int i = 0; i < 24; i++)
          {
-            float t1 = (float)i / 20.0f;
-            float t2 = (float)(i + 1) / 20.0f;
-            float y1 = sinf(t1 * 6.28f) * 0.5f;
-            float y2 = sinf(t2 * 6.28f) * 0.5f;
+            float t1 = (float)i / 24.0f;
+            float t2 = (float)(i + 1) / 24.0f;
+            float y1 = waveformSample(mWaveform, t1) * 0.45f;
+            float y2 = waveformSample(mWaveform, t2) * 0.45f;
             renderer.line(wfX + t1 * wfW, wfY + wfH * 0.5f - y1 * wfH,
                           wfX + t2 * wfW, wfY + wfH * 0.5f - y2 * wfH);
          }
@@ -290,6 +344,46 @@ namespace bespoke {
          return 0.0f;
       }
 
+      bool OscillatorModule::handleMouseDown(float worldX, float worldY)
+      {
+         const float localX = worldX - mX;
+         const float localY = worldY - mY;
+
+         // Click waveform name row to cycle shape
+         if (localX >= 10.0f && localX <= mWidth - 10.0f &&
+             localY >= kTitleBarHeight + 34.0f && localY <= kTitleBarHeight + 50.0f)
+         {
+            mWaveform = (mWaveform + 1) % 4;
+            return true;
+         }
+
+         // Drag frequency in the upper content area
+         if (localX >= 10.0f && localX <= mWidth - 10.0f &&
+             localY >= kTitleBarHeight + 18.0f && localY <= kTitleBarHeight + 70.0f)
+         {
+            mDraggingFreq = true;
+            return true;
+         }
+         return false;
+      }
+
+      bool OscillatorModule::handleMouseDrag(float worldX, float worldY, float dx, float dy)
+      {
+         (void)worldX;
+         (void)worldY;
+         if (!mDraggingFreq)
+            return false;
+
+         const float mult = powf(2.0f, -dy * 0.04f);
+         mFrequency = std::max(20.0f, std::min(20000.0f, mFrequency * mult));
+         return true;
+      }
+
+      void OscillatorModule::handleMouseUp()
+      {
+         mDraggingFreq = false;
+      }
+
       // ============================================================
       // GainModule
       // ============================================================
@@ -303,7 +397,7 @@ namespace bespoke {
          addOutput("Out", PortType::Audio);
       }
 
-      void GainModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void GainModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -311,9 +405,9 @@ namespace bespoke {
          float screenY = (mY + offsetY) * scale;
 
          // Draw gain slider
-         float sliderX = screenX + 20 * scale;
+         float sliderX = screenX + 10 * scale;
          float sliderY = screenY + (kTitleBarHeight + 20) * scale;
-         float sliderW = 80 * scale;
+         float sliderW = 100 * scale;
          float sliderH = 16 * scale;
 
          renderer.drawSlider(sliderX, sliderY, sliderW, sliderH,
@@ -322,10 +416,9 @@ namespace bespoke {
                              Color(0.8f, 0.5f, 0.2f, 1.0f));
 
          char gainText[16];
-         snprintf(gainText, sizeof(gainText), "%.1f dB", 20.0f * log10f(mGain + 0.001f));
-         renderer.fillColor(UITheme::kTextValue);
-         renderer.fontSize(9.0f * scale);
-         renderer.text(sliderX, sliderY + sliderH + 10 * scale, gainText);
+         formatGainDb(mGain, gainText, sizeof(gainText));
+         drawText(renderer, sliderX, textBaselineFromTop(renderer, sliderY + sliderH + 4 * scale),
+                  gainText, UITheme::kTextValue, UITheme::kValueFontSize * scale);
       }
 
       void GainModule::setControlValue(const std::string& name, float value)
@@ -341,6 +434,42 @@ namespace bespoke {
          return 0.0f;
       }
 
+      bool GainModule::handleMouseDown(float worldX, float worldY)
+      {
+         const float sliderX = mX + 10.0f;
+         const float sliderY = mY + kTitleBarHeight + 20.0f;
+         const float sliderW = 100.0f;
+         const float sliderH = 16.0f;
+
+         if (worldX >= sliderX && worldX <= sliderX + sliderW &&
+             worldY >= sliderY && worldY <= sliderY + sliderH)
+         {
+            mDraggingSlider = true;
+            mGain = std::max(0.0f, std::min(1.0f, (worldX - sliderX) / sliderW));
+            return true;
+         }
+         return false;
+      }
+
+      bool GainModule::handleMouseDrag(float worldX, float worldY, float dx, float dy)
+      {
+         (void)worldY;
+         (void)dx;
+         (void)dy;
+         if (!mDraggingSlider)
+            return false;
+
+         const float sliderX = mX + 10.0f;
+         const float sliderW = 100.0f;
+         mGain = std::max(0.0f, std::min(1.0f, (worldX - sliderX) / sliderW));
+         return true;
+      }
+
+      void GainModule::handleMouseUp()
+      {
+         mDraggingSlider = false;
+      }
+
       // ============================================================
       // OutputModule
       // ============================================================
@@ -352,7 +481,7 @@ namespace bespoke {
          addInput("In", PortType::Audio);
       }
 
-      void OutputModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void OutputModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -372,9 +501,21 @@ namespace bespoke {
                               Color(0.2f, 0.8f, 0.3f, 1.0f),
                               Color(1.0f, 0.2f, 0.1f, 1.0f));
 
-         renderer.fillColor(UITheme::kTextSecondary);
-         renderer.fontSize(9.0f * scale);
-         renderer.text(meterX, meterY + 50 * scale, "L    R");
+         drawText(renderer, meterX, textBaselineFromTop(renderer, meterY + 48 * scale),
+                  "L   R", UITheme::kTextSecondary, 9.0f * scale);
+      }
+
+      void OutputModule::setControlValue(const std::string& name, float value)
+      {
+         if (name == "level")
+            mLevel = std::max(0.0f, std::min(1.0f, value));
+      }
+
+      float OutputModule::getControlValue(const std::string& name) const
+      {
+         if (name == "level")
+            return mLevel;
+         return 0.0f;
       }
 
       // ============================================================
@@ -384,42 +525,44 @@ namespace bespoke {
       FilterModule::FilterModule(int id)
          : Module(id, "filter", "Filter", ModuleCategory::AudioEffect)
       {
-         setSize(150, 100);
+         setSize(150, 110);
          addInput("In", PortType::Audio);
          addInput("Cutoff", PortType::Modulation);
          addOutput("Out", PortType::Audio);
       }
 
-      void FilterModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void FilterModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
 
-         float contentX = screenX + 36 * scale;
-         float contentY = screenY + kTitleBarHeight * scale + 14 * scale;
-         renderer.fillColor(UITheme::kTextSecondary);
-         renderer.fontSize(9.0f * scale);
+         float contentY = screenY + (kTitleBarHeight + 18) * scale;
+         const float lineH = textLineSpacing(renderer, scale);
+         const float valueFont = UITheme::kValueFontSize * scale;
+         const float labelFont = UITheme::kLabelFontSize * scale;
 
          const char* typeNames[] = { "Low-pass", "High-pass", "Band-pass" };
-         renderer.text(contentX, contentY, typeNames[mType % 3]);
+         drawText(renderer, screenX + 10 * scale, contentY,
+                  typeNames[mType % 3], UITheme::kTextPrimary, labelFont);
 
-         char cutText[32];
-         formatFrequency(cutText, sizeof(cutText), mCutoff);
-         renderer.fillColor(UITheme::kTextValue);
-         renderer.text(contentX, contentY + 14 * scale, cutText);
+         char cutText[48];
+         snprintf(cutText, sizeof(cutText), "Cutoff ");
+         formatFrequency(mCutoff, cutText + 7, sizeof(cutText) - 7);
+         drawText(renderer, screenX + 10 * scale, contentY + lineH,
+                  cutText, UITheme::kTextValue, valueFont);
 
          char resText[32];
-         snprintf(resText, sizeof(resText), "Resonance: %.2f", mResonance);
-         renderer.fillColor(UITheme::kTextSecondary);
-         renderer.text(contentX, contentY + 26 * scale, resText);
+         snprintf(resText, sizeof(resText), "Resonance %.2f", mResonance);
+         drawText(renderer, screenX + 10 * scale, contentY + lineH * 2.0f,
+                  resText, UITheme::kTextSecondary, valueFont);
 
          // Simple filter response curve
-         float curveX = contentX;
-         float curveY = contentY + 34 * scale;
-         float curveW = 96 * scale;
-         float curveH = 16 * scale;
+         float curveX = screenX + 10 * scale;
+         float curveY = contentY + lineH * 3.0f;
+         float curveW = 80 * scale;
+         float curveH = 20 * scale;
 
          renderer.strokeColor(Color(0.8f, 0.5f, 0.2f, 0.8f));
          renderer.strokeWidth(1.5f * scale);
@@ -463,39 +606,41 @@ namespace bespoke {
       LFOModule::LFOModule(int id)
          : Module(id, "lfo", "LFO", ModuleCategory::Modulator)
       {
-         setSize(130, 90);
-         addOutput("Out", PortType::Modulation);
+         setSize(130, 100);
+         addOutput("Mod", PortType::Modulation);
       }
 
-      void LFOModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void LFOModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
 
-         float contentX = screenX + 10 * scale;
-         float contentY = screenY + kTitleBarHeight * scale + 13 * scale;
-         renderer.fillColor(UITheme::kTextSecondary);
-         renderer.fontSize(9.0f * scale);
+         float contentY = screenY + (kTitleBarHeight + 14) * scale;
+         const float lineH = textLineSpacing(renderer, scale);
+         const float valueFont = UITheme::kValueFontSize * scale;
+
+         const char* shapeNames[] = { "Sine", "Triangle", "Saw", "Square" };
 
          char rateText[32];
-         snprintf(rateText, sizeof(rateText), "Rate: %.2f Hz", mRate);
-         renderer.text(contentX, contentY, rateText);
+         snprintf(rateText, sizeof(rateText), "Rate %.2f Hz", mRate);
+         drawText(renderer, screenX + 10 * scale, contentY,
+                  rateText, UITheme::kTextValue, valueFont);
 
-         const char* shapeNames[] = { "Sine", "Triangle", "Square", "Saw" };
          char depthText[32];
-         snprintf(depthText, sizeof(depthText), "Depth: %.0f%%", mDepth * 100.0f);
-         renderer.fillColor(UITheme::kTextValue);
-         renderer.text(contentX, contentY + 12 * scale, depthText);
-         renderer.fillColor(UITheme::kTextSecondary);
-         renderer.text(contentX, contentY + 24 * scale, shapeNames[mShape % 4]);
+         snprintf(depthText, sizeof(depthText), "Depth %.0f%%", mDepth * 100.0f);
+         drawText(renderer, screenX + 10 * scale, contentY + lineH,
+                  depthText, UITheme::kTextSecondary, valueFont);
+
+         drawText(renderer, screenX + 10 * scale, contentY + lineH * 2.0f,
+                  shapeNames[mShape % 4], UITheme::kTextPrimary, valueFont);
 
          // Draw LFO waveform
-         float wfX = contentX + 2 * scale;
-         float wfY = contentY + 30 * scale;
-         float wfW = 68 * scale;
-         float wfH = 18 * scale;
+         float wfX = screenX + 10 * scale;
+         float wfY = contentY + lineH * 3.0f;
+         float wfW = 80 * scale;
+         float wfH = 30 * scale;
 
          renderer.strokeColor(Color(0.7f, 0.7f, 0.2f, 0.9f));
          renderer.strokeWidth(1.5f * scale);
@@ -503,8 +648,8 @@ namespace bespoke {
          {
             float t1 = (float)i / 20.0f;
             float t2 = (float)(i + 1) / 20.0f;
-            float y1 = sinf(t1 * 6.28f * 2.0f) * 0.5f * mDepth;
-            float y2 = sinf(t2 * 6.28f * 2.0f) * 0.5f * mDepth;
+            float y1 = waveformSample(mShape, t1) * 0.5f * mDepth;
+            float y2 = waveformSample(mShape, t2) * 0.5f * mDepth;
             renderer.line(wfX + t1 * wfW, wfY + wfH * 0.5f - y1 * wfH,
                           wfX + t2 * wfW, wfY + wfH * 0.5f - y2 * wfH);
          }
@@ -541,7 +686,7 @@ namespace bespoke {
          setSize(250, 60);
       }
 
-      void TransportModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void TransportModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
       {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
@@ -586,30 +731,29 @@ namespace bespoke {
          // BPM display
          char bpmText[32];
          snprintf(bpmText, sizeof(bpmText), "%.1f BPM", mBPM);
-         renderer.fillColor(UITheme::kTextValue);
-         renderer.fontSize(13.0f * scale);
-         renderer.text(btnX + 24 * scale, screenY + 22 * scale, bpmText);
+         drawText(renderer, btnX + 25 * scale, textBaselineFromTop(renderer, screenY + 10 * scale),
+                  bpmText, UITheme::kTextPrimary, 14.0f * scale);
 
          // Time signature
          char timeSigText[16];
          snprintf(timeSigText, sizeof(timeSigText), "%d/%d", mTimeSigTop, mTimeSigBottom);
-         renderer.fillColor(UITheme::kTextSecondary);
-         renderer.fontSize(10.0f * scale);
-         renderer.text(screenX + 135 * scale, screenY + 21 * scale, "Time Sig");
-         renderer.fillColor(UITheme::kTextPrimary);
-         renderer.text(screenX + 135 * scale, screenY + 33 * scale, timeSigText);
+         drawText(renderer, screenX + 140 * scale, textBaselineFromTop(renderer, screenY + 6 * scale),
+                  "Time Sig", UITheme::kTextSecondary, 10.0f * scale);
+         drawText(renderer, screenX + 140 * scale, textBaselineFromTop(renderer, screenY + 18 * scale),
+                  timeSigText, UITheme::kTextPrimary, 11.0f * scale);
 
          // Swing
          char swingText[16];
          snprintf(swingText, sizeof(swingText), "Swing %.0f%%", mSwing * 100.0f);
-         renderer.fillColor(UITheme::kTextValue);
-         renderer.text(screenX + 182 * scale, screenY + 27 * scale, swingText);
+         drawText(renderer, screenX + 185 * scale, textBaselineFromTop(renderer, screenY + 10 * scale),
+                  swingText, UITheme::kTextSecondary, 11.0f * scale);
 
-         // Label
-         renderer.fillColor(UITheme::kTextSecondary);
-         renderer.fontSize(9.0f * scale);
-         const char* statusLabel = mPlaying ? "Transport: Playing" : "Transport: Stopped";
-         renderer.text(screenX + 10 * scale, screenY + 50 * scale, statusLabel);
+         const char* stateText = mPlaying ? "Transport: Playing" : "Transport: Stopped";
+         drawText(renderer, screenX + 10 * scale, textBaselineFromTop(renderer, screenY + 38 * scale),
+                  stateText, mPlaying ? UITheme::kAccentGreen : UITheme::kTextSecondary, 9.0f * scale);
+
+         drawText(renderer, screenX + 70 * scale, textBaselineFromTop(renderer, screenY + 38 * scale),
+                  "Space: play/stop", UITheme::kTextSecondary, 9.0f * scale);
       }
 
       void TransportModule::setControlValue(const std::string& name, float value)
@@ -655,7 +799,7 @@ namespace bespoke {
          setSize(180, 70);
       }
 
-      void ScaleModule::render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale)
+      void ScaleModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
       {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
@@ -672,21 +816,16 @@ namespace bespoke {
          renderer.roundedRect(screenX, screenY, w, h, 4.0f * scale);
          renderer.stroke();
 
-         // Root note
-         renderer.fillColor(UITheme::kTextSecondary);
-         renderer.fontSize(10.0f * scale);
-         renderer.text(screenX + 10 * scale, screenY + 18 * scale, "Root");
-         renderer.fillColor(UITheme::kTextPrimary);
-         renderer.fontSize(12.0f * scale);
-         renderer.text(screenX + 10 * scale, screenY + 30 * scale, kNoteNames[mRootNote % 12]);
+         // Root note + scale type
+         drawText(renderer, screenX + 10 * scale, textBaselineFromTop(renderer, screenY + 6 * scale),
+                  "Root", UITheme::kTextSecondary, 10.0f * scale);
+         drawText(renderer, screenX + 10 * scale, textBaselineFromTop(renderer, screenY + 18 * scale),
+                  kNoteNames[mRootNote % 12], UITheme::kTextPrimary, 13.0f * scale);
 
-         // Scale type
-         renderer.fillColor(UITheme::kTextSecondary);
-         renderer.fontSize(10.0f * scale);
-         renderer.text(screenX + 45 * scale, screenY + 18 * scale, "Scale");
-         renderer.fillColor(UITheme::kTextPrimary);
-         renderer.fontSize(11.0f * scale);
-         renderer.text(screenX + 45 * scale, screenY + 30 * scale, kScaleNames[mScaleType % 7]);
+         drawText(renderer, screenX + 45 * scale, textBaselineFromTop(renderer, screenY + 6 * scale),
+                  "Scale", UITheme::kTextSecondary, 10.0f * scale);
+         drawText(renderer, screenX + 45 * scale, textBaselineFromTop(renderer, screenY + 18 * scale),
+                  kScaleNames[mScaleType % 7], UITheme::kTextPrimary, 11.0f * scale);
 
          // Piano keys visualization (mini)
          float keyX = screenX + 10 * scale;
@@ -716,9 +855,8 @@ namespace bespoke {
             renderer.fill();
          }
 
-         renderer.fillColor(UITheme::kTextSecondary);
-         renderer.fontSize(9.0f * scale);
-         renderer.text(screenX + 108 * scale, screenY + 60 * scale, "Scale Quantizer");
+         drawText(renderer, screenX + 10 * scale, textBaselineFromTop(renderer, keyY + keyH + 4 * scale),
+                  "Scale Quantizer", UITheme::kTextSecondary, 9.0f * scale);
       }
 
       void ScaleModule::setControlValue(const std::string& name, float value)
@@ -784,8 +922,12 @@ namespace bespoke {
          std::vector<ModuleTypeInfo> result;
          for (const auto& t : mTypes)
          {
-            if (t.category == category)
-               result.push_back(t);
+            if (t.category != category)
+               continue;
+            // Singleton modules are always present on the canvas
+            if (t.type == "transport" || t.type == "scale")
+               continue;
+            result.push_back(t);
          }
          return result;
       }
@@ -855,6 +997,16 @@ namespace bespoke {
          if (it != mModules.end())
             return it->second.get();
          return nullptr;
+      }
+
+      int ModuleCanvas::findFirstModuleOfType(const std::string& type) const
+      {
+         for (const auto& [id, module] : mModules)
+         {
+            if (module->getType() == type)
+               return id;
+         }
+         return -1;
       }
 
       void ModuleCanvas::connectModules(int sourceId, int sourcePort, int destId, int destPort)
@@ -949,7 +1101,7 @@ namespace bespoke {
          }
       }
 
-      void ModuleCanvas::renderTitleBar(WebGPURenderer& renderer, int viewWidth)
+      void ModuleCanvas::renderTitleBar(Renderer2D& renderer, int viewWidth)
       {
          float w = static_cast<float>(viewWidth);
 
@@ -964,9 +1116,8 @@ namespace bespoke {
          renderer.line(0, kTitleBarHeight, w, kTitleBarHeight);
 
          // Logo / title
-         renderer.fillColor(Color(0.9f, 0.9f, 0.95f, 1.0f));
-         renderer.fontSize(14.0f);
-         renderer.text(10, 26, "BespokeSynth WASM");
+         drawText(renderer, 10.0f, textBaselineFromTop(renderer, 8.0f),
+                  "BespokeSynth WASM", UITheme::kTextPrimary, 14.0f);
 
          // Spawn menu buttons by category
          const char* catNames[] = {"Synth", "Audio FX", "Modulators", "Other"};
@@ -1002,9 +1153,8 @@ namespace bespoke {
             renderer.roundedRect(btnX + i * (btnW + 5), btnY, btnW, btnH, 3.0f);
             renderer.stroke();
 
-            renderer.fillColor(Color(0.8f, 0.8f, 0.85f, 1.0f));
-            renderer.fontSize(11.0f);
-            renderer.text(btnX + i * (btnW + 5) + 8, btnY + 16, catNames[i]);
+            drawText(renderer, btnX + i * (btnW + 5) + 8, textBaselineFromTop(renderer, btnY + 4),
+                     catNames[i], UITheme::kTextSecondary, 11.0f);
          }
 
          // Render spawn dropdown if open
@@ -1033,14 +1183,13 @@ namespace bespoke {
             {
                float entryY = dropY + 5 + i * 25.0f;
 
-               renderer.fillColor(Color(0.85f, 0.85f, 0.9f, 1.0f));
-               renderer.fontSize(11.0f);
-               renderer.text(dropX + 10, entryY + 16, types[i].displayName.c_str());
+               drawText(renderer, dropX + 10, textBaselineFromTop(renderer, entryY + 4),
+                        types[i].displayName.c_str(), UITheme::kTextPrimary, 11.0f);
             }
          }
       }
 
-      void ModuleCanvas::render(WebGPURenderer& renderer, int viewWidth, int viewHeight)
+      void ModuleCanvas::render(Renderer2D& renderer, int viewWidth, int viewHeight)
       {
          float canvasTop = kTitleBarHeight;
          float canvasHeight = static_cast<float>(viewHeight) - canvasTop;
@@ -1107,18 +1256,112 @@ namespace bespoke {
          // Render title bar on top
          renderTitleBar(renderer, viewWidth);
 
-         // Draw zoom indicator
-         renderer.fillColor(Color(0.5f, 0.5f, 0.55f, 0.7f));
+         // Draw zoom indicator (right-aligned)
          renderer.fontSize(10.0f);
          char zoomText[32];
          snprintf(zoomText, sizeof(zoomText), "Zoom: %.0f%%", mScale * 100.0f);
-         renderer.text(static_cast<float>(viewWidth) - 95, static_cast<float>(viewHeight) - 15, zoomText);
+         const float zoomW = renderer.textWidth(zoomText);
+         drawText(renderer, static_cast<float>(viewWidth) - zoomW - 10.0f,
+                  textBaselineFromTop(renderer, static_cast<float>(viewHeight) - 18.0f),
+                  zoomText, Color(0.55f, 0.55f, 0.60f, 0.85f), 10.0f);
 
-         // Module count
-         char countText[64];
-         snprintf(countText, sizeof(countText), "Modules: %d | Cables: %d",
-                  static_cast<int>(mModules.size()), static_cast<int>(mConnections.size()));
-         renderer.text(10, static_cast<float>(viewHeight) - 15, countText);
+         char countText[128];
+         snprintf(countText, sizeof(countText),
+                  "Modules: %d | Cables: %d",
+                  static_cast<int>(mModules.size()),
+                  static_cast<int>(mConnections.size()));
+         drawText(renderer, 10.0f, textBaselineFromTop(renderer, static_cast<float>(viewHeight) - 18.0f),
+                 countText, UITheme::kTextSecondary, 10.0f);
+      }
+
+      void ModuleCanvas::setOutputLevel(float level)
+      {
+         for (auto& [id, module] : mModules)
+         {
+            if (module->getType() == "output")
+            {
+               module->setControlValue("level", level);
+               break;
+            }
+         }
+      }
+
+      void ModuleCanvas::clearUserModules()
+      {
+         std::vector<int> toDelete;
+         for (const auto& [id, module] : mModules)
+         {
+            if (mTransport && id == mTransport->getId())
+               continue;
+            if (mScaleModule && id == mScaleModule->getId())
+               continue;
+            toDelete.push_back(id);
+         }
+         for (int id : toDelete)
+            deleteModule(id);
+      }
+
+      void ModuleCanvas::setViewTransform(float offsetX, float offsetY, float scale)
+      {
+         mOffsetX = offsetX;
+         mOffsetY = offsetY;
+         mScale = std::max(0.25f, std::min(4.0f, scale));
+      }
+
+      void ModuleCanvas::setupCanonicalRenderTestScene()
+      {
+         clearUserModules();
+         setViewTransform(0.0f, 80.0f, 1.0f);
+
+         if (mTransport)
+         {
+            mTransport->setPosition(20.0f, 50.0f);
+            mTransport->setBPM(128.0f);
+            mTransport->setPlaying(false);
+            mTransport->setControlValue("swing", 0.15f);
+         }
+         if (mScaleModule)
+         {
+            mScaleModule->setPosition(290.0f, 50.0f);
+            mScaleModule->setControlValue("root", 0.0f);
+            mScaleModule->setControlValue("type", 0.0f);
+         }
+
+         const int oscId = createModule("oscillator", 80.0f, 160.0f);
+         const int filterId = createModule("filter", 280.0f, 170.0f);
+         const int gainId = createModule("gain", 470.0f, 180.0f);
+         const int lfoId = createModule("lfo", 80.0f, 310.0f);
+         const int outputId = createModule("output", 650.0f, 190.0f);
+
+         if (auto* osc = getModule(oscId))
+         {
+            osc->setControlValue("frequency", 440.0f);
+            osc->setControlValue("volume", 0.75f);
+            osc->setControlValue("waveform", 0.0f);
+         }
+         if (auto* filter = getModule(filterId))
+         {
+            filter->setControlValue("cutoff", 1800.0f);
+            filter->setControlValue("resonance", 0.65f);
+            filter->setControlValue("type", 0.0f);
+         }
+         if (auto* gain = getModule(gainId))
+            gain->setControlValue("gain", 0.7f);
+         if (auto* lfo = getModule(lfoId))
+         {
+            lfo->setControlValue("rate", 2.5f);
+            lfo->setControlValue("depth", 0.6f);
+            lfo->setControlValue("shape", 0.0f);
+         }
+
+         if (oscId > 0 && filterId > 0)
+            connectModules(oscId, 0, filterId, 0);
+         if (filterId > 0 && gainId > 0)
+            connectModules(filterId, 0, gainId, 0);
+         if (gainId > 0 && outputId > 0)
+            connectModules(gainId, 0, outputId, 0);
+         if (lfoId > 0 && filterId > 0)
+            connectModules(lfoId, 0, filterId, 1);
       }
 
       void ModuleCanvas::onMouseDown(float x, float y, int button)
@@ -1200,7 +1443,32 @@ namespace bespoke {
          float worldX = screenToWorldX(x);
          float worldY = screenToWorldY(y - kTitleBarHeight);
 
-         // Check module hit testing
+         // Transport play/stop button
+         if (mTransport && mTransport->hitTest(worldX, worldY))
+         {
+            const float localX = worldX - mTransport->getX();
+            const float localY = worldY - mTransport->getY();
+            if (localX >= 10.0f && localX <= 30.0f && localY >= 15.0f && localY <= 29.0f)
+            {
+               mTransport->setPlaying(!mTransport->isPlaying());
+               return;
+            }
+         }
+
+         // In-module controls (sliders, etc.) take priority over dragging
+         if (button == 0)
+         {
+            for (auto& [id, module] : mModules)
+            {
+               if (module->hitTest(worldX, worldY) && module->handleMouseDown(worldX, worldY))
+               {
+                  mControlModuleId = id;
+                  return;
+               }
+            }
+         }
+
+         // Check module title bar for dragging
          for (auto& [id, module] : mModules)
          {
             if (module->hitTitleBar(worldX, worldY))
@@ -1227,6 +1495,13 @@ namespace bespoke {
 
       void ModuleCanvas::onMouseUp(float x, float y, int button)
       {
+         if (mControlModuleId >= 0)
+         {
+            Module* mod = getModule(mControlModuleId);
+            if (mod)
+               mod->handleMouseUp();
+         }
+         mControlModuleId = -1;
          mDraggedModuleId = -1;
          mIsPanning = false;
          mIsConnecting = false;
@@ -1234,7 +1509,19 @@ namespace bespoke {
 
       void ModuleCanvas::onMouseMove(float x, float y, float prevX, float prevY)
       {
-         if (mDraggedModuleId >= 0)
+         if (mControlModuleId >= 0)
+         {
+            Module* mod = getModule(mControlModuleId);
+            if (mod)
+            {
+               float worldX = screenToWorldX(x);
+               float worldY = screenToWorldY(y - kTitleBarHeight);
+               float dx = (x - prevX) / mScale;
+               float dy = (y - prevY) / mScale;
+               mod->handleMouseDrag(worldX, worldY, dx, dy);
+            }
+         }
+         else if (mDraggedModuleId >= 0)
          {
             Module* mod = getModule(mDraggedModuleId);
             if (mod)
@@ -1267,8 +1554,16 @@ namespace bespoke {
 
       void ModuleCanvas::onKeyDown(int keyCode, int modifiers)
       {
+         (void)modifiers;
          static const int kKeyDelete = 46;
          static const int kKeyBackspace = 8;
+         static const int kKeySpace = 32;
+
+         if (keyCode == kKeySpace && mTransport)
+         {
+            mTransport->setPlaying(!mTransport->isPlaying());
+            return;
+         }
 
          // Delete key removes selected module
          if (keyCode == kKeyDelete || keyCode == kKeyBackspace)

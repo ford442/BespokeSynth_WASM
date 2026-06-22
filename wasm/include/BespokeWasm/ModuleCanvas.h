@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "WebGPURenderer.h"
+#include "Renderer2D.h"
 #include <string>
 #include <vector>
 #include <memory>
@@ -100,7 +100,7 @@ namespace bespoke {
          const std::vector<Port>& getOutputs() const { return mOutputs; }
 
          // Rendering
-         virtual void render(WebGPURenderer& renderer, float canvasOffsetX, float canvasOffsetY, float scale);
+         virtual void render(Renderer2D& renderer, float canvasOffsetX, float canvasOffsetY, float scale);
 
          // Hit testing
          bool hitTest(float worldX, float worldY) const;
@@ -110,11 +110,16 @@ namespace bespoke {
          virtual void setControlValue(const std::string& name, float value) {}
          virtual float getControlValue(const std::string& name) const { return 0.0f; }
 
+         // Optional in-module control interaction (slider drags, etc.)
+         virtual bool handleMouseDown(float worldX, float worldY) { return false; }
+         virtual bool handleMouseDrag(float worldX, float worldY, float dx, float dy) { return false; }
+         virtual void handleMouseUp() {}
+
       protected:
          void addInput(const std::string& name, PortType type);
          void addOutput(const std::string& name, PortType type);
-         void renderTitleBar(WebGPURenderer& renderer, float screenX, float screenY, float scale);
-         void renderPorts(WebGPURenderer& renderer, float screenX, float screenY, float scale);
+         void renderTitleBar(Renderer2D& renderer, float screenX, float screenY, float scale);
+         void renderPorts(Renderer2D& renderer, float screenX, float screenY, float scale);
 
          int mId;
          std::string mType;
@@ -138,33 +143,43 @@ namespace bespoke {
       {
       public:
          OscillatorModule(int id);
-         void render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale) override;
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         bool handleMouseDown(float worldX, float worldY) override;
+         bool handleMouseDrag(float worldX, float worldY, float dx, float dy) override;
+         void handleMouseUp() override;
 
       private:
          float mFrequency = 440.0f;
          float mVolume = 0.7f;
          int mWaveform = 0; // 0=sine, 1=saw, 2=square, 3=triangle
+         bool mDraggingFreq = false;
       };
 
       class GainModule : public Module
       {
       public:
          GainModule(int id);
-         void render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale) override;
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         bool handleMouseDown(float worldX, float worldY) override;
+         bool handleMouseDrag(float worldX, float worldY, float dx, float dy) override;
+         void handleMouseUp() override;
 
       private:
-         float mGain = 1.0f;
+         float mGain = 0.7f;
+         bool mDraggingSlider = false;
       };
 
       class OutputModule : public Module
       {
       public:
          OutputModule(int id);
-         void render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale) override;
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
+         void setControlValue(const std::string& name, float value) override;
+         float getControlValue(const std::string& name) const override;
 
       private:
          float mLevel = 0.0f;
@@ -174,7 +189,7 @@ namespace bespoke {
       {
       public:
          FilterModule(int id);
-         void render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale) override;
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
 
@@ -188,7 +203,7 @@ namespace bespoke {
       {
       public:
          LFOModule(int id);
-         void render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale) override;
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
 
@@ -203,7 +218,7 @@ namespace bespoke {
       {
       public:
          TransportModule(int id);
-         void render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale) override;
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
 
@@ -225,7 +240,7 @@ namespace bespoke {
       {
       public:
          ScaleModule(int id);
-         void render(WebGPURenderer& renderer, float offsetX, float offsetY, float scale) override;
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
 
@@ -269,6 +284,7 @@ namespace bespoke {
          int createModule(const std::string& type, float x, float y);
          void deleteModule(int moduleId);
          Module* getModule(int moduleId);
+         int findFirstModuleOfType(const std::string& type) const;
          int getModuleCount() const { return static_cast<int>(mModules.size()); }
 
          // Connection management
@@ -285,9 +301,9 @@ namespace bespoke {
          void zoom(float factor, float centerX, float centerY);
 
          // Rendering
-         void render(WebGPURenderer& renderer, int viewWidth, int viewHeight);
-         void renderTitleBar(WebGPURenderer& renderer, int viewWidth);
-         void renderTransport(WebGPURenderer& renderer, int viewWidth);
+         void render(Renderer2D& renderer, int viewWidth, int viewHeight);
+         void renderTitleBar(Renderer2D& renderer, int viewWidth);
+         void renderTransport(Renderer2D& renderer, int viewWidth);
 
          // Input handling
          void onMouseDown(float x, float y, int button);
@@ -295,6 +311,14 @@ namespace bespoke {
          void onMouseMove(float x, float y, float prevX, float prevY);
          void onMouseWheel(float deltaX, float deltaY, float mouseX, float mouseY);
          void onKeyDown(int keyCode, int modifiers);
+
+         // Sync output meter from audio engine (call each frame before render)
+         void setOutputLevel(float level);
+
+         // Render-test / regression helpers
+         void clearUserModules();
+         void setViewTransform(float offsetX, float offsetY, float scale);
+         void setupCanonicalRenderTestScene();
 
          // Spawn menu
          bool isSpawnMenuOpen() const { return mSpawnMenuOpen; }
@@ -324,6 +348,7 @@ namespace bespoke {
 
          // Interaction state
          int mDraggedModuleId = -1;
+         int mControlModuleId = -1;
          bool mIsPanning = false;
          float mPanStartX = 0.0f, mPanStartY = 0.0f;
          bool mIsConnecting = false;

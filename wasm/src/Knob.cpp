@@ -90,7 +90,7 @@ std::string Knob::getDisplayString() const {
     return std::string(buffer);
 }
 
-void Knob::render(WebGPURenderer& renderer, float x, float y, float size) {
+void Knob::render(Renderer2D& renderer, float x, float y, float size) {
     // Smooth animation
     mAnimatedValue += (mValue - mAnimatedValue) * mAnimationSpeed;
     
@@ -122,18 +122,20 @@ void Knob::render(WebGPURenderer& renderer, float x, float y, float size) {
         float labelWidth = renderer.textWidth(mLabel.c_str());
         renderer.text(x - labelWidth * 0.5f, labelY, mLabel.c_str());
 
-        // Live value (below name, cyan accent, updates smoothly via animated)
+        // Live value (below name, cyan accent)
         std::string valStr = getDisplayString();
         if (!valStr.empty()) {
             renderer.fillColor(UITheme::kTextValue);
-            renderer.fontSize(UITheme::kValueFontSize * (size / 80.0f));
+            const float valueFont = UITheme::kValueFontSize * (size / 80.0f);
+            renderer.fontSize(valueFont);
+            const float lineH = renderer.textHeight();
             float valWidth = renderer.textWidth(valStr.c_str());
-            renderer.text(x - valWidth * 0.5f, labelY + UITheme::kValueFontSize * (size / 80.0f) + 2.0f, valStr.c_str());
+            renderer.text(x - valWidth * 0.5f, labelY + lineH + 2.0f, valStr.c_str());
         }
     }
 }
 
-void Knob::renderClassicKnob(WebGPURenderer& renderer, float x, float y, float size) {
+void Knob::renderClassicKnob(Renderer2D& renderer, float x, float y, float size) {
     float radius = size * 0.4f;
     float normalizedValue = getValueNormalized();
     
@@ -229,7 +231,7 @@ void Knob::renderClassicKnob(WebGPURenderer& renderer, float x, float y, float s
     }
 }
 
-void Knob::renderVintageKnob(WebGPURenderer& renderer, float x, float y, float size) {
+void Knob::renderVintageKnob(Renderer2D& renderer, float x, float y, float size) {
     float radius = size * 0.4f;
     
     // Outer ring (metal)
@@ -264,7 +266,7 @@ void Knob::renderVintageKnob(WebGPURenderer& renderer, float x, float y, float s
     renderer.fill();
 }
 
-void Knob::renderModernKnob(WebGPURenderer& renderer, float x, float y, float size) {
+void Knob::renderModernKnob(Renderer2D& renderer, float x, float y, float size) {
     float radius = size * 0.4f;
     float normalizedValue = getValueNormalized();
     
@@ -304,7 +306,7 @@ void Knob::renderModernKnob(WebGPURenderer& renderer, float x, float y, float si
     renderer.fill();
 }
 
-void Knob::renderLEDKnob(WebGPURenderer& renderer, float x, float y, float size) {
+void Knob::renderLEDKnob(Renderer2D& renderer, float x, float y, float size) {
     float radius = size * 0.4f;
     float normalizedValue = getValueNormalized();
     int numLEDs = 11;
@@ -349,7 +351,7 @@ void Knob::renderLEDKnob(WebGPURenderer& renderer, float x, float y, float size)
     renderer.fill();
 }
 
-void Knob::renderMinimalKnob(WebGPURenderer& renderer, float x, float y, float size) {
+void Knob::renderMinimalKnob(Renderer2D& renderer, float x, float y, float size) {
     float radius = size * 0.4f;
     
     // Simple circle

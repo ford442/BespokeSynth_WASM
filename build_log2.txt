@@ -1,0 +1,23 @@
+[0;32m=== BespokeSynth WASM Build ===[0m
+[1;33mWarning: emsdk_env.sh not found; assume Emscripten is already on PATH[0m
+[0;32mUsing Emscripten:[0m emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 6.0.0 (afa15e0c56d1292e073c2c91bafc1d5e0cdf0dd3)
+[1;33mConfiguring with CMake...[0m
+emcmake: cmake /content/BespokeSynth_WASM/wasm -DCMAKE_BUILD_TYPE=Release -DBESPOKE_WASM_WEBGPU=ON -DBESPOKE_WASM_SDL2_AUDIO=ON -DCMAKE_TOOLCHAIN_FILE=/content/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake -DCMAKE_CROSSCOMPILING_EMULATOR=/content/emsdk/node/22.16.0_64bit/bin/node in directory /content/BespokeSynth_WASM/wasm/build
+-- Building BespokeSynth for WebAssembly
+--   WebGPU: ON
+--   SDL2 Audio: ON
+--   Threads: OFF
+-- Configuring done (0.9s)
+-- Generating done (0.0s)
+-- Build files have been written to: /content/BespokeSynth_WASM/wasm/build
+[1;33mBuilding...[0m
+[  6%] Built target BespokeSynthWASM_test
+[100%] Built target BespokeSynthWASM
+[1;33mCopying output files...[0m
+[0;32mBuild complete![0m
+Output files are in: /content/BespokeSynth_WASM/wasm/dist
+
+To run locally, start a web server:
+  cd /content/BespokeSynth_WASM/wasm/dist
+  python -m http.server 8000
+Then open: http://localhost:8000/

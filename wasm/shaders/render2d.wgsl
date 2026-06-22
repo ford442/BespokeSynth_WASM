@@ -6,7 +6,9 @@
 // Keep this .wgsl in sync for documentation / reference builds.
 //
 // Recent improvements (high-impact GUI polish):
-// - Extended 5x7 pixel font with full lowercase a-z + symbols (.,:;/-+()%) for better labels.
+// - Extended 5x7 pixel font with full lowercase a-z, symbols, and musical/arrow glyphs.
+// - Pixel font source of truth: wasm/include/BespokeWasm/pixel_font_glyphs.inc
+//   (sync to WebGPURenderer.cpp / this file via: npm run sync:font)
 // - UITheme colors adopted across knobs, panels, text, and values.
 // - Knob labels now include live formatted values with cyan accent.
 // - Value arcs + tip dots on knobs for precise tactile feedback.
@@ -1135,3 +1137,134 @@ fn fs_xy_pad(input: VertexOutput) -> @location(0) vec4<f32> {
     
     return color;
 }
+
+// ============================================================================
+// PIXEL FONT TEXT RENDERING (synced from pixel_font_glyphs.inc)
+// ============================================================================
+// @pixel-font-glyph-data-begin
+    // 5x7 bitmap font: ASCII 32-126 + extended glyphs (101 total)
+    const FONT_COLS = array<u32, 505>(
+        0u, 0u, 0u, 0u, 0u,
+        0u, 0u, 95u, 0u, 0u,
+        0u, 7u, 0u, 7u, 0u,
+        20u, 127u, 20u, 127u, 20u,
+        36u, 42u, 127u, 42u, 18u,
+        35u, 19u, 8u, 100u, 98u,
+        54u, 73u, 85u, 34u, 80u,
+        0u, 5u, 3u, 0u, 0u,
+        0u, 28u, 34u, 65u, 0u,
+        0u, 65u, 34u, 28u, 0u,
+        20u, 8u, 62u, 8u, 20u,
+        8u, 8u, 62u, 8u, 8u,
+        0u, 80u, 48u, 0u, 0u,
+        8u, 8u, 8u, 8u, 8u,
+        0u, 96u, 96u, 0u, 0u,
+        32u, 16u, 8u, 4u, 2u,
+        62u, 65u, 65u, 65u, 62u,
+        0u, 66u, 127u, 64u, 0u,
+        66u, 97u, 81u, 73u, 70u,
+        33u, 65u, 69u, 75u, 49u,
+        24u, 20u, 18u, 127u, 16u,
+        39u, 69u, 69u, 69u, 57u,
+        60u, 74u, 73u, 73u, 48u,
+        1u, 113u, 9u, 5u, 3u,
+        54u, 73u, 73u, 73u, 54u,
+        6u, 73u, 73u, 41u, 30u,
+        0u, 54u, 54u, 0u, 0u,
+        0u, 86u, 54u, 0u, 0u,
+        8u, 20u, 34u, 65u, 0u,
+        20u, 20u, 20u, 20u, 20u,
+        0u, 65u, 34u, 20u, 8u,
+        2u, 1u, 81u, 9u, 6u,
+        50u, 73u, 121u, 65u, 62u,
+        126u, 9u, 9u, 9u, 126u,
+        127u, 73u, 73u, 73u, 54u,
+        62u, 65u, 65u, 65u, 34u,
+        127u, 65u, 65u, 34u, 28u,
+        127u, 73u, 73u, 73u, 65u,
+        127u, 9u, 9u, 9u, 1u,
+        62u, 65u, 73u, 73u, 122u,
+        127u, 8u, 8u, 8u, 127u,
+        0u, 65u, 127u, 65u, 0u,
+        32u, 64u, 65u, 63u, 1u,
+        127u, 8u, 20u, 34u, 65u,
+        127u, 64u, 64u, 64u, 64u,
+        127u, 2u, 4u, 2u, 127u,
+        127u, 4u, 8u, 16u, 127u,
+        62u, 65u, 65u, 65u, 62u,
+        127u, 9u, 9u, 9u, 6u,
+        62u, 65u, 81u, 33u, 94u,
+        127u, 9u, 25u, 41u, 70u,
+        70u, 73u, 73u, 73u, 49u,
+        1u, 1u, 127u, 1u, 1u,
+        63u, 64u, 64u, 64u, 63u,
+        31u, 32u, 64u, 32u, 31u,
+        63u, 64u, 56u, 64u, 63u,
+        99u, 20u, 8u, 20u, 99u,
+        7u, 8u, 112u, 8u, 7u,
+        97u, 81u, 73u, 69u, 67u,
+        0u, 127u, 65u, 65u, 0u,
+        2u, 4u, 8u, 16u, 32u,
+        0u, 65u, 65u, 127u, 0u,
+        4u, 2u, 127u, 2u, 4u,
+        64u, 64u, 64u, 64u, 64u,
+        0u, 1u, 2u, 4u, 0u,
+        32u, 84u, 84u, 84u, 120u,
+        127u, 68u, 68u, 68u, 56u,
+        56u, 68u, 68u, 68u, 40u,
+        56u, 68u, 68u, 68u, 127u,
+        56u, 84u, 84u, 84u, 24u,
+        8u, 126u, 9u, 1u, 2u,
+        12u, 82u, 82u, 82u, 62u,
+        127u, 4u, 4u, 4u, 120u,
+        0u, 68u, 125u, 64u, 0u,
+        32u, 64u, 68u, 61u, 0u,
+        127u, 16u, 40u, 68u, 0u,
+        0u, 65u, 127u, 64u, 0u,
+        124u, 4u, 120u, 4u, 120u,
+        124u, 4u, 4u, 4u, 120u,
+        56u, 68u, 68u, 68u, 56u,
+        124u, 36u, 36u, 36u, 24u,
+        24u, 36u, 36u, 36u, 124u,
+        124u, 8u, 4u, 4u, 8u,
+        72u, 84u, 84u, 84u, 36u,
+        4u, 63u, 68u, 68u, 32u,
+        60u, 64u, 64u, 64u, 124u,
+        28u, 32u, 64u, 32u, 28u,
+        60u, 64u, 48u, 64u, 60u,
+        68u, 40u, 16u, 40u, 68u,
+        12u, 80u, 80u, 80u, 60u,
+        68u, 100u, 84u, 76u, 68u,
+        0u, 127u, 65u, 65u, 0u,
+        0u, 65u, 54u, 8u, 0u,
+        0u, 65u, 65u, 127u, 0u,
+        8u, 20u, 8u, 20u, 8u,
+        2u, 7u, 2u, 0u, 0u,
+        4u, 2u, 3u, 2u, 3u,
+        2u, 7u, 7u, 7u, 2u,
+        2u, 7u, 14u, 7u, 2u,
+        7u, 2u, 2u, 0u, 0u,
+        0u, 2u, 2u, 7u, 0u,
+    );
+
+    // Pixel text shader - renders 5x7 bitmap font glyphs
+    // texcoord.x = float(charIndex) + localX
+    // charIndex: 0-100
+    @fragment
+    fn fs_pixel_text(input: VertexOutput) -> @location(0) vec4<f32> {
+        let charIdx = clamp(i32(floor(input.texcoord.x)), 0, 100);
+        let localX = fract(input.texcoord.x);
+
+        let px = clamp(i32(localX * 5.0), 0, 4);
+        let py = clamp(i32(input.texcoord.y * 7.0), 0, 6);
+
+        let colData = FONT_COLS[charIdx * 5 + px];
+        let pixelOn = (colData >> u32(py)) & 1u;
+
+        if (pixelOn == 0u) {
+            return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+        }
+
+        return input.color;
+    }
+// @pixel-font-glyph-data-end

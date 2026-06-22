@@ -299,14 +299,32 @@ Module._bespoke_mouse_down(x, y, button);
 
 ## Important Constraints & Gotchas
 
-### 1. WebGPU Capability Required
+### 1. WebGPU Capability (with WebGL2 fallback)
 
-The WASM build **requires WebGPU** support:
+The WASM build **defaults to WebGPU** when available:
 - Chrome/Edge 113+
 - Firefox Nightly with `dom.webgpu.enabled` = true
 - Safari 17+ (experimental)
 
-Older browsers will fail during `bespoke_init()`.
+If WebGPU init fails, the app automatically falls back to **WebGL2** unless `?renderer=webgpu` was explicitly requested. Force WebGL2 with `?renderer=webgl` for Playwright screenshots and agent visual inspection.
+
+### 1b. Renderer selection & screenshots
+
+| Mechanism | Example |
+|-----------|---------|
+| URL | `?renderer=webgl` or `?renderer=webgpu` |
+| localStorage | `bespokesynth.renderer` |
+| Header dropdown | Persists choice and reloads |
+| Keyboard | Ctrl+Shift+R toggles backend |
+| C API (before init) | `Module._bespoke_set_renderer_backend(1)` |
+
+```js
+await window.__bespoke.captureScreenshot();           // PNG download
+await window.__bespoke.captureScreenshot({ x, y, width, height }); // crop
+window.__bespoke.getRendererBackend();                // 'webgpu' | 'webgl'
+```
+
+Render regression scene: `?renderTest=1` or `wasm/render_test.html`. See [docs/webgl-fallback.md](docs/webgl-fallback.md).
 
 ### 2. Shader Language: WGSL
 
