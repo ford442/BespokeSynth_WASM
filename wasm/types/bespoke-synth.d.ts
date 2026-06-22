@@ -66,6 +66,14 @@ export interface BespokeSynthModule extends EmscriptenModule {
     _bespoke_set_panel(panelIndex: number): void;
     _bespoke_get_panel(): number;
     _bespoke_get_panel_count(): number;
+
+    // Renderer backend selection
+    _bespoke_set_renderer_backend(backend: number): void;
+    _bespoke_get_renderer_backend(): number;
+
+    // Screenshot / canvas capture
+    _bespoke_capture_frame(outWidth: number, outHeight: number): number;
+    _bespoke_free_capture_buffer(ptr: number): void;
 }
 
 /**
@@ -95,6 +103,21 @@ export enum PanelType {
     Mixer = 0,
     Effects = 1,
     Sequencer = 2
+}
+
+/**
+ * Renderer backend selection.
+ * Pass to bespoke_set_renderer_backend() BEFORE calling bespoke_init().
+ *
+ * Auto   — defaults to WebGPU. No automatic WebGL2 fallback in this version.
+ * WebGPU — force the WebGPU rendering path (requires Chrome/Edge 113+).
+ * WebGL2 — force the WebGL2 rendering path (broader browser compatibility,
+ *           supports synchronous canvas screenshot via captureFrame).
+ */
+export enum RendererBackend {
+    Auto   = 0,
+    WebGPU = 1,
+    WebGL2 = 2
 }
 
 /**

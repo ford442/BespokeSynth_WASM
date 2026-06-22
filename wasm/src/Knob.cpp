@@ -97,7 +97,11 @@ std::string Knob::getDisplayString() const {
     return std::string(buffer);
 }
 
+<<<<<<< HEAD
+void Knob::render(IRenderer& renderer, float x, float y, float size) {
+=======
 void Knob::render(Renderer2D& renderer, float x, float y, float size) {
+>>>>>>> origin/main
     // Smooth animation
     mAnimatedValue += (mValue - mAnimatedValue) * mAnimationSpeed;
     
@@ -142,7 +146,11 @@ void Knob::render(Renderer2D& renderer, float x, float y, float size) {
     }
 }
 
+<<<<<<< HEAD
+void Knob::renderClassicKnob(IRenderer& renderer, float x, float y, float size) {
+=======
 void Knob::renderClassicKnob(Renderer2D& renderer, float x, float y, float size) {
+>>>>>>> origin/main
     float radius = size * 0.4f;
     float normalizedValue = getValueNormalized();
     
@@ -238,7 +246,11 @@ void Knob::renderClassicKnob(Renderer2D& renderer, float x, float y, float size)
     }
 }
 
+<<<<<<< HEAD
+void Knob::renderVintageKnob(IRenderer& renderer, float x, float y, float size) {
+=======
 void Knob::renderVintageKnob(Renderer2D& renderer, float x, float y, float size) {
+>>>>>>> origin/main
     float radius = size * 0.4f;
     
     // Outer ring (metal)
@@ -273,7 +285,11 @@ void Knob::renderVintageKnob(Renderer2D& renderer, float x, float y, float size)
     renderer.fill();
 }
 
+<<<<<<< HEAD
+void Knob::renderModernKnob(IRenderer& renderer, float x, float y, float size) {
+=======
 void Knob::renderModernKnob(Renderer2D& renderer, float x, float y, float size) {
+>>>>>>> origin/main
     float radius = size * 0.4f;
     float normalizedValue = getValueNormalized();
     
@@ -313,7 +329,11 @@ void Knob::renderModernKnob(Renderer2D& renderer, float x, float y, float size) 
     renderer.fill();
 }
 
+<<<<<<< HEAD
+void Knob::renderLEDKnob(IRenderer& renderer, float x, float y, float size) {
+=======
 void Knob::renderLEDKnob(Renderer2D& renderer, float x, float y, float size) {
+>>>>>>> origin/main
     float radius = size * 0.4f;
     float normalizedValue = getValueNormalized();
     int numLEDs = 11;
@@ -358,7 +378,11 @@ void Knob::renderLEDKnob(Renderer2D& renderer, float x, float y, float size) {
     renderer.fill();
 }
 
+<<<<<<< HEAD
+void Knob::renderMinimalKnob(IRenderer& renderer, float x, float y, float size) {
+=======
 void Knob::renderMinimalKnob(Renderer2D& renderer, float x, float y, float size) {
+>>>>>>> origin/main
     float radius = size * 0.4f;
     
     // Simple circle

@@ -115,7 +115,11 @@ namespace bespoke {
                 worldY >= mY && worldY <= mY + kTitleBarHeight;
       }
 
+<<<<<<< HEAD
+      void Module::renderTitleBar(IRenderer& renderer, float screenX, float screenY, float scale)
+=======
       void Module::renderTitleBar(Renderer2D& renderer, float screenX, float screenY, float scale)
+>>>>>>> origin/main
       {
          float w = mWidth * scale;
          float h = kTitleBarHeight * scale;
@@ -167,7 +171,11 @@ namespace bespoke {
          }
       }
 
+<<<<<<< HEAD
+      void Module::renderPorts(IRenderer& renderer, float screenX, float screenY, float scale)
+=======
       void Module::renderPorts(Renderer2D& renderer, float screenX, float screenY, float scale)
+>>>>>>> origin/main
       {
          const float labelFont = 9.0f * scale;
          const float portStep = portSpacingFor(renderer, scale);
@@ -242,7 +250,11 @@ namespace bespoke {
          }
       }
 
+<<<<<<< HEAD
+      void Module::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
+=======
       void Module::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
+>>>>>>> origin/main
       {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
@@ -278,7 +290,11 @@ namespace bespoke {
          addOutput("Out", PortType::Audio);
       }
 
+<<<<<<< HEAD
+      void OscillatorModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
+=======
       void OscillatorModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
+>>>>>>> origin/main
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -397,7 +413,11 @@ namespace bespoke {
          addOutput("Out", PortType::Audio);
       }
 
+<<<<<<< HEAD
+      void GainModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
+=======
       void GainModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
+>>>>>>> origin/main
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -481,7 +501,11 @@ namespace bespoke {
          addInput("In", PortType::Audio);
       }
 
+<<<<<<< HEAD
+      void OutputModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
+=======
       void OutputModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
+>>>>>>> origin/main
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -531,7 +555,11 @@ namespace bespoke {
          addOutput("Out", PortType::Audio);
       }
 
+<<<<<<< HEAD
+      void FilterModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
+=======
       void FilterModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
+>>>>>>> origin/main
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -610,7 +638,11 @@ namespace bespoke {
          addOutput("Mod", PortType::Modulation);
       }
 
+<<<<<<< HEAD
+      void LFOModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
+=======
       void LFOModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
+>>>>>>> origin/main
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -686,7 +718,11 @@ namespace bespoke {
          setSize(250, 60);
       }
 
+<<<<<<< HEAD
+      void TransportModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
+=======
       void TransportModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
+>>>>>>> origin/main
       {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
@@ -797,7 +833,11 @@ namespace bespoke {
          setSize(180, 70);
       }
 
+<<<<<<< HEAD
+      void ScaleModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
+=======
       void ScaleModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
+>>>>>>> origin/main
       {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
@@ -1096,7 +1136,11 @@ namespace bespoke {
          }
       }
 
+<<<<<<< HEAD
+      void ModuleCanvas::renderTitleBar(IRenderer& renderer, int viewWidth)
+=======
       void ModuleCanvas::renderTitleBar(Renderer2D& renderer, int viewWidth)
+>>>>>>> origin/main
       {
          float w = static_cast<float>(viewWidth);
 
@@ -1184,7 +1228,11 @@ namespace bespoke {
          }
       }
 
+<<<<<<< HEAD
+      void ModuleCanvas::render(IRenderer& renderer, int viewWidth, int viewHeight)
+=======
       void ModuleCanvas::render(Renderer2D& renderer, int viewWidth, int viewHeight)
+>>>>>>> origin/main
       {
          float canvasTop = kTitleBarHeight;
          float canvasHeight = static_cast<float>(viewHeight) - canvasTop;

@@ -8,8 +8,12 @@
 
 #pragma once
 
+<<<<<<< HEAD
+#include "IRenderer.h"
+=======
 #include "Renderer2D.h"
 #include "PixelFont.h"
+>>>>>>> origin/main
 #include "WebGPUContext.h"
 #include <vector>
 #include <string>
@@ -21,6 +25,20 @@ namespace bespoke
    namespace wasm
    {
 
+<<<<<<< HEAD
+      // Color is defined in IRenderer.h (included above) and is available here
+      // within the bespoke::wasm namespace.
+
+      // Vertex structure for 2D rendering
+      struct Vertex2D
+      {
+         float x, y;
+         float u, v;
+         Color color;
+      };
+
+=======
+>>>>>>> origin/main
       // Shader Pipelines storage
       struct Pipelines
       {
@@ -63,7 +81,11 @@ namespace bespoke
  * WebGPU-based 2D renderer
  * Provides NanoVG-like API for drawing UI elements
  */
+<<<<<<< HEAD
+   class WebGPURenderer : public IRenderer
+=======
    class WebGPURenderer : public Renderer2D
+>>>>>>> origin/main
    {
    public:
       WebGPURenderer(WebGPUContext& context);
@@ -143,6 +165,16 @@ namespace bespoke
       void drawSpectrumRainbow(float x, float y, float w, float h, float* data, int count) override;
       void drawCircularScope(float x, float y, float w, float h) override;
       void drawEchoTrail(float x, float y, float w, float h) override;
+
+      // IRenderer backend identification
+      RendererBackend getBackend() const override { return RendererBackend::WebGPU; }
+
+      // IRenderer screenshot (WebGPU requires async buffer readback — returns nullptr for now)
+      uint8_t* captureFrame(int& outWidth, int& outHeight) override
+      {
+         outWidth = mWidth; outHeight = mHeight;
+         return nullptr;
+      }
 
    private:
       // Per-frame draw call record: all vertices are uploaded once at endFrame()
