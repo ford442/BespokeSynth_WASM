@@ -77,18 +77,11 @@ std::string Knob::getDisplayString() const {
         } else {
             snprintf(buffer, sizeof(buffer), "%.0f Hz", v);
         }
+    } else if (mBipolar && mUnit.empty()) {
+        snprintf(buffer, sizeof(buffer), "%+.*f", mDisplayPrecision, v);
     } else if (mUnit == "%" || mUnit.empty()) {
-        if (mBipolar && mUnit.empty()) {
-            if (v < -0.01f)
-                snprintf(buffer, sizeof(buffer), "L%.0f", -v * 100.0f);
-            else if (v > 0.01f)
-                snprintf(buffer, sizeof(buffer), "R%.0f", v * 100.0f);
-            else
-                snprintf(buffer, sizeof(buffer), "C");
-        } else {
-            snprintf(buffer, sizeof(buffer), "%.*f%s", mDisplayPrecision,
-                     v * (mUnit == "%" ? 100.0f : 1.0f), mUnit.c_str());
-        }
+        const float displayValue = (mUnit == "%") ? (v * 100.0f) : v;
+        snprintf(buffer, sizeof(buffer), "%.*f%s", mDisplayPrecision, displayValue, mUnit.c_str());
     } else if (mUnit == "ms" || mUnit == "s") {
         snprintf(buffer, sizeof(buffer), "%.0f %s", v, mUnit.c_str());
     } else {

@@ -287,7 +287,7 @@ namespace bespoke {
          setSize(160, 120);
          addInput("Pitch", PortType::Note);
          addInput("Mod", PortType::Modulation);
-         addOutput("Out", PortType::Audio);
+         addOutput("Audio", PortType::Audio);
       }
 
 <<<<<<< HEAD
@@ -551,7 +551,7 @@ namespace bespoke {
       {
          setSize(150, 110);
          addInput("In", PortType::Audio);
-         addInput("CV", PortType::Modulation);
+         addInput("Cutoff", PortType::Modulation);
          addOutput("Out", PortType::Audio);
       }
 
@@ -773,8 +773,10 @@ namespace bespoke {
          // Time signature
          char timeSigText[16];
          snprintf(timeSigText, sizeof(timeSigText), "%d/%d", mTimeSigTop, mTimeSigBottom);
-         drawText(renderer, screenX + 140 * scale, textBaselineFromTop(renderer, screenY + 10 * scale),
-                  timeSigText, UITheme::kTextSecondary, 11.0f * scale);
+         drawText(renderer, screenX + 140 * scale, textBaselineFromTop(renderer, screenY + 6 * scale),
+                  "Time Sig", UITheme::kTextSecondary, 10.0f * scale);
+         drawText(renderer, screenX + 140 * scale, textBaselineFromTop(renderer, screenY + 18 * scale),
+                  timeSigText, UITheme::kTextPrimary, 11.0f * scale);
 
          // Swing
          char swingText[16];
@@ -782,7 +784,7 @@ namespace bespoke {
          drawText(renderer, screenX + 185 * scale, textBaselineFromTop(renderer, screenY + 10 * scale),
                   swingText, UITheme::kTextSecondary, 11.0f * scale);
 
-         const char* stateText = mPlaying ? "Playing" : "Stopped";
+         const char* stateText = mPlaying ? "Transport: Playing" : "Transport: Stopped";
          drawText(renderer, screenX + 10 * scale, textBaselineFromTop(renderer, screenY + 38 * scale),
                   stateText, mPlaying ? UITheme::kAccentGreen : UITheme::kTextSecondary, 9.0f * scale);
 
@@ -856,14 +858,18 @@ namespace bespoke {
 
          // Root note + scale type
          drawText(renderer, screenX + 10 * scale, textBaselineFromTop(renderer, screenY + 6 * scale),
+                  "Root", UITheme::kTextSecondary, 10.0f * scale);
+         drawText(renderer, screenX + 10 * scale, textBaselineFromTop(renderer, screenY + 18 * scale),
                   kNoteNames[mRootNote % 12], UITheme::kTextPrimary, 13.0f * scale);
 
-         drawText(renderer, screenX + 38 * scale, textBaselineFromTop(renderer, screenY + 6 * scale),
-                  kScaleNames[mScaleType % 7], UITheme::kTextSecondary, 11.0f * scale);
+         drawText(renderer, screenX + 45 * scale, textBaselineFromTop(renderer, screenY + 6 * scale),
+                  "Scale", UITheme::kTextSecondary, 10.0f * scale);
+         drawText(renderer, screenX + 45 * scale, textBaselineFromTop(renderer, screenY + 18 * scale),
+                  kScaleNames[mScaleType % 7], UITheme::kTextPrimary, 11.0f * scale);
 
          // Piano keys visualization (mini)
          float keyX = screenX + 10 * scale;
-         float keyY = screenY + 32 * scale;
+         float keyY = screenY + 41 * scale;
          float keyW = 10 * scale;
          float keyH = 22 * scale;
 
@@ -889,9 +895,8 @@ namespace bespoke {
             renderer.fill();
          }
 
-         // Label below keys
          drawText(renderer, screenX + 10 * scale, textBaselineFromTop(renderer, keyY + keyH + 4 * scale),
-                  "Root / scale", UITheme::kTextSecondary, 9.0f * scale);
+                  "Scale Quantizer", UITheme::kTextSecondary, 9.0f * scale);
       }
 
       void ScaleModule::setControlValue(const std::string& name, float value)
@@ -1156,7 +1161,7 @@ namespace bespoke {
 
          // Logo / title
          drawText(renderer, 10.0f, textBaselineFromTop(renderer, 8.0f),
-                  "BespokeSynth", UITheme::kTextPrimary, 14.0f);
+                  "BespokeSynth WASM", UITheme::kTextPrimary, 14.0f);
 
          // Spawn menu buttons by category
          const char* catNames[] = {"Synth", "Audio FX", "Modulators", "Other"};
@@ -1302,24 +1307,19 @@ namespace bespoke {
          // Draw zoom indicator (right-aligned)
          renderer.fontSize(10.0f);
          char zoomText[32];
-         snprintf(zoomText, sizeof(zoomText), "%.0f%%", mScale * 100.0f);
+         snprintf(zoomText, sizeof(zoomText), "Zoom: %.0f%%", mScale * 100.0f);
          const float zoomW = renderer.textWidth(zoomText);
          drawText(renderer, static_cast<float>(viewWidth) - zoomW - 10.0f,
                   textBaselineFromTop(renderer, static_cast<float>(viewHeight) - 18.0f),
                   zoomText, Color(0.55f, 0.55f, 0.60f, 0.85f), 10.0f);
 
-         // Status line
-         const bool playing = mTransport && mTransport->isPlaying();
-         const float bpm = mTransport ? mTransport->getBPM() : 120.0f;
          char countText[128];
          snprintf(countText, sizeof(countText),
-                  "Modules: %d | Cables: %d | %s | %.1f BPM | Tab: demo panels",
+                  "Modules: %d | Cables: %d",
                   static_cast<int>(mModules.size()),
-                  static_cast<int>(mConnections.size()),
-                  playing ? "Playing" : "Stopped",
-                  bpm);
+                  static_cast<int>(mConnections.size()));
          drawText(renderer, 10.0f, textBaselineFromTop(renderer, static_cast<float>(viewHeight) - 18.0f),
-                  countText, UITheme::kTextSecondary, 10.0f);
+                 countText, UITheme::kTextSecondary, 10.0f);
       }
 
       void ModuleCanvas::setOutputLevel(float level)

@@ -358,7 +358,7 @@ static bool initializeAudioAndControls(int sampleRate, int bufferSize)
       Color(0.3f, 0.7f, 0.9f, 1.0f));
    gKnobs.push_back(std::move(knob2));
 
-   auto knob3 = std::make_unique<Knob>("Filter", 0.3f);
+   auto knob3 = std::make_unique<Knob>("Filter Cutoff", 0.3f);
    knob3->setRange(20.0f, 20000.0f);
    knob3->setUnit("Hz");
    knob3->setDisplayPrecision(0);
@@ -715,7 +715,7 @@ static void renderDemoPanels()
 =======
    gRenderer->fillColor(UITheme::kTextPrimary);
    gRenderer->fontSize(22.0f);
-   gRenderer->text(20, 36, "BespokeSynth WASM");
+   gRenderer->text(20, 36, "BespokeSynth WASM - Legacy Demo Panels");
 
    // Legacy demo banner
    gRenderer->fillColor(UITheme::kAccentAmber);
@@ -888,7 +888,7 @@ static void renderDemoPanels()
          gRenderer->text(sliderX, sliderY + 90, "Master");
          gRenderer->drawSlider(sliderX, sliderY + 100, 200, 20, masterVal,
                                UITheme::kBgTrack, UITheme::kAccentMagenta);
-         snprintf(vbuf, sizeof(vbuf), "%.0f%%", masterVal * 100.0f);
+         snprintf(vbuf, sizeof(vbuf), "%.1f dB", 20.0f * log10f(masterVal + 0.001f));
          gRenderer->fillColor(UITheme::kTextValue);
          gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 105, vbuf);
@@ -934,7 +934,7 @@ static void renderDemoPanels()
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 40, "Delay Time");
          gRenderer->drawSlider(effectX, effectY + 50, 250, 20, delayTime, UITheme::kBgTrack, UITheme::kAccentAmber);
-         { char v[32]; snprintf(v, sizeof(v), "%.0f ms", delayTime * 1000.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 55, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f ms", delayMs); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 55, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
@@ -1051,13 +1051,12 @@ static void renderDemoPanels()
    gRenderer->fontSize(12.0f);
 
    char statusText[256];
-   const bool transportPlaying = gCanvas && gCanvas->getTransport() && gCanvas->getTransport()->isPlaying();
    snprintf(statusText, sizeof(statusText),
-            "Sample rate: %d Hz | Buffer: %d | %s | Panel: %s | Tab: Modular Canvas",
+            "Legacy Panel: %s | Sample Rate: %d Hz | Buffer: %d | Audio: %s",
+            panelNames[gCurrentPanel],
             bespoke_get_sample_rate(),
             bespoke_get_buffer_size(),
-            transportPlaying ? "Playing" : "Stopped",
-            panelNames[gCurrentPanel]);
+            (gAudioBackend && gAudioBackend->isRunning()) ? "Running" : "Stopped");
 
    gRenderer->text(20, static_cast<float>(gHeight) - 20, statusText);
 
