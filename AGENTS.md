@@ -263,21 +263,79 @@ int bespoke_is_panel_running(int panelIndex);
 
 ### Initialization States
 
-The WASM bridge tracks initialization through 7 states:
+The WASM bridge tracks initialization through distinct WebGPU and WebGL2 graphics states:
 
 ```cpp
 enum class InitState {
     NotStarted = 0,      // Initial state
-    WebGPURequested,     // Async init started
-    WebGPUReady,         // Adapter/device acquired
-    RendererReady,       // Pipelines created
-    AudioReady,          // Audio backend ready
-    FullyInitialized,    // All subsystems ready
-    Failed               // Initialization failed
+    WebGPURequested = 1, // WebGPU async init started
+    WebGPUReady = 2,     // Adapter/device acquired
+    RendererReady = 3,   // Pipelines created (both backends)
+    AudioReady = 4,      // Audio backend ready
+    FullyInitialized = 5,// All subsystems ready
+    WebGL2Requested = 6, // WebGL2 context creation started
+    WebGL2Ready = 7,     // WebGL2 context acquired
+    Failed = -1          // Initialization failed
 };
 ```
 
 **Critical**: Always check `bespoke_is_fully_initialized()` before rendering or audio operations.
+
+### Renderer Abstraction (WebGPU + WebGL2)
+
+All UI code renders through `Renderer2D` (`wasm/include/BespokeWasm/Renderer2D.h`):
+
+| Backend | Implementation | Use case |
+|---------|----------------|----------|
+| WebGPU (default) | `WebGPURenderer` | Production quality, full WGSL shader set |
+| WebGL2 (opt-in) | `WebGL2Renderer` | Debugging, Playwright screenshots, GLSL reference |
+
+**Select backend before init:**
+
+```js
+Module._bespoke_set_renderer_backend(1); // 0=WebGPU, 1=WebGL2
+```
+
+Or from the browser: `?renderer=webgl`, header dropdown, `localStorage.bespokesynth.renderer`, or **Ctrl+Shift+R** (reloads with the other backend).
+
+If WebGPU init fails and the user did not force `?renderer=webgpu`, `src/index.ts` automatically retries with WebGL2.
+
+### Screenshots for agents & CI
+
+Prefer WebGL2 for reliable canvas readback (`preserveDrawingBuffer` is enabled). WebGPU uses GPU texture readback via `bespoke_capture_screenshot()` + `bespoke_get_screenshot_pixels()`.
+
+```js
+// After the app is ready
+await window.__bespoke.captureScreenshot();
+await window.__bespoke.captureScreenshot({ x: 0, y: 40, width: 800, height: 500 }); // crop
+window.__bespoke.onScreenshotCaptured((dataUrl, info) => { /* post to agent */ });
+```
+
+Keyboard shortcut: **Ctrl+Shift+S**. Header **Screenshot** button also works.
+
+C API (from C++ or via `Module._bespoke_*`):
+
+```js
+Module._bespoke_capture_screenshot(widthPtr, heightPtr); // renders frame; returns 1=WebGL2, 0=WebGPU pixels ready
+Module._bespoke_get_screenshot_pixels(byteLenPtr);       // RGBA for WebGPU path
+```
+
+### Render test / visual regression
+
+Load a canonical module graph (transport, scale, osc→filter→gain→output, LFO→filter CV):
+
+```text
+?renderTest=1
+?renderer=webgl&renderTest=1   # recommended for PNG diffing
+```
+
+```js
+Module._bespoke_set_render_test_mode(1);
+```
+
+Harness page: `wasm/render_test.html`. Floating renderer FAB appears with `?debug=1`.
+
+See [docs/webgl-fallback.md](../docs/webgl-fallback.md) for debug modes, screenshot workflow, and WGSL→GLSL porting notes.
 
 ### WebGPU Renderer
 

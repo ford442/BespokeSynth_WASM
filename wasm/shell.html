@@ -290,13 +290,11 @@
             <!-- Default JS handler for async WASM initialization -->
             <script>
             (function() {
-                // Helpers
                 const loadingEl = document.getElementById('loading');
                 const loadingMessageEl = document.getElementById('loading-message');
                 const errorEl = document.getElementById('error');
                 const errorMsgEl = document.getElementById('error-message');
                 const webgpuEl = document.getElementById('webgpu-check');
-                let initTimeout = null;
 
                 function showStatus(msg) {
                     if (loadingMessageEl) loadingMessageEl.textContent = msg;
@@ -317,154 +315,25 @@
                     console.warn('BespokeSynth: WebGPU unavailable or failed to initialize');
                 }
 
-                // Default callback used by C++ to signal completion
                 window.__bespoke_on_init_complete = function(status) {
                     console.log('Window callback __bespoke_on_init_complete invoked with status', status);
-                    if (initTimeout) { clearTimeout(initTimeout); initTimeout = null; }
-
                     if (status === 0) {
-                        // Success
                         if (loadingEl) loadingEl.classList.add('hidden');
                         if (webgpuEl) webgpuEl.classList.remove('visible');
                         if (errorEl) errorEl.classList.remove('visible');
                         console.log('BespokeSynth WASM initialization succeeded');
-                        
-                        // Log final state
-                        if (Module._bespoke_get_init_state) {
-                            const initState = Module._bespoke_get_init_state();
-                            console.log('Final init state:', initState);
-                        }
                         return;
                     }
-
-                    // Negative codes indicate failures from native side
-                    if (status === -1) {
-                        showWebGPUCheck();
-                    } else if (status === -2) {
-                        showError('Renderer initialization failed. See console for details.');
-                    } else if (status === -3) {
-                        showError('Audio backend failed to initialize. Check permissions and browser audio settings.');
-                    } else {
-                        showError('Initialization failed with code: ' + status);
-                    }
-                    
-                    // Log error message if available
-                    if (Module._bespoke_get_init_error) {
-                        const errorMsg = Module.ccall('bespoke_get_init_error', 'string', [], []);
-                        if (errorMsg) {
-                            console.error('Init error details:', errorMsg);
-                        }
-                    }
+                    if (status === -1) showWebGPUCheck();
+                    else if (status === -2) showError('Renderer initialization failed. See console for details.');
+                    else if (status === -3) showError('Audio backend failed to initialize. Check permissions and browser audio settings.');
+                    else showError('Initialization failed with code: ' + status);
                 };
 
-                function attemptAutoInit() {
-                    // If Emscripten Module exists and exposes the init symbol, call it
-                    try {
-                        if (typeof Module !== 'undefined' && typeof Module._bespoke_init === 'function') {
-                            const canvas = document.getElementById('canvas');
-                            const w = canvas ? canvas.clientWidth : window.innerWidth;
-                            const h = canvas ? canvas.clientHeight : window.innerHeight;
-                            console.log('Auto-calling Module._bespoke_init with', w, h);
-                            
-                            // Check WebGPU support first
-                            if (!navigator.gpu) {
-                                console.error('WebGPU not supported in this browser');
-                                showError('WebGPU not supported. Use Chrome/Edge 113+');
-                                return;
-                            }
-                            
-                            // Start initialization
-                            const result = Module._bespoke_init(w, h, 44100, 512);
-                            console.log('bespoke_init returned:', result, '(1=async started, 0=already init, -1=error)');
-
-                            // Set a fallback timeout in case init callback never fires
-                            initTimeout = setTimeout(() => {
-                                console.error('BespokeSynth init timed out waiting for __bespoke_on_init_complete');
-                                
-                                // Query initialization state if available
-                                if (Module._bespoke_get_init_state) {
-                                    const initState = Module._bespoke_get_init_state();
-                                    console.error('Init state at timeout:', initState);
-                                    
-                                    // State meanings: 0=NotStarted, 1=WebGPURequested, 2=WebGPUReady, 
-                                    // 3=RendererReady, 4=AudioReady, 5=FullyInitialized, 6=Failed
-                                    const stateNames = ['NotStarted', 'WebGPURequested', 'WebGPUReady', 
-                                                       'RendererReady', 'AudioReady', 'FullyInitialized', 'Failed'];
-                                    console.error('State name:', stateNames[initState] || 'Unknown');
-                                    
-                                    // Provide specific error message based on state
-                                    if (initState === 1) {
-                                        showError('WebGPU adapter request timed out. Check browser compatibility.');
-                                    } else if (initState === 2) {
-                                        showError('Renderer initialization failed. Check console for details.');
-                                    } else if (initState === 3) {
-                                        showError('Audio backend initialization failed.');
-                                    } else {
-                                        showError('Initialization timed out — WebGPU may be blocked or unsupported.');
-                                    }
-                                } else {
-                                    showError('Initialization timed out — WebGPU may be blocked or unsupported.');
-                                }
-                                
-                                if (Module._bespoke_get_init_error) {
-                                    const errorMsg = Module.ccall('bespoke_get_init_error', 'string', [], []);
-                                    console.error('Init error:', errorMsg);
-                                }
-                            }, 15000); // Increased to 15 seconds to allow more time
-                            
-                            // Poll init state every 500ms for debugging and pump events
-                            const statePoll = setInterval(() => {
-                                // CRITICAL: Pump WebGPU events during initialization
-                                if (Module._bespoke_process_events) {
-                                    Module._bespoke_process_events();
-                                }
-                                
-                                if (Module._bespoke_get_init_state) {
-                                    const state = Module._bespoke_get_init_state();
-                                    if (state >= 5) { // FullyInitialized or Failed
-                                        clearInterval(statePoll);
-                                    } else {
-                                        const stateNames = ['NotStarted', 'WebGPURequested', 'WebGPUReady', 
-                                                           'RendererReady', 'AudioReady', 'FullyInitialized', 'Failed'];
-                                        console.log('Init progress:', stateNames[state] || 'Unknown', `(${state})`);
-                                    }
-                                }
-                            }, 100); // Check more frequently (100ms) with event pumping
-                            
-                            // Start periodic health check during init
-                            const healthCheck = setInterval(() => {
-                                if (Module._bespoke_is_fully_initialized && Module._bespoke_is_fully_initialized()) {
-                                    clearInterval(healthCheck);
-                                } else if (Module._bespoke_get_init_state) {
-                                    const state = Module._bespoke_get_init_state();
-                                    const stateNames = ['NotStarted', 'WebGPURequested', 'WebGPUReady', 
-                                                       'RendererReady', 'AudioReady', 'FullyInitialized', 'Failed'];
-                                    console.log('Init progress:', stateNames[state] || 'Unknown');
-                                }
-                            }, 2000); // Check every 2 seconds
-                        }
-                    } catch (e) {
-                        console.error('Error while auto-initializing BespokeSynth:', e);
-                    }
-                }
-
-                // If Module is already present and calledRun is true, try to init
-                if (typeof Module !== 'undefined') {
-                    if (Module.calledRun) {
-                        attemptAutoInit();
-                    } else {
-                        const prev = Module.onRuntimeInitialized;
-                        Module.onRuntimeInitialized = function() {
-                            try { if (typeof prev === 'function') prev(); } catch (e) {}
-                            attemptAutoInit();
-                        };
-                    }
-                } else {
-                    // If Module is not yet defined, try again after DOM ready
-                    document.addEventListener('DOMContentLoaded', () => {
-                        setTimeout(() => attemptAutoInit(), 0);
-                    });
-                }
+                window.__bespoke_on_init_progress = function(step, detail) {
+                    console.log('Init progress:', step, detail);
+                    if (step && loadingMessageEl) loadingMessageEl.textContent = step;
+                };
             })();
             </script>
 
@@ -659,5 +528,48 @@
     </script>
     
     {{{ SCRIPT }}}
+    <script>
+        // MODULARIZE build: instantiate the exported factory, initialize, and drive the render loop.
+        (async function() {
+            try {
+                if (typeof createBespokeSynth !== 'function') {
+                    console.error('createBespokeSynth not loaded');
+                    return;
+                }
+                Module = await createBespokeSynth(Module);
+                console.log('BespokeSynth module instantiated');
+
+                const canvas = document.getElementById('canvas');
+                function resizeCanvas() {
+                    const container = document.getElementById('canvas-container');
+                    if (!container || !canvas) return;
+                    canvas.width = container.clientWidth;
+                    canvas.height = container.clientHeight;
+                }
+                resizeCanvas();
+                window.addEventListener('resize', resizeCanvas);
+
+                // WebGPU check
+                if (!navigator.gpu) {
+                    if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-1);
+                    return;
+                }
+
+                // Async initialization with event pumping
+                const w = canvas.clientWidth;
+                const h = canvas.clientHeight;
+                console.log('Starting bespoke_init', w, h);
+                if (Module._bespoke_init) Module._bespoke_init(w, h, 44100, 512);
+
+                const eventPump = setInterval(() => {
+                    if (Module._bespoke_process_events) Module._bespoke_process_events();
+                    const state = Module._bespoke_get_init_state ? Module._bespoke_get_init_state() : 0;
+                    if (state >= 5 || state < 0) clearInterval(eventPump);
+                }, 50);
+            } catch (e) {
+                console.error('createBespokeSynth instantiation failed:', e);
+            }
+        })();
+    </script>
 </body>
 </html>

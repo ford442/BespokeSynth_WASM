@@ -7,6 +7,7 @@
 
 #include "WebGPURenderer.h"
 #include "BespokeWasm/Theme.h"
+#include "PixelFont.h"
 #include <cmath>
 #include <cstring>
 #include <algorithm>
@@ -22,7 +23,6 @@ WGPUStringView s(const char* str) {
 
 // Constants for 2D rendering
 static const int kArcTessellationFactor = 4;  // Arc subdivisions per radius unit
-static const float kCharacterWidthRatio = 0.6f;  // Character width as ratio of font size
 static const float PI = 3.14159265f;
 static const float TWO_PI = 6.28318530f;
 static const float HALF_PI = 1.57079632f;
@@ -1142,131 +1142,129 @@ fn fs_xy_pad(input: VertexOutput) -> @location(0) vec4<f32> {
 // ============================================================================
 // PIXEL FONT TEXT RENDERING
 // ============================================================================
+<<<<<<< HEAD
 // 5x7 bitmap font: indices 0-58 = ASCII 32-90 (space through 'Z'),
 //                  indices 59-84 = ASCII 97-122 (lowercase a-z).
 // Each character has 5 column values; bit N = row N (0=top, 6=bottom).
 // Total: 85 characters × 5 columns = 425 u32 values.
+=======
+// Generated from wasm/include/BespokeWasm/pixel_font_glyphs.inc
+// @pixel-font-glyph-data-begin
+    // 5x7 bitmap font: ASCII 32-126 + extended glyphs (101 total)
+    const FONT_COLS = array<u32, 505>(
+        0u, 0u, 0u, 0u, 0u,
+        0u, 0u, 95u, 0u, 0u,
+        0u, 7u, 0u, 7u, 0u,
+        20u, 127u, 20u, 127u, 20u,
+        36u, 42u, 127u, 42u, 18u,
+        35u, 19u, 8u, 100u, 98u,
+        54u, 73u, 85u, 34u, 80u,
+        0u, 5u, 3u, 0u, 0u,
+        0u, 28u, 34u, 65u, 0u,
+        0u, 65u, 34u, 28u, 0u,
+        20u, 8u, 62u, 8u, 20u,
+        8u, 8u, 62u, 8u, 8u,
+        0u, 80u, 48u, 0u, 0u,
+        8u, 8u, 8u, 8u, 8u,
+        0u, 96u, 96u, 0u, 0u,
+        32u, 16u, 8u, 4u, 2u,
+        62u, 65u, 65u, 65u, 62u,
+        0u, 66u, 127u, 64u, 0u,
+        66u, 97u, 81u, 73u, 70u,
+        33u, 65u, 69u, 75u, 49u,
+        24u, 20u, 18u, 127u, 16u,
+        39u, 69u, 69u, 69u, 57u,
+        60u, 74u, 73u, 73u, 48u,
+        1u, 113u, 9u, 5u, 3u,
+        54u, 73u, 73u, 73u, 54u,
+        6u, 73u, 73u, 41u, 30u,
+        0u, 54u, 54u, 0u, 0u,
+        0u, 86u, 54u, 0u, 0u,
+        8u, 20u, 34u, 65u, 0u,
+        20u, 20u, 20u, 20u, 20u,
+        0u, 65u, 34u, 20u, 8u,
+        2u, 1u, 81u, 9u, 6u,
+        50u, 73u, 121u, 65u, 62u,
+        126u, 9u, 9u, 9u, 126u,
+        127u, 73u, 73u, 73u, 54u,
+        62u, 65u, 65u, 65u, 34u,
+        127u, 65u, 65u, 34u, 28u,
+        127u, 73u, 73u, 73u, 65u,
+        127u, 9u, 9u, 9u, 1u,
+        62u, 65u, 73u, 73u, 122u,
+        127u, 8u, 8u, 8u, 127u,
+        0u, 65u, 127u, 65u, 0u,
+        32u, 64u, 65u, 63u, 1u,
+        127u, 8u, 20u, 34u, 65u,
+        127u, 64u, 64u, 64u, 64u,
+        127u, 2u, 4u, 2u, 127u,
+        127u, 4u, 8u, 16u, 127u,
+        62u, 65u, 65u, 65u, 62u,
+        127u, 9u, 9u, 9u, 6u,
+        62u, 65u, 81u, 33u, 94u,
+        127u, 9u, 25u, 41u, 70u,
+        70u, 73u, 73u, 73u, 49u,
+        1u, 1u, 127u, 1u, 1u,
+        63u, 64u, 64u, 64u, 63u,
+        31u, 32u, 64u, 32u, 31u,
+        63u, 64u, 56u, 64u, 63u,
+        99u, 20u, 8u, 20u, 99u,
+        7u, 8u, 112u, 8u, 7u,
+        97u, 81u, 73u, 69u, 67u,
+        0u, 127u, 65u, 65u, 0u,
+        2u, 4u, 8u, 16u, 32u,
+        0u, 65u, 65u, 127u, 0u,
+        4u, 2u, 127u, 2u, 4u,
+        64u, 64u, 64u, 64u, 64u,
+        0u, 1u, 2u, 4u, 0u,
+        32u, 84u, 84u, 84u, 120u,
+        127u, 68u, 68u, 68u, 56u,
+        56u, 68u, 68u, 68u, 40u,
+        56u, 68u, 68u, 68u, 127u,
+        56u, 84u, 84u, 84u, 24u,
+        8u, 126u, 9u, 1u, 2u,
+        12u, 82u, 82u, 82u, 62u,
+        127u, 4u, 4u, 4u, 120u,
+        0u, 68u, 125u, 64u, 0u,
+        32u, 64u, 68u, 61u, 0u,
+        127u, 16u, 40u, 68u, 0u,
+        0u, 65u, 127u, 64u, 0u,
+        124u, 4u, 120u, 4u, 120u,
+        124u, 4u, 4u, 4u, 120u,
+        56u, 68u, 68u, 68u, 56u,
+        124u, 36u, 36u, 36u, 24u,
+        24u, 36u, 36u, 36u, 124u,
+        124u, 8u, 4u, 4u, 8u,
+        72u, 84u, 84u, 84u, 36u,
+        4u, 63u, 68u, 68u, 32u,
+        60u, 64u, 64u, 64u, 124u,
+        28u, 32u, 64u, 32u, 28u,
+        60u, 64u, 48u, 64u, 60u,
+        68u, 40u, 16u, 40u, 68u,
+        12u, 80u, 80u, 80u, 60u,
+        68u, 100u, 84u, 76u, 68u,
+        0u, 127u, 65u, 65u, 0u,
+        0u, 65u, 54u, 8u, 0u,
+        0u, 65u, 65u, 127u, 0u,
+        8u, 20u, 8u, 20u, 8u,
+        2u, 7u, 2u, 0u, 0u,
+        4u, 2u, 3u, 2u, 3u,
+        2u, 7u, 7u, 7u, 2u,
+        2u, 7u, 14u, 7u, 2u,
+        7u, 2u, 2u, 0u, 0u,
+        0u, 2u, 2u, 7u, 0u,
+    );
+>>>>>>> origin/main
 
-const FONT_COLS = array<u32, 425>(
-    // 32 ' '
-    0u, 0u, 0u, 0u, 0u,
-    // 33 '!'
-    0u, 0u, 95u, 0u, 0u,
-    // 34 '"'
-    0u, 7u, 0u, 7u, 0u,
-    // 35 '#'
-    20u, 127u, 20u, 127u, 20u,
-    // 36 '$'
-    36u, 42u, 127u, 42u, 18u,
-    // 37 '%'
-    35u, 19u, 8u, 100u, 98u,
-    // 38 '&'
-    54u, 73u, 85u, 34u, 80u,
-    // 39 '\''
-    0u, 5u, 3u, 0u, 0u,
-    // 40 '('
-    0u, 28u, 34u, 65u, 0u,
-    // 41 ')'
-    0u, 65u, 34u, 28u, 0u,
-    // 42 '*'
-    20u, 8u, 62u, 8u, 20u,
-    // 43 '+'
-    8u, 8u, 62u, 8u, 8u,
-    // 44 ','
-    0u, 80u, 48u, 0u, 0u,
-    // 45 '-'
-    8u, 8u, 8u, 8u, 8u,
-    // 46 '.'
-    0u, 96u, 96u, 0u, 0u,
-    // 47 '/'
-    32u, 16u, 8u, 4u, 2u,
-    // 48 '0'
-    62u, 65u, 65u, 65u, 62u,
-    // 49 '1'
-    0u, 66u, 127u, 64u, 0u,
-    // 50 '2'
-    66u, 97u, 81u, 73u, 70u,
-    // 51 '3'
-    33u, 65u, 69u, 75u, 49u,
-    // 52 '4'
-    24u, 20u, 18u, 127u, 16u,
-    // 53 '5'
-    39u, 69u, 69u, 69u, 57u,
-    // 54 '6'
-    60u, 74u, 73u, 73u, 48u,
-    // 55 '7'
-    1u, 113u, 9u, 5u, 3u,
-    // 56 '8'
-    54u, 73u, 73u, 73u, 54u,
-    // 57 '9'
-    6u, 73u, 73u, 41u, 30u,
-    // 58 ':'
-    0u, 54u, 54u, 0u, 0u,
-    // 59 ';'
-    0u, 86u, 54u, 0u, 0u,
-    // 60 '<'
-    8u, 20u, 34u, 65u, 0u,
-    // 61 '='
-    20u, 20u, 20u, 20u, 20u,
-    // 62 '>'
-    0u, 65u, 34u, 20u, 8u,
-    // 63 '?'
-    2u, 1u, 81u, 9u, 6u,
-    // 64 '@'
-    50u, 73u, 121u, 65u, 62u,
-    // 65 'A'
-    126u, 9u, 9u, 9u, 126u,
-    // 66 'B'
-    127u, 73u, 73u, 73u, 54u,
-    // 67 'C'
-    62u, 65u, 65u, 65u, 34u,
-    // 68 'D'
-    127u, 65u, 65u, 34u, 28u,
-    // 69 'E'
-    127u, 73u, 73u, 73u, 65u,
-    // 70 'F'
-    127u, 9u, 9u, 9u, 1u,
-    // 71 'G'
-    62u, 65u, 73u, 73u, 122u,
-    // 72 'H'
-    127u, 8u, 8u, 8u, 127u,
-    // 73 'I'
-    0u, 65u, 127u, 65u, 0u,
-    // 74 'J'
-    32u, 64u, 65u, 63u, 1u,
-    // 75 'K'
-    127u, 8u, 20u, 34u, 65u,
-    // 76 'L'
-    127u, 64u, 64u, 64u, 64u,
-    // 77 'M'
-    127u, 2u, 4u, 2u, 127u,
-    // 78 'N'
-    127u, 4u, 8u, 16u, 127u,
-    // 79 'O'
-    62u, 65u, 65u, 65u, 62u,
-    // 80 'P'
-    127u, 9u, 9u, 9u, 6u,
-    // 81 'Q'
-    62u, 65u, 81u, 33u, 94u,
-    // 82 'R'
-    127u, 9u, 25u, 41u, 70u,
-    // 83 'S'
-    70u, 73u, 73u, 73u, 49u,
-    // 84 'T'
-    1u, 1u, 127u, 1u, 1u,
-    // 85 'U'
-    63u, 64u, 64u, 64u, 63u,
-    // 86 'V'
-    31u, 32u, 64u, 32u, 31u,
-    // 87 'W'
-    63u, 64u, 56u, 64u, 63u,
-    // 88 'X'
-    99u, 20u, 8u, 20u, 99u,
-    // 89 'Y'
-    7u, 8u, 112u, 8u, 7u,
-    // 90 'Z'
-    97u, 81u, 73u, 69u, 67u,
+    // Pixel text shader - renders 5x7 bitmap font glyphs
+    // texcoord.x = float(charIndex) + localX
+    // charIndex: 0-100
+    @fragment
+    fn fs_pixel_text(input: VertexOutput) -> @location(0) vec4<f32> {
+        let charIdx = clamp(i32(floor(input.texcoord.x)), 0, 100);
+        let localX = fract(input.texcoord.x);
 
+<<<<<<< HEAD
     // --- Lowercase a-z: indices 59-84 ---
     // Each glyph uses the lower portion of the 7-row cell (rows 2-6).
     // Ascenders (b,d,f,h,k,l,t) and descenders (g,j,p,q,y) use extra rows.
@@ -1336,19 +1334,21 @@ fn fs_pixel_text(input: VertexOutput) -> @location(0) vec4<f32> {
     // that occurs when interpolated texcoord.x dips just below an integer.
     let charIdx = clamp(i32(input.texcoord.x), 0, 84);
     let localX = input.texcoord.x - f32(charIdx);
+=======
+        let px = clamp(i32(localX * 5.0), 0, 4);
+        let py = clamp(i32(input.texcoord.y * 7.0), 0, 6);
 
-    let px = clamp(i32(localX * 5.0), 0, 4);
-    let py = clamp(i32(input.texcoord.y * 7.0), 0, 6);
+        let colData = FONT_COLS[charIdx * 5 + px];
+        let pixelOn = (colData >> u32(py)) & 1u;
+>>>>>>> origin/main
 
-    let colData = FONT_COLS[charIdx * 5 + px];
-    let pixelOn = (colData >> u32(py)) & 1u;
+        if (pixelOn == 0u) {
+            return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+        }
 
-    if (pixelOn == 0u) {
-        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+        return input.color;
     }
-
-    return input.color;
-}
+// @pixel-font-glyph-data-end
 )";
 
 WebGPURenderer::WebGPURenderer(WebGPUContext& context)
@@ -1652,7 +1652,8 @@ void WebGPURenderer::endFrame() {
     }
 
     mFrameStarted = false;
-    mContext.endFrame();
+    extern bool gBespokePendingScreenshotCapture;
+    mContext.endFrame(gBespokePendingScreenshotCapture);
 }
 
 void WebGPURenderer::save() {
@@ -1990,22 +1991,20 @@ void WebGPURenderer::text(float x, float y, const char* string) {
     if (!string || string[0] == '\0') return;
     if (!mPipelines.pixel_text) return;
 
-    // Each glyph is 5 pixels wide × 7 pixels tall in a cell sized by font state
-    float charWidth = mFontSize * kCharacterWidthRatio;
-    float charHeight = mFontSize;
-    float charSpacing = charWidth * 0.15f;
+    const float charHeight = mFontSize;
+    const float charSpacing = mFontSize * kPixelFontCharSpacingRatio;
+    const Color textColor = mCurrentState.fillColor;
 
-    Color textColor = mCurrentState.fillColor;
-
-    // Switch to the pixel-font pipeline once for the whole string
     setPipeline(mPipelines.pixel_text);
 
     float currentX = x;
-    size_t len = strlen(string);
-    for (size_t i = 0; i < len; i++) {
-        unsigned char c = static_cast<unsigned char>(string[i]);
-        int charIdx = 0;
+    const size_t len = strlen(string);
+    for (size_t i = 0; i < len; ) {
+        const PixelFontGlyph glyph = pixelFontDecodeGlyph(string, i, len);
+        if (glyph.byteLength == 0)
+            break;
 
+<<<<<<< HEAD
         // Map to font table index:
         //   ASCII 32-90  → indices 0-58  (space, punctuation, digits, uppercase A-Z)
         //   ASCII 97-122 → indices 59-84 (lowercase a-z)
@@ -2016,10 +2015,17 @@ void WebGPURenderer::text(float x, float y, const char* string) {
             charIdx = c - 32;
         } else {
             // Unsupported character — advance only (render as space)
+=======
+        i += glyph.byteLength;
+
+        const float charWidth = pixelFontGlyphAdvance(glyph.index, mFontSize);
+        if (glyph.index == 0) {
+>>>>>>> origin/main
             currentX += charWidth + charSpacing;
             continue;
         }
 
+<<<<<<< HEAD
         if (c == 32) {
             currentX += charWidth + charSpacing;
             continue;
@@ -2038,6 +2044,14 @@ void WebGPURenderer::text(float x, float y, const char* string) {
         float y1 = y - charHeight * 0.8f;
         float x2 = x1 + charWidth * 0.9f;
         float y2 = y1 + charHeight * 0.9f;
+=======
+        const float u0 = static_cast<float>(glyph.index);
+        const float u1 = static_cast<float>(glyph.index) + 1.0f;
+        const float x1 = currentX;
+        const float y1 = y - charHeight * kPixelFontBaselineRatio;
+        const float x2 = x1 + charWidth;
+        const float y2 = y1 + charHeight;
+>>>>>>> origin/main
 
         float tx1 = x1, ty1 = y1;
         float tx2 = x2, ty2 = y1;
@@ -2048,23 +2062,19 @@ void WebGPURenderer::text(float x, float y, const char* string) {
         transformPoint(tx3, ty3);
         transformPoint(tx4, ty4);
 
-        pushVertex(tx1, ty1, u0, v0, textColor);
-        pushVertex(tx2, ty2, u1, v0, textColor);
-        pushVertex(tx3, ty3, u1, v1, textColor);
-        pushVertex(tx1, ty1, u0, v0, textColor);
-        pushVertex(tx3, ty3, u1, v1, textColor);
-        pushVertex(tx4, ty4, u0, v1, textColor);
+        pushVertex(tx1, ty1, u0, 0.0f, textColor);
+        pushVertex(tx2, ty2, u1, 0.0f, textColor);
+        pushVertex(tx3, ty3, u1, 1.0f, textColor);
+        pushVertex(tx1, ty1, u0, 0.0f, textColor);
+        pushVertex(tx3, ty3, u1, 1.0f, textColor);
+        pushVertex(tx4, ty4, u0, 1.0f, textColor);
 
         currentX += charWidth + charSpacing;
     }
 }
 
 float WebGPURenderer::textWidth(const char* string) {
-    // Approximate width (improved for new extended glyph set + spacing)
-    if (!string) return 0.0f;
-    size_t len = strlen(string);
-    float spacing = mFontSize * kCharacterWidthRatio * 0.18f;
-    return len * mFontSize * kCharacterWidthRatio + (len > 0 ? (len - 1) * spacing : 0.0f);
+    return pixelFontTextWidth(string, mFontSize);
 }
 
 // ============================================================================
@@ -2461,6 +2471,77 @@ void WebGPURenderer::drawProgressBar(float x, float y, float w, float h, float v
     drawQuad(x, y, w * value, h, mPipelines.progress_bar);
 }
 
+void WebGPURenderer::drawXYPad(float x, float y, float w, float h, float cx, float cy)
+{
+   drawPanel(x, y, w, h, true);
+   fillColor(UITheme::kAccentCyan);
+   circle(x + cx * w, y + cy * h, 5.0f);
+   fill();
+}
+
+void WebGPURenderer::drawFilterResponse(float x, float y, float w, float h)
+{
+   drawPanel(x, y, w, h, true);
+   strokeColor(UITheme::kAccentMagenta);
+   strokeWidth(2.0f);
+   beginPath();
+   moveTo(x, y + h);
+   for (int i = 0; i <= 32; ++i)
+   {
+      const float t = static_cast<float>(i) / 32.0f;
+      const float px = x + t * w;
+      const float py = y + h * (1.0f - (1.0f / (1.0f + t * t * 20.0f)));
+      lineTo(px, py);
+   }
+   stroke();
+}
+
+void WebGPURenderer::drawLFOWaveform(float x, float y, float w, float h)
+{
+   std::vector<float> data(64);
+   for (int i = 0; i < 64; ++i)
+      data[i] = sinf(static_cast<float>(i) / 64.0f * TWO_PI);
+   drawWaveform(x, y, w, h, data.data(), 64, true);
+}
+
+void WebGPURenderer::drawSequencerStep(float x, float y, float w, float h, bool active)
+{
+   fillColor(active ? UITheme::kAccentCyan : Color(0.2f, 0.2f, 0.22f, 1.0f));
+   drawQuad(x, y, w, h, mPipelines.button);
+}
+
+void WebGPURenderer::drawSpectrumWaterfall(float x, float y, float w, float h)
+{
+   drawPanel(x, y, w, h, true);
+}
+
+void WebGPURenderer::drawPianoKey(float x, float y, float w, float h, bool black, bool pressed)
+{
+   fillColor(black ? Color(0.1f, 0.1f, 0.12f, 1.0f) : Color(0.9f, 0.9f, 0.92f, 1.0f));
+   if (pressed)
+      fillColor(UITheme::kAccentCyan);
+   drawQuad(x, y, w, h, mPipelines.solid);
+}
+
+void WebGPURenderer::drawSpectrumRainbow(float x, float y, float w, float h, float* data, int count)
+{
+   drawSpectrum(x, y, w, h, data, count);
+}
+
+void WebGPURenderer::drawCircularScope(float x, float y, float w, float h)
+{
+   drawPanel(x, y, w, h, true);
+   strokeColor(UITheme::kAccentCyan);
+   strokeWidth(2.0f);
+   circle(x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.35f);
+   stroke();
+}
+
+void WebGPURenderer::drawEchoTrail(float x, float y, float w, float h)
+{
+   drawPanel(x, y, w, h, true);
+}
+
 void WebGPURenderer::transformPoint(float& x, float& y) {
     float tx = mCurrentState.transform[0] * x + mCurrentState.transform[2] * y + mCurrentState.transform[4];
     float ty = mCurrentState.transform[1] * x + mCurrentState.transform[3] * y + mCurrentState.transform[5];
@@ -2485,6 +2566,12 @@ void WebGPURenderer::flushBatch() {
     WGPURenderPipeline pipeline = mCurrentPipeline ? mCurrentPipeline : mPipelines.solid;
     mDrawCalls.push_back({ pipeline, mCurrentBatchFirstVertex, vertexCount });
     mCurrentBatchFirstVertex = static_cast<uint32_t>(mVertices.size());
+}
+
+// Factory (declared in Renderer2D.h)
+std::unique_ptr<Renderer2D> createWebGPURenderer(WebGPUContext& context)
+{
+   return std::make_unique<WebGPURenderer>(context);
 }
 
 } // namespace wasm

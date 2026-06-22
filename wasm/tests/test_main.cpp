@@ -8,7 +8,12 @@
 
 #include <emscripten.h>
 #include <cstdio>
-#include <string>  // <-- Add this line
+#include <cmath>
+#include <string>
+#include "PixelFont.h"
+
+using namespace bespoke::wasm;
+
 // Test results
 static int gTestsPassed = 0;
 static int gTestsFailed = 0;
@@ -83,6 +88,38 @@ void test_vectors() {
     TEST("Vector clear", vec.empty());
 }
 
+void test_pixel_font() {
+    printf("\n=== Pixel Font Tests ===\n");
+
+    TEST("Glyph count", kPixelFontGlyphCount == 101);
+    TEST("ASCII index for 'A'", pixelFontCharIndex('A') == 33);
+    TEST("ASCII index for 'a'", pixelFontCharIndex('a') == 65);
+    TEST("Lowercase index below clamp max", pixelFontCharIndex('z') == 90);
+    TEST("Space index", pixelFontCharIndex(' ') == 0);
+
+    const char* sharpUtf8 = "\xe2\x99\xaf";
+    PixelFontGlyph sharpGlyph = pixelFontDecodeGlyph(sharpUtf8, 0, 3);
+    TEST("UTF-8 sharp glyph index", sharpGlyph.index == kPixelFontGlyphSharp);
+    TEST("UTF-8 sharp consumes 3 bytes", sharpGlyph.byteLength == 3);
+
+    const float fontSize = 10.0f;
+    const float spaceAdvance = pixelFontGlyphAdvance(0, fontSize);
+    const float letterAdvance = pixelFontGlyphAdvance(pixelFontCharIndex('m'), fontSize);
+    TEST("Space advance narrower than letters", spaceAdvance < letterAdvance);
+
+    const float helloWidth = pixelFontTextWidth("hello", fontSize);
+    const float approxFiveLetters = 5.0f * letterAdvance + 4.0f * fontSize * kPixelFontCharSpacingRatio;
+    TEST("textWidth matches per-glyph advance", std::fabs(helloWidth - approxFiveLetters) < 0.01f);
+
+    const float spacedWidth = pixelFontTextWidth("a b", fontSize);
+    TEST("textWidth includes narrower space", spacedWidth > helloWidth && spacedWidth < pixelFontTextWidth("abc", fontSize));
+
+    const uint32_t* cols = getPixelFontColumns();
+    TEST("Font column table populated", cols != nullptr && cols[kPixelFontGlyphCount * 5 - 1] >= 0);
+    TEST("Lowercase 'b' differs from uppercase 'B'",
+         cols[pixelFontCharIndex('b') * 5] != cols[pixelFontCharIndex('B') * 5]);
+}
+
 // Audio buffer simulation
 void test_audio_buffer() {
     printf("\n=== Audio Buffer Tests ===\n");
@@ -130,6 +167,7 @@ int main() {
     test_memory();
     test_strings();
     test_vectors();
+    test_pixel_font();
     test_audio_buffer();
     
     printf("\n============================\n");

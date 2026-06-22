@@ -5,11 +5,18 @@
  * Licensed under GNU GPL v3
  */
 
+<<<<<<< HEAD
 #include "WasmBridge.h"
 #include "IRenderer.h"
 #include "WebGPUContext.h"
 #include "WebGPURenderer.h"
 #include "WebGL2Renderer.h"
+=======
+#include "BespokeWasm/WasmBridge.h"
+#include "Renderer2D.h"
+#include "WebGPUContext.h"
+#include "WebGL2Context.h"
+>>>>>>> origin/main
 #include "SDL2AudioBackend.h"
 #include "ModuleCanvas.h"
 #include "Knob.h"
@@ -29,16 +36,24 @@ static const int KEY_TAB = 9;
 
 using namespace bespoke::wasm;
 
+namespace bespoke {
+namespace wasm {
+bool gBespokePendingScreenshotCapture = false;
+} // namespace wasm
+} // namespace bespoke
+
 // Initialization state tracking
 // These values are exposed to JavaScript via bespoke_get_init_state()
 enum class InitState
 {
    NotStarted = 0,
-   WebGPURequested = 1, // Creating WebGPU instance and surface
-   WebGPUReady = 2, // Adapter and device acquired
-   RendererReady = 3, // Shader pipelines compiled
+   WebGPURequested = 1, // WebGPU async init started (instance + surface + adapter)
+   WebGPUReady = 2, // WebGPU adapter and device acquired
+   RendererReady = 3, // Renderer pipelines compiled (both backends)
    AudioReady = 4, // Audio backend initialized
    FullyInitialized = 5, // All subsystems ready
+   WebGL2Requested = 6, // WebGL2 context creation started
+   WebGL2Ready = 7, // WebGL2 context acquired and extensions queried
    Failed = -1
 };
 
@@ -58,8 +73,19 @@ static void reportInitProgress(const char* step, const char* detail)
 }
 
 // Global state
+static RendererBackendType gRendererBackend = RendererBackendType::WebGPU;
+static bool gRenderTestMode = false;
+static std::vector<uint8_t> gScreenshotPixels;
+static int gScreenshotWidth = 0;
+static int gScreenshotHeight = 0;
+static WebGLDebugMode gWebGLDebugMode = WebGLDebugMode::Normal;
 static std::unique_ptr<WebGPUContext> gContext;
+<<<<<<< HEAD
 static std::unique_ptr<bespoke::wasm::IRenderer> gRenderer;
+=======
+static std::unique_ptr<WebGL2Context> gWebGL2Context;
+static std::unique_ptr<Renderer2D> gRenderer;
+>>>>>>> origin/main
 static std::unique_ptr<SDL2AudioBackend> gAudioBackend;
 
 // Active renderer backend selection (0=Auto, 1=WebGPU, 2=WebGL2)
@@ -75,6 +101,7 @@ static int gGainModuleId = -1;
 
 // View modes: 0 = modular canvas (default), 1 = legacy demo panels
 static int gViewMode = 0;
+static bool gFontTestVisible = false;
 
 static int gWidth = 800;
 static int gHeight = 600;
@@ -285,12 +312,166 @@ static void markPanelRunning(int panelIndex)
    }
 }
 
+static bool initializeAudioAndControls(int sampleRate, int bufferSize)
+{
+   printf("WasmBridge: Initializing audio backend...\n");
+   reportInitProgress("audio_init", "Opening audio device...");
+   gAudioBackend = std::make_unique<SDL2AudioBackend>();
+   if (!gAudioBackend->initialize(sampleRate, bufferSize, 2, 0))
+   {
+      printf("BespokeSynth WASM: Failed to initialize audio\n");
+      reportInitProgress("audio_failed", "Audio device initialization failed");
+      gInitState = InitState::Failed;
+      gInitErrorMessage = "Audio backend initialization failed";
+      return false;
+   }
+
+   printf("WasmBridge: Audio backend initialized successfully\n");
+   reportInitProgress("audio_ready", "Audio device opened successfully");
+   gInitState = InitState::AudioReady;
+   gAudioBackend->setCallback(audioCallback);
+   reportInitProgress("audio_ready", "Audio ready - click play to start");
+
+   printf("WasmBridge: Creating demo controls...\n");
+   reportInitProgress("controls_init", "Creating UI controls...");
+   gKnobs.clear();
+
+   auto knob1 = std::make_unique<Knob>("Frequency", 0.5f);
+   knob1->setRange(100.0f, 900.0f);
+   knob1->setUnit("Hz");
+   knob1->setDisplayPrecision(0);
+   knob1->setStyle(KnobStyle::Classic);
+   knob1->setColors(
+      Color(0.25f, 0.25f, 0.28f, 1.0f),
+      Color(0.7f, 0.7f, 0.75f, 1.0f),
+      Color(0.4f, 0.8f, 0.5f, 1.0f));
+   gKnobs.push_back(std::move(knob1));
+
+   auto knob2 = std::make_unique<Knob>("Volume", 0.7f);
+   knob2->setRange(0.0f, 1.0f);
+   knob2->setUnit("%");
+   knob2->setDisplayPrecision(0);
+   knob2->setStyle(KnobStyle::Modern);
+   knob2->setColors(
+      Color(0.2f, 0.2f, 0.22f, 1.0f),
+      Color(0.6f, 0.6f, 0.65f, 1.0f),
+      Color(0.3f, 0.7f, 0.9f, 1.0f));
+   gKnobs.push_back(std::move(knob2));
+
+   auto knob3 = std::make_unique<Knob>("Filter", 0.3f);
+   knob3->setRange(20.0f, 20000.0f);
+   knob3->setUnit("Hz");
+   knob3->setDisplayPrecision(0);
+   knob3->setStyle(KnobStyle::LED);
+   knob3->setColors(
+      Color(0.15f, 0.15f, 0.18f, 1.0f),
+      Color(0.5f, 0.5f, 0.55f, 1.0f),
+      Color(0.9f, 0.4f, 0.2f, 1.0f));
+   gKnobs.push_back(std::move(knob3));
+
+   auto knob4 = std::make_unique<Knob>("Pan", 0.5f);
+   knob4->setRange(-1.0f, 1.0f);
+   knob4->setUnit("");
+   knob4->setDisplayPrecision(2);
+   knob4->setBipolar(true);
+   knob4->setStyle(KnobStyle::Vintage);
+   gKnobs.push_back(std::move(knob4));
+
+   for (int i = 0; i < PANEL_COUNT; i++)
+      markPanelLoaded(i);
+
+   printf("WasmBridge: Creating modular canvas...\n");
+   gCanvas = std::make_unique<bespoke::wasm::ModuleCanvas>();
+
+   const int oscId = gCanvas->createModule("oscillator", 100, 150);
+   const int gainId = gCanvas->createModule("gain", 320, 160);
+   const int outputId = gCanvas->createModule("output", 500, 170);
+   gOscillatorModuleId = oscId;
+   gGainModuleId = gainId;
+
+   if (oscId > 0 && gainId > 0 && outputId > 0)
+   {
+      gCanvas->connectModules(oscId, 0, gainId, 0);
+      gCanvas->connectModules(gainId, 0, outputId, 0);
+
+      // Seed canvas module values from demo knobs
+      if (auto* osc = gCanvas->getModule(oscId))
+      {
+         osc->setControlValue("frequency", gKnobs[0]->getValue());
+         osc->setControlValue("volume", gKnobs[1]->getValue());
+      }
+      if (auto* gain = gCanvas->getModule(gainId))
+         gain->setControlValue("gain", gKnobs[1]->getValue());
+   }
+
+   gInitState = InitState::FullyInitialized;
+   gInitialized = true;
+   reportInitProgress("init_complete", "All subsystems ready");
+   printf("BespokeSynth WASM: Initialization complete - all subsystems ready\n");
+   return true;
+}
+
+static bool initializeWebGL2Renderer(int sampleRate, int bufferSize)
+{
+   gInitState = InitState::WebGL2Requested;
+   reportInitProgress("webgl_requested", "Creating WebGL2 context on #canvas");
+
+   if (!WebGL2Context::probeSupport("#canvas"))
+   {
+      gInitState = InitState::Failed;
+      gInitErrorMessage = WebGL2Context::getLastError();
+      if (gInitErrorMessage.empty())
+         gInitErrorMessage = "WebGL2 is not supported in this browser";
+      reportInitProgress("webgl_failed", gInitErrorMessage.c_str());
+      return false;
+   }
+
+   gWebGL2Context = std::make_unique<WebGL2Context>();
+   if (!gWebGL2Context->initialize("#canvas"))
+   {
+      gInitState = InitState::Failed;
+      gInitErrorMessage = WebGL2Context::getLastError();
+      if (gInitErrorMessage.empty())
+         gInitErrorMessage = "WebGL2 context creation failed";
+      reportInitProgress("webgl_failed", gInitErrorMessage.c_str());
+      return false;
+   }
+
+   gWebGL2Context->resize(gWidth, gHeight);
+   gInitState = InitState::WebGL2Ready;
+
+   const auto& caps = gWebGL2Context->getCapabilities();
+   char readyDetail[256];
+   snprintf(readyDetail, sizeof(readyDetail),
+            "WebGL2 context ready (maxTexture=%d, VAO=%s, instancing=%s)",
+            caps.maxTextureSize,
+            caps.vertexArrayObject ? "yes" : "no",
+            caps.instancedArrays ? "yes" : "no");
+   reportInitProgress("webgl_ready", readyDetail);
+
+   reportInitProgress("renderer_init", "Creating WebGL2 shader programs...");
+   auto glRenderer = createWebGL2Renderer(*gWebGL2Context);
+   glRenderer->setDebugMode(gWebGLDebugMode);
+   if (!glRenderer->initialize())
+   {
+      gInitState = InitState::Failed;
+      gInitErrorMessage = "WebGL2 renderer initialization failed — shader compilation error";
+      reportInitProgress("renderer_failed", gInitErrorMessage.c_str());
+      return false;
+   }
+
+   gRenderer = std::move(glRenderer);
+   gInitState = InitState::RendererReady;
+   reportInitProgress("renderer_ready", "WebGL2 renderer ready");
+   return initializeAudioAndControls(sampleRate, bufferSize);
+}
+
 extern "C" {
 
 EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int bufferSize)
 {
-   printf("BespokeSynth WASM: Initializing (%dx%d, %dHz, %d samples)\n",
-          width, height, sampleRate, bufferSize);
+   printf("BespokeSynth WASM: Initializing (%dx%d, %dHz, %d samples, backend=%d)\n",
+          width, height, sampleRate, bufferSize, static_cast<int>(gRendererBackend));
    reportInitProgress("init_start", "Beginning initialization");
 
    if (gInitState != InitState::NotStarted)
@@ -301,10 +482,18 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
 
    gWidth = width;
    gHeight = height;
+
+   if (gRendererBackend == RendererBackendType::WebGL2)
+   {
+      if (!initializeWebGL2Renderer(sampleRate, bufferSize))
+         return -5;
+      emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(0);");
+      return 0;
+   }
+
    gInitState = InitState::WebGPURequested;
    reportInitProgress("webgpu_requested", "Creating WebGPU instance and surface");
 
-   // Initialize WebGPU context (asynchronous)
    gContext = std::make_unique<WebGPUContext>();
    printf("WasmBridge: starting async WebGPU initialization (selector=#canvas)\n");
 
@@ -313,23 +502,19 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                if (!success)
                                                {
                                                   printf("BespokeSynth WASM: Failed to initialize WebGPU\n");
-                                                  printf("WasmBridge: notifying JS of init failure (-1)\n");
                                                   reportInitProgress("webgpu_failed", "WebGPU initialization failed - browser may not support WebGPU");
                                                   gInitState = InitState::Failed;
                                                   gInitErrorMessage = "WebGPU initialization failed";
-                                                  // Notify JS that initialization failed
                                                   emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-1);");
                                                   return;
                                                }
 
-                                               // WebGPU initialized successfully
                                                printf("WasmBridge: WebGPU context ready, proceeding with remaining initialization\n");
                                                gInitState = InitState::WebGPUReady;
                                                reportInitProgress("webgpu_ready", "GPU adapter and device acquired successfully");
-
-                                               // Continue remaining initialization on success
                                                gContext->resize(gWidth, gHeight);
 
+<<<<<<< HEAD
                                                // Initialize renderer (backend chosen by gRendererBackendPref)
                                                // Note: Auto (0) currently behaves the same as WebGPU (1) because
                                                // automatic fallback to WebGL2 on WebGPU init failure is not yet
@@ -345,9 +530,13 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                   gRenderer = std::make_unique<WebGPURenderer>(*gContext);
                                                }
                                                if (!gRenderer->initialize())
+=======
+                                               printf("WasmBridge: Initializing renderer...\n");
+                                               reportInitProgress("renderer_init", "Creating shader pipelines...");
+                                               auto gpuRenderer = createWebGPURenderer(*gContext);
+                                               if (!gpuRenderer->initialize())
+>>>>>>> origin/main
                                                {
-                                                  printf("BespokeSynth WASM: Failed to initialize renderer\n");
-                                                  printf("WasmBridge: notifying JS of init failure (-2)\n");
                                                   reportInitProgress("renderer_failed", "Shader pipeline compilation failed");
                                                   gInitState = InitState::Failed;
                                                   gInitErrorMessage = "Renderer initialization failed";
@@ -355,120 +544,16 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                   return;
                                                }
 
-                                               printf("WasmBridge: Renderer initialized successfully\n");
+                                               gRenderer = std::move(gpuRenderer);
                                                reportInitProgress("renderer_ready", "All shader pipelines compiled successfully");
                                                gInitState = InitState::RendererReady;
 
-                                               // Initialize audio backend
-                                               printf("WasmBridge: Initializing audio backend...\n");
-                                               reportInitProgress("audio_init", "Opening audio device...");
-                                               gAudioBackend = std::make_unique<SDL2AudioBackend>();
-                                               if (!gAudioBackend->initialize(sampleRate, bufferSize, 2, 0))
+                                               if (!initializeAudioAndControls(sampleRate, bufferSize))
                                                {
-                                                  printf("BespokeSynth WASM: Failed to initialize audio\n");
-                                                  printf("WasmBridge: notifying JS of init failure (-3)\n");
-                                                  reportInitProgress("audio_failed", "Audio device initialization failed");
-                                                  gInitState = InitState::Failed;
-                                                  gInitErrorMessage = "Audio backend initialization failed";
                                                   emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(-3);");
                                                   return;
                                                }
 
-                                               printf("WasmBridge: Audio backend initialized successfully\n");
-                                               reportInitProgress("audio_ready", "Audio device opened successfully");
-                                               gInitState = InitState::AudioReady;
-
-                                               // Set audio callback
-                                               gAudioBackend->setCallback(audioCallback);
-
-                                               // Audio is NOT auto-started (browser policy requires user interaction)
-                                               // Audio will be started when user clicks the play button
-                                               printf("WasmBridge: Audio ready (will start on user interaction)\n");
-                                               reportInitProgress("audio_ready", "Audio ready - click play to start");
-
-                                               // Create some demo knobs
-                                               printf("WasmBridge: Creating demo controls...\n");
-                                               reportInitProgress("controls_init", "Creating UI controls...");
-                                               gKnobs.clear();
-
-                                               auto knob1 = std::make_unique<Knob>("Frequency", 0.5f);
-                                               knob1->setRange(100.0f, 900.0f);
-                                               knob1->setUnit("Hz");
-                                               knob1->setDisplayPrecision(0);
-                                               knob1->setStyle(KnobStyle::Classic);
-                                               knob1->setColors(
-                                               Color(0.25f, 0.25f, 0.28f, 1.0f),
-                                               Color(0.7f, 0.7f, 0.75f, 1.0f),
-                                               Color(0.4f, 0.8f, 0.5f, 1.0f));
-                                               gKnobs.push_back(std::move(knob1));
-
-                                               auto knob2 = std::make_unique<Knob>("Volume", 0.7f);
-                                               knob2->setRange(0.0f, 1.0f);
-                                               knob2->setUnit("%");
-                                               knob2->setDisplayPrecision(0);
-                                               knob2->setStyle(KnobStyle::Modern);
-                                               knob2->setColors(
-                                               Color(0.2f, 0.2f, 0.22f, 1.0f),
-                                               Color(0.6f, 0.6f, 0.65f, 1.0f),
-                                               Color(0.3f, 0.7f, 0.9f, 1.0f));
-                                               gKnobs.push_back(std::move(knob2));
-
-                                               auto knob3 = std::make_unique<Knob>("Filter", 0.3f);
-                                               knob3->setRange(20.0f, 20000.0f);
-                                               knob3->setUnit("Hz");
-                                               knob3->setDisplayPrecision(0);
-                                               knob3->setStyle(KnobStyle::LED);
-                                               knob3->setColors(
-                                               Color(0.15f, 0.15f, 0.18f, 1.0f),
-                                               Color(0.5f, 0.5f, 0.55f, 1.0f),
-                                               Color(0.9f, 0.4f, 0.2f, 1.0f));
-                                               gKnobs.push_back(std::move(knob3));
-
-                                               auto knob4 = std::make_unique<Knob>("Pan", 0.5f);
-                                               knob4->setRange(-1.0f, 1.0f);
-                                               knob4->setUnit("");
-                                               knob4->setDisplayPrecision(2);
-                                               knob4->setBipolar(true);
-                                               knob4->setStyle(KnobStyle::Vintage);
-                                               gKnobs.push_back(std::move(knob4));
-
-                                               // Mark all panels as loaded
-                                               printf("\n=== DEBUG: Panel Initialization ===\n");
-                                               for (int i = 0; i < PANEL_COUNT; i++)
-                                               {
-                                                  markPanelLoaded(i);
-                                               }
-                                               printf("=== Panel Initialization Complete ===\n\n");
-
-                                               // Initialize the modular canvas
-                                               printf("WasmBridge: Creating modular canvas...\n");
-                                               gCanvas = std::make_unique<bespoke::wasm::ModuleCanvas>();
-
-                                               // Create a default starter patch
-                                               int oscId = gCanvas->createModule("oscillator", 100, 150);
-                                               int gainId = gCanvas->createModule("gain", 320, 160);
-                                               int outputId = gCanvas->createModule("output", 500, 170);
-
-                                               // Track module IDs for audio callback use
-                                               gOscillatorModuleId = oscId;
-                                               gGainModuleId = gainId;
-
-                                               // Connect oscillator -> gain -> output
-                                               if (oscId > 0 && gainId > 0 && outputId > 0)
-                                               {
-                                                  gCanvas->connectModules(oscId, 0, gainId, 0);
-                                                  gCanvas->connectModules(gainId, 0, outputId, 0);
-                                               }
-
-                                               printf("WasmBridge: Modular canvas ready with starter patch\n");
-
-                                               gInitState = InitState::FullyInitialized;
-                                               gInitialized = true;
-                                               reportInitProgress("init_complete", "All subsystems ready");
-                                               printf("BespokeSynth WASM: Initialization complete - all subsystems ready\n");
-                                               printf("WasmBridge: notifying JS of init complete (0)\n");
-
-                                               // Notify JS that initialization finished successfully
                                                emscripten_run_script("if (window.__bespoke_on_init_complete) window.__bespoke_on_init_complete(0);");
                                             });
 
@@ -520,6 +605,7 @@ EMSCRIPTEN_KEEPALIVE void bespoke_shutdown(void)
    // Cleanup renderer and context
    gRenderer.reset();
    gContext.reset();
+   gWebGL2Context.reset();
 
    // Reset state
    gInitialized = false;
@@ -557,6 +643,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_buffer_size(void)
 
 // Forward declaration
 static void renderDemoPanels();
+static void renderFontTestPanel();
 
 EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
 {
@@ -570,7 +657,10 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
       return;
    }
 
-   gTime += 0.016f; // Approximate 60fps
+   if (!gRenderer)
+      return;
+
+   gTime += 0.016f;
    gRenderer->beginFrame(gWidth, gHeight, 1.0f, gTime);
 
    // Clear background
@@ -580,25 +670,29 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
 
    if (gViewMode == 0 && gCanvas)
    {
+      // Keep transport play state and audio backend in sync
+      if (gCanvas->getTransport() && gAudioBackend)
+      {
+         const bool playing = gCanvas->getTransport()->isPlaying();
+         if (playing && !gAudioBackend->isRunning())
+            gAudioBackend->start();
+         else if (!playing && gAudioBackend->isRunning())
+            gAudioBackend->stop();
+
+         gCanvas->setOutputLevel(gAudioBackend->getOutputLevel());
+      }
+
       // Modular canvas view
       gCanvas->render(*gRenderer, gWidth, gHeight);
-
-      // Status bar
-      gRenderer->fillColor(Color(0.6f, 0.6f, 0.65f, 1.0f));
-      gRenderer->fontSize(10.0f);
-
-      char statusText[256];
-      snprintf(statusText, sizeof(statusText),
-               "Audio: %s | %d Hz | Tab: switch view",
-               (gAudioBackend && gAudioBackend->isRunning()) ? "Running" : "Stopped",
-               bespoke_get_sample_rate());
-      gRenderer->text(static_cast<float>(gWidth) - 280, static_cast<float>(gHeight) - 15, statusText);
    }
    else
    {
       // Legacy demo panel view
       renderDemoPanels();
    }
+
+   if (gFontTestVisible)
+      renderFontTestPanel();
 
    gRenderer->endFrame();
 }
@@ -614,12 +708,23 @@ static void renderDemoPanels()
       return (range > 0.0f) ? (k.getValue() - k.getMin()) / range : 0.5f;
    };
    // Draw title
+<<<<<<< HEAD
    gRenderer->fillColor(Color(0.9f, 0.9f, 0.95f, 1.0f));
    gRenderer->fontSize(24.0f);
    gRenderer->text(20, 40, "BespokeSynth WASM");
+=======
+   gRenderer->fillColor(UITheme::kTextPrimary);
+   gRenderer->fontSize(22.0f);
+   gRenderer->text(20, 36, "BespokeSynth WASM");
+
+   // Legacy demo banner
+   gRenderer->fillColor(UITheme::kAccentAmber);
+   gRenderer->fontSize(11.0f);
+   gRenderer->text(20, 56, "Legacy demo panels — Tab switches to Modular Canvas (recommended)");
+>>>>>>> origin/main
 
    // Draw panel tabs
-   float tabY = 70.0f;
+   float tabY = 78.0f;
    float tabHeight = 35.0f;
    float tabWidth = 150.0f;
    float tabSpacing = 5.0f;
@@ -763,7 +868,7 @@ static void renderDemoPanels()
          gRenderer->drawSlider(sliderX, sliderY, 200, 20, ch1Val,
                                UITheme::kBgTrack, UITheme::kAccentGreen);
 
-         char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%.2f", ch1Val);
+         char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%.0f%%", ch1Val * 100.0f);
          gRenderer->fillColor(UITheme::kTextValue);
          gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 5, vbuf);
@@ -773,7 +878,7 @@ static void renderDemoPanels()
          gRenderer->text(sliderX, sliderY + 40, "Channel 2");
          gRenderer->drawSlider(sliderX, sliderY + 50, 200, 20, ch2Val,
                                UITheme::kBgTrack, UITheme::kAccentCyan);
-         snprintf(vbuf, sizeof(vbuf), "%.2f", ch2Val);
+         snprintf(vbuf, sizeof(vbuf), "%.0f%%", ch2Val * 100.0f);
          gRenderer->fillColor(UITheme::kTextValue);
          gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 55, vbuf);
@@ -783,7 +888,7 @@ static void renderDemoPanels()
          gRenderer->text(sliderX, sliderY + 90, "Master");
          gRenderer->drawSlider(sliderX, sliderY + 100, 200, 20, masterVal,
                                UITheme::kBgTrack, UITheme::kAccentMagenta);
-         snprintf(vbuf, sizeof(vbuf), "%.2f", masterVal);
+         snprintf(vbuf, sizeof(vbuf), "%.0f%%", masterVal * 100.0f);
          gRenderer->fillColor(UITheme::kTextValue);
          gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 105, vbuf);
@@ -823,25 +928,25 @@ static void renderDemoPanels()
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY - 10, "Reverb Mix");
          gRenderer->drawSlider(effectX, effectY, 250, 20, reverbMix, UITheme::kBgTrack, UITheme::kAccentMagenta);
-         { char v[32]; snprintf(v, sizeof(v), "%.2f", reverbMix); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 5, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f%%", reverbMix * 100.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 5, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 40, "Delay Time");
          gRenderer->drawSlider(effectX, effectY + 50, 250, 20, delayTime, UITheme::kBgTrack, UITheme::kAccentAmber);
-         { char v[32]; snprintf(v, sizeof(v), "%.2f", delayTime); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 55, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f ms", delayTime * 1000.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 55, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 90, "Chorus Depth");
          gRenderer->drawSlider(effectX, effectY + 100, 250, 20, chorusDepth, UITheme::kBgTrack, UITheme::kAccentCyan);
-         { char v[32]; snprintf(v, sizeof(v), "%.2f", chorusDepth); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 105, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f%%", chorusDepth * 100.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 105, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 140, "Distortion");
          gRenderer->drawSlider(effectX, effectY + 150, 250, 20, distortion, UITheme::kBgTrack, UITheme::kAccentMagenta);
-         { char v[32]; snprintf(v, sizeof(v), "%.2f", distortion); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 155, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f%%", distortion * 100.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 155, v); }
 
          // Draw effect visualizer
          float vizX = panelX + panelW - 200;
@@ -886,7 +991,7 @@ static void renderDemoPanels()
          gRenderer->drawSlider(seqX, seqY, 150, 20, bpmNorm,
                                Color(0.25f, 0.25f, 0.28f, 1.0f),
                                Color(0.5f, 0.8f, 0.4f, 1.0f));
-         { char v[32]; snprintf(v, sizeof(v), "%.0f", bpmDisplay); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(seqX + 155, seqY + 5, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f BPM", bpmDisplay); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(seqX + 155, seqY + 5, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
@@ -946,11 +1051,12 @@ static void renderDemoPanels()
    gRenderer->fontSize(12.0f);
 
    char statusText[256];
+   const bool transportPlaying = gCanvas && gCanvas->getTransport() && gCanvas->getTransport()->isPlaying();
    snprintf(statusText, sizeof(statusText),
-            "Sample Rate: %d Hz | Buffer: %d | Audio: %s | Panel: %s",
+            "Sample rate: %d Hz | Buffer: %d | %s | Panel: %s | Tab: Modular Canvas",
             bespoke_get_sample_rate(),
             bespoke_get_buffer_size(),
-            (gAudioBackend && gAudioBackend->isRunning()) ? "Running" : "Stopped",
+            transportPlaying ? "Playing" : "Stopped",
             panelNames[gCurrentPanel]);
 
    gRenderer->text(20, static_cast<float>(gHeight) - 20, statusText);
@@ -961,15 +1067,76 @@ static void renderDemoPanels()
    gRenderer->text(static_cast<float>(gWidth) - 150, 20, "Tab: Modular Canvas");
 }
 
+static void renderFontTestPanel()
+{
+   if (!gRenderer)
+      return;
+
+   const float panelX = 16.0f;
+   const float panelY = 52.0f;
+   const float panelW = static_cast<float>(gWidth) - 32.0f;
+   const float panelH = static_cast<float>(gHeight) - 84.0f;
+
+   gRenderer->fillColor(Color(0.06f, 0.06f, 0.08f, 0.94f));
+   gRenderer->roundedRect(panelX, panelY, panelW, panelH, 8.0f);
+   gRenderer->fill();
+
+   gRenderer->strokeColor(Color(0.35f, 0.35f, 0.42f, 1.0f));
+   gRenderer->strokeWidth(1.0f);
+   gRenderer->roundedRect(panelX, panelY, panelW, panelH, 8.0f);
+   gRenderer->stroke();
+
+   const char* kSharp = "C\xe2\x99\xaf";
+   const char* kFlat = "B\xe2\x99\xad";
+   char musicalLine[64];
+   snprintf(musicalLine, sizeof(musicalLine), "Musical: %smaj  %smin  A#  Db", kSharp, kFlat);
+
+   const char* rows[] = {
+      "Font Test Panel",
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      "abcdefghijklmnopqrstuvwxyz",
+      "0123456789  !@#$%^&*()-_=+<>?/\\|~",
+      "In Out Pitch Gate Cutoff Resonance",
+      "440 Hz  -12 dB  50%  1.50x",
+      musicalLine,
+   };
+
+   float y = panelY + 18.0f;
+   for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
+   {
+      gRenderer->fillColor(i == 0 ? UITheme::kTextValue : UITheme::kTextSecondary);
+      gRenderer->fontSize(i == 0 ? 13.0f : 10.0f);
+      gRenderer->text(panelX + 12.0f, y, rows[i]);
+      y += gRenderer->textHeight() + 5.0f;
+   }
+
+   gRenderer->fillColor(UITheme::kTextSecondary);
+   gRenderer->fontSize(10.0f);
+   float gx = panelX + 12.0f;
+   float gy = y + 8.0f;
+   for (int c = 32; c <= 126; ++c)
+   {
+      char ch[2] = { static_cast<char>(c), '\0' };
+      const float advance = gRenderer->textWidth(ch) + 2.0f;
+      gRenderer->text(gx, gy, ch);
+      gx += advance;
+      if (gx > panelX + panelW - 18.0f)
+      {
+         gx = panelX + 12.0f;
+         gy += gRenderer->textHeight() + 4.0f;
+      }
+   }
+}
+
 EMSCRIPTEN_KEEPALIVE void bespoke_resize(int width, int height)
 {
    gWidth = width;
    gHeight = height;
 
    if (gContext)
-   {
       gContext->resize(width, height);
-   }
+   if (gWebGL2Context)
+      gWebGL2Context->resize(width, height);
 
    printf("BespokeSynth WASM: Resized to %dx%d\n", width, height);
 }
@@ -1126,16 +1293,18 @@ EMSCRIPTEN_KEEPALIVE void bespoke_key_down(int keyCode, int modifiers)
       }
    }
 
-   // Space to toggle audio
+   // Space toggles transport; audio backend follows play state
    if (keyCode == KEY_SPACE && gAudioBackend)
    {
-      if (gAudioBackend->isRunning())
+      if (gViewMode != 0 && gCanvas && gCanvas->getTransport())
+         gCanvas->getTransport()->setPlaying(!gCanvas->getTransport()->isPlaying());
+
+      if (gCanvas && gCanvas->getTransport())
       {
-         gAudioBackend->stop();
-      }
-      else
-      {
-         gAudioBackend->start();
+         if (gCanvas->getTransport()->isPlaying())
+            gAudioBackend->start();
+         else
+            gAudioBackend->stop();
       }
    }
 }
@@ -1462,6 +1631,7 @@ EMSCRIPTEN_KEEPALIVE void bespoke_reset_theme(void)
    gRuntimeTheme.reset();
 }
 
+<<<<<<< HEAD
 // ---- Renderer backend selection API ----
 
 /**
@@ -1518,6 +1688,117 @@ EMSCRIPTEN_KEEPALIVE uint8_t* bespoke_capture_frame(int* outWidth, int* outHeigh
 EMSCRIPTEN_KEEPALIVE void bespoke_free_capture_buffer(uint8_t* buf)
 {
    delete[] buf;
+=======
+EMSCRIPTEN_KEEPALIVE void bespoke_set_renderer_backend(int backend)
+{
+   if (gInitState == InitState::NotStarted)
+      gRendererBackend = (backend == 1) ? RendererBackendType::WebGL2 : RendererBackendType::WebGPU;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_is_webgl2_supported(void)
+{
+   return WebGL2Context::probeSupport("#canvas") ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_webgl2_error(void)
+{
+   return WebGL2Context::getLastError();
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_renderer_backend(void)
+{
+   return static_cast<int>(gRendererBackend);
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_webgl_debug_mode(int mode)
+{
+   gWebGLDebugMode = static_cast<WebGLDebugMode>(mode);
+   if (gRenderer)
+      gRenderer->setDebugMode(gWebGLDebugMode);
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_webgl_debug_mode(void)
+{
+   return static_cast<int>(gWebGLDebugMode);
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_capture_screenshot(int* outWidth, int* outHeight)
+{
+   if (!gInitialized || !gRenderer)
+      return -1;
+
+   gScreenshotPixels.clear();
+   gScreenshotWidth = 0;
+   gScreenshotHeight = 0;
+
+   gBespokePendingScreenshotCapture = true;
+   bespoke_render();
+   gBespokePendingScreenshotCapture = false;
+
+   if (outWidth)
+      *outWidth = gWidth;
+   if (outHeight)
+      *outHeight = gHeight;
+
+   if (gRendererBackend == RendererBackendType::WebGL2)
+      return 1;
+
+   if (gContext)
+   {
+      std::vector<uint8_t> pixels;
+      int w = 0;
+      int h = 0;
+      if (gContext->readCapturedPixels(pixels, w, h))
+      {
+         gScreenshotPixels = std::move(pixels);
+         gScreenshotWidth = w;
+         gScreenshotHeight = h;
+         if (outWidth)
+            *outWidth = w;
+         if (outHeight)
+            *outHeight = h;
+         return 0;
+      }
+   }
+
+   return -1;
+}
+
+EMSCRIPTEN_KEEPALIVE const unsigned char* bespoke_get_screenshot_pixels(int* outByteLength)
+{
+   if (outByteLength)
+      *outByteLength = static_cast<int>(gScreenshotPixels.size());
+   return gScreenshotPixels.empty() ? nullptr : gScreenshotPixels.data();
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_render_test_mode(int enabled)
+{
+   gRenderTestMode = enabled != 0;
+   if (!gCanvas)
+      return;
+
+   gViewMode = 0;
+   gCanvas->setupCanonicalRenderTestScene();
+   gOscillatorModuleId = gCanvas->findFirstModuleOfType("oscillator");
+   gGainModuleId = gCanvas->findFirstModuleOfType("gain");
+   if (gRenderTestMode)
+      gFontTestVisible = false;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_render_test_mode(void)
+{
+   return gRenderTestMode ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_font_test_visible(int visible)
+{
+   gFontTestVisible = visible != 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_font_test_visible(void)
+{
+   return gFontTestVisible ? 1 : 0;
+>>>>>>> origin/main
 }
 
 } // extern "C"

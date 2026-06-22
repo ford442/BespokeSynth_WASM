@@ -36,6 +36,9 @@ fi
 
 echo -e "${GREEN}Using Emscripten:${NC} $(emcc --version | head -n 1)"
 
+echo -e "${YELLOW}Syncing pixel font shader data...${NC}"
+python3 "$SCRIPT_DIR/../scripts/sync_pixel_font_shader.py"
+
 # Create build directory
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"

@@ -98,6 +98,34 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_theme_color(int colorId, float r, float g,
 // Reset all overrides back to built-in defaults.
 EMSCRIPTEN_KEEPALIVE void bespoke_reset_theme(void);
 
+// Renderer backend selection (call before bespoke_init)
+// backend: 0 = WebGPU (default), 1 = WebGL2
+EMSCRIPTEN_KEEPALIVE void bespoke_set_renderer_backend(int backend);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_renderer_backend(void);
+
+// WebGL2 capability queries (safe before bespoke_init)
+EMSCRIPTEN_KEEPALIVE int bespoke_is_webgl2_supported(void);
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_webgl2_error(void);
+
+// WebGL2-only debug modes (see WebGLDebugMode in Renderer2D.h)
+EMSCRIPTEN_KEEPALIVE void bespoke_set_webgl_debug_mode(int mode);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_webgl_debug_mode(void);
+
+// Returns active backend type after capture attempt.
+//  1 = WebGL2 (use canvas.toDataURL in JS)
+//  0 = WebGPU (RGBA pixels via bespoke_get_screenshot_pixels)
+// -1 = error
+EMSCRIPTEN_KEEPALIVE int bespoke_capture_screenshot(int* outWidth, int* outHeight);
+EMSCRIPTEN_KEEPALIVE const unsigned char* bespoke_get_screenshot_pixels(int* outByteLength);
+
+// Canonical render-test scene for visual regression (resets user modules)
+EMSCRIPTEN_KEEPALIVE void bespoke_set_render_test_mode(int enabled);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_render_test_mode(void);
+
+// Font regression panel (visual test overlay for pixel font metrics/glyphs)
+EMSCRIPTEN_KEEPALIVE void bespoke_set_font_test_visible(int visible);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_font_test_visible(void);
+
 #ifdef __cplusplus
 }
 #endif
