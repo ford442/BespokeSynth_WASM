@@ -2358,6 +2358,77 @@ void WebGPURenderer::drawProgressBar(float x, float y, float w, float h, float v
     drawQuad(x, y, w * value, h, mPipelines.progress_bar);
 }
 
+void WebGPURenderer::drawXYPad(float x, float y, float w, float h, float cx, float cy)
+{
+   drawPanel(x, y, w, h, true);
+   fillColor(UITheme::kAccentCyan);
+   circle(x + cx * w, y + cy * h, 5.0f);
+   fill();
+}
+
+void WebGPURenderer::drawFilterResponse(float x, float y, float w, float h)
+{
+   drawPanel(x, y, w, h, true);
+   strokeColor(UITheme::kAccentMagenta);
+   strokeWidth(2.0f);
+   beginPath();
+   moveTo(x, y + h);
+   for (int i = 0; i <= 32; ++i)
+   {
+      const float t = static_cast<float>(i) / 32.0f;
+      const float px = x + t * w;
+      const float py = y + h * (1.0f - (1.0f / (1.0f + t * t * 20.0f)));
+      lineTo(px, py);
+   }
+   stroke();
+}
+
+void WebGPURenderer::drawLFOWaveform(float x, float y, float w, float h)
+{
+   std::vector<float> data(64);
+   for (int i = 0; i < 64; ++i)
+      data[i] = sinf(static_cast<float>(i) / 64.0f * TWO_PI);
+   drawWaveform(x, y, w, h, data.data(), 64, true);
+}
+
+void WebGPURenderer::drawSequencerStep(float x, float y, float w, float h, bool active)
+{
+   fillColor(active ? UITheme::kAccentCyan : Color(0.2f, 0.2f, 0.22f, 1.0f));
+   drawQuad(x, y, w, h, mPipelines.button);
+}
+
+void WebGPURenderer::drawSpectrumWaterfall(float x, float y, float w, float h)
+{
+   drawPanel(x, y, w, h, true);
+}
+
+void WebGPURenderer::drawPianoKey(float x, float y, float w, float h, bool black, bool pressed)
+{
+   fillColor(black ? Color(0.1f, 0.1f, 0.12f, 1.0f) : Color(0.9f, 0.9f, 0.92f, 1.0f));
+   if (pressed)
+      fillColor(UITheme::kAccentCyan);
+   drawQuad(x, y, w, h, mPipelines.solid);
+}
+
+void WebGPURenderer::drawSpectrumRainbow(float x, float y, float w, float h, float* data, int count)
+{
+   drawSpectrum(x, y, w, h, data, count);
+}
+
+void WebGPURenderer::drawCircularScope(float x, float y, float w, float h)
+{
+   drawPanel(x, y, w, h, true);
+   strokeColor(UITheme::kAccentCyan);
+   strokeWidth(2.0f);
+   circle(x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.35f);
+   stroke();
+}
+
+void WebGPURenderer::drawEchoTrail(float x, float y, float w, float h)
+{
+   drawPanel(x, y, w, h, true);
+}
+
 void WebGPURenderer::transformPoint(float& x, float& y) {
     float tx = mCurrentState.transform[0] * x + mCurrentState.transform[2] * y + mCurrentState.transform[4];
     float ty = mCurrentState.transform[1] * x + mCurrentState.transform[3] * y + mCurrentState.transform[5];

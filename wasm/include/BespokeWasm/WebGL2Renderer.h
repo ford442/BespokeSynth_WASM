@@ -172,6 +172,7 @@ private:
    void pushVertex(float x, float y, float u, float v, const Color& color);
    void transformPoint(float& x, float& y);
    void drawQuad(float x, float y, float w, float h, GLPipelineKind pipeline);
+   void drawSolidQuad(float x, float y, float w, float h, const Color& color);
    const GL2Program& programFor(GLPipelineKind kind) const;
 
    WebGL2Context& mContext;

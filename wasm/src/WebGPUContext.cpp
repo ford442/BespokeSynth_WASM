@@ -352,13 +352,13 @@ void WebGPUContext::endFrame(bool captureScreenshot) {
 
         if (mScreenshotStagingBuffer)
         {
-            WGPUImageCopyTexture src = {};
+            WGPUTexelCopyTextureInfo src = {};
             src.texture = mCurrentSurfaceTexture;
             src.mipLevel = 0;
             src.origin = {0, 0, 0};
             src.aspect = WGPUTextureAspect_All;
 
-            WGPUImageCopyBuffer dst = {};
+            WGPUTexelCopyBufferInfo dst = {};
             dst.buffer = mScreenshotStagingBuffer;
             dst.layout.offset = 0;
             dst.layout.bytesPerRow = bytesPerRow;

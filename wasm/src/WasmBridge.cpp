@@ -28,6 +28,12 @@ static const int KEY_TAB = 9;
 
 using namespace bespoke::wasm;
 
+namespace bespoke {
+namespace wasm {
+bool gBespokePendingScreenshotCapture = false;
+} // namespace wasm
+} // namespace bespoke
+
 // Initialization state tracking
 // These values are exposed to JavaScript via bespoke_get_init_state()
 enum class InitState
@@ -60,7 +66,6 @@ static void reportInitProgress(const char* step, const char* detail)
 
 // Global state
 static RendererBackendType gRendererBackend = RendererBackendType::WebGPU;
-bool gBespokePendingScreenshotCapture = false;
 static bool gRenderTestMode = false;
 static std::vector<uint8_t> gScreenshotPixels;
 static int gScreenshotWidth = 0;
@@ -1060,13 +1065,13 @@ static void renderFontTestPanel()
    float y = panelY + 18.0f;
    for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
    {
-      gRenderer->fillColor(i == 0 ? UITheme::kTextValue : UITheme::kTextLabel);
+      gRenderer->fillColor(i == 0 ? UITheme::kTextValue : UITheme::kTextSecondary);
       gRenderer->fontSize(i == 0 ? 13.0f : 10.0f);
       gRenderer->text(panelX + 12.0f, y, rows[i]);
       y += gRenderer->textHeight() + 5.0f;
    }
 
-   gRenderer->fillColor(UITheme::kTextLabel);
+   gRenderer->fillColor(UITheme::kTextSecondary);
    gRenderer->fontSize(10.0f);
    float gx = panelX + 12.0f;
    float gy = y + 8.0f;
