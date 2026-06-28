@@ -13,6 +13,7 @@
 #include "ModuleCanvas.h"
 #include "Knob.h"
 #include "BespokeWasm/Theme.h"
+#include "BespokeWasm/PixelFont.h"
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -1028,6 +1029,11 @@ static void renderDemoPanels()
    gRenderer->text(static_cast<float>(gWidth) - 150, 20, "Tab: Modular Canvas");
 }
 
+static float fontTestBaselineFromTop(float topY, float textHeight)
+{
+   return topY + textHeight * bespoke::wasm::kPixelFontBaselineRatio;
+}
+
 static void renderFontTestPanel()
 {
    if (!gRenderer)
@@ -1037,6 +1043,7 @@ static void renderFontTestPanel()
    const float panelY = 52.0f;
    const float panelW = static_cast<float>(gWidth) - 32.0f;
    const float panelH = static_cast<float>(gHeight) - 84.0f;
+   const float panelBottom = panelY + panelH;
 
    gRenderer->fillColor(Color(0.06f, 0.06f, 0.08f, 0.94f));
    gRenderer->roundedRect(panelX, panelY, panelW, panelH, 8.0f);
@@ -1062,19 +1069,29 @@ static void renderFontTestPanel()
       musicalLine,
    };
 
-   float y = panelY + 18.0f;
+   gRenderer->fontSize(10.0f);
+   const float glyphRowH = gRenderer->textHeight() + 4.0f;
+   const int glyphRows = 6;
+   const float glyphSectionH = 12.0f + static_cast<float>(glyphRows) * glyphRowH;
+
+   float rowTop = panelY + 14.0f;
    for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i)
    {
+      const float rowFont = (i == 0) ? 13.0f : 10.0f;
       gRenderer->fillColor(i == 0 ? UITheme::kTextValue : UITheme::kTextSecondary);
-      gRenderer->fontSize(i == 0 ? 13.0f : 10.0f);
-      gRenderer->text(panelX + 12.0f, y, rows[i]);
-      y += gRenderer->textHeight() + 5.0f;
+      gRenderer->fontSize(rowFont);
+      const float rowH = gRenderer->textHeight() + 5.0f;
+      if (rowTop + rowH + glyphSectionH > panelBottom)
+         break;
+
+      gRenderer->text(panelX + 12.0f, fontTestBaselineFromTop(rowTop, gRenderer->textHeight()), rows[i]);
+      rowTop += rowH;
    }
 
    gRenderer->fillColor(UITheme::kTextSecondary);
    gRenderer->fontSize(10.0f);
    float gx = panelX + 12.0f;
-   float gy = y + 8.0f;
+   float gy = fontTestBaselineFromTop(rowTop + 8.0f, gRenderer->textHeight());
    for (int c = 32; c <= 126; ++c)
    {
       char ch[2] = { static_cast<char>(c), '\0' };
@@ -1084,7 +1101,10 @@ static void renderFontTestPanel()
       if (gx > panelX + panelW - 18.0f)
       {
          gx = panelX + 12.0f;
-         gy += gRenderer->textHeight() + 4.0f;
+         const float nextTop = gy + glyphRowH - gRenderer->textHeight() * bespoke::wasm::kPixelFontBaselineRatio;
+         if (nextTop + glyphRowH > panelBottom)
+            break;
+         gy = fontTestBaselineFromTop(nextTop, gRenderer->textHeight());
       }
    }
 }

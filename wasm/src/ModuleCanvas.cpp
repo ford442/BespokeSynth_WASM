@@ -7,8 +7,10 @@
 
 #include "ModuleCanvas.h"
 #include "BespokeWasm/Theme.h"
+#include "BespokeWasm/PixelFont.h"
 #include <cstdio>
 #include <cmath>
+#include <cstring>
 #include <algorithm>
 
 namespace bespoke {
@@ -16,14 +18,30 @@ namespace bespoke {
 
       namespace {
 
-         float textBaselineFromTop(Renderer2D& renderer, float topY)
+         float textBaselineFromTop(float topY, float fontSize)
          {
-            return topY + renderer.textHeight() * 0.78f;
+            return topY + fontSize * kPixelFontBaselineRatio;
          }
 
-         float textLineSpacing(Renderer2D& renderer, float scale)
+         float textBaselineFromTop(Renderer2D& renderer, float topY)
          {
-            return renderer.textHeight() + 4.0f * scale;
+            return textBaselineFromTop(topY, renderer.textHeight());
+         }
+
+         float textBaselineCentered(float centerY, float fontSize)
+         {
+            return centerY + fontSize * (kPixelFontBaselineRatio - 0.5f);
+         }
+
+         float textLineSpacing(float fontSize, float scale)
+         {
+            return fontSize + 4.0f * scale;
+         }
+
+         float textBaselineForLine(float contentTop, int lineIndex, float fontSize, float scale)
+         {
+            const float lineStep = textLineSpacing(fontSize, scale);
+            return textBaselineFromTop(contentTop + static_cast<float>(lineIndex) * lineStep, fontSize);
          }
 
          void drawText(Renderer2D& renderer, float x, float y, const char* text,
@@ -32,6 +50,37 @@ namespace bespoke {
             renderer.fillColor(color);
             renderer.fontSize(fontSize);
             renderer.text(x, y, text);
+         }
+
+         void truncateWithEllipsis(Renderer2D& renderer, const char* text, float maxWidth,
+                                   char* out, size_t outLen)
+         {
+            if (!text || !out || outLen == 0)
+               return;
+
+            if (renderer.textWidth(text) <= maxWidth)
+            {
+               snprintf(out, outLen, "%s", text);
+               return;
+            }
+
+            const char* ellipsis = "...";
+            const size_t srcLen = strlen(text);
+            size_t keep = srcLen;
+
+            while (keep > 0)
+            {
+               char trial[128];
+               const size_t copyLen = std::min(keep, sizeof(trial) - 4);
+               memcpy(trial, text, copyLen);
+               trial[copyLen] = '\0';
+               snprintf(out, outLen, "%s%s", trial, ellipsis);
+               if (renderer.textWidth(out) <= maxWidth)
+                  return;
+               --keep;
+            }
+
+            snprintf(out, outLen, "%s", ellipsis);
          }
 
          void formatFrequency(float hz, char* buf, size_t buflen)
@@ -66,9 +115,9 @@ namespace bespoke {
             }
          }
 
-         float portSpacingFor(Renderer2D& renderer, float scale)
+         float portSpacingFor(float labelFont, float scale)
          {
-            return std::max(15.0f * scale, textLineSpacing(renderer, scale));
+            return std::max(15.0f * scale, textLineSpacing(labelFont, scale));
          }
 
       } // namespace
@@ -151,12 +200,17 @@ namespace bespoke {
          renderer.roundedRect(screenX, screenY, w, h, 4.0f * scale);
          renderer.fill();
 
-         // Module name (theme)
-         renderer.fillColor(UITheme::kTextPrimary);
-         renderer.fontSize(11.0f * scale);
-         renderer.text(screenX + 5 * scale,
-                       textBaselineFromTop(renderer, screenY + 2 * scale),
-                       mName.c_str());
+         // Module name (theme) — ellipsize when wider than title bar
+         const float titleFont = 11.0f * scale;
+         const float titlePad = 5.0f * scale;
+         const float titleRightPad = (mEnabled ? 16.0f : 8.0f) * scale;
+         char titleBuf[64];
+         renderer.fontSize(titleFont);
+         truncateWithEllipsis(renderer, mName.c_str(), w - titlePad - titleRightPad,
+                              titleBuf, sizeof(titleBuf));
+         drawText(renderer, screenX + titlePad,
+                  textBaselineFromTop(renderer, screenY + 2 * scale),
+                  titleBuf, UITheme::kTextPrimary, titleFont);
 
          // Enabled indicator
          if (!mEnabled)
@@ -170,7 +224,7 @@ namespace bespoke {
       void Module::renderPorts(Renderer2D& renderer, float screenX, float screenY, float scale)
       {
          const float labelFont = 9.0f * scale;
-         const float portStep = portSpacingFor(renderer, scale);
+         const float portStep = portSpacingFor(labelFont, scale);
          const float labelOffsetX = 8.0f * scale;
 
          renderer.fontSize(labelFont);
@@ -202,8 +256,14 @@ namespace bespoke {
             renderer.circle(px, py, kPortRadius * scale);
             renderer.fill();
 
-            drawText(renderer, px + labelOffsetX,
-                     textBaselineFromTop(renderer, py - renderer.textHeight() * 0.35f),
+            const float inputLabelW = renderer.textWidth(mInputs[i].name.c_str());
+            float inputLabelX = px + labelOffsetX;
+            const float inputMaxX = screenX + mWidth * scale - 4.0f * scale - inputLabelW;
+            if (inputLabelX > inputMaxX)
+               inputLabelX = std::max(screenX + labelOffsetX, inputMaxX);
+
+            drawText(renderer, inputLabelX,
+                     textBaselineCentered(py, labelFont),
                      mInputs[i].name.c_str(), UITheme::kTextSecondary, labelFont);
          }
 
@@ -236,8 +296,13 @@ namespace bespoke {
             renderer.fill();
 
             const float labelW = renderer.textWidth(mOutputs[i].name.c_str());
-            drawText(renderer, px - labelOffsetX - labelW,
-                     textBaselineFromTop(renderer, py - renderer.textHeight() * 0.35f),
+            float outputLabelX = px - labelOffsetX - labelW;
+            const float outputMinX = screenX + 4.0f * scale;
+            if (outputLabelX < outputMinX)
+               outputLabelX = outputMinX;
+
+            drawText(renderer, outputLabelX,
+                     textBaselineCentered(py, labelFont),
                      mOutputs[i].name.c_str(), UITheme::kTextSecondary, labelFont);
          }
       }
@@ -286,27 +351,29 @@ namespace bespoke {
          float screenY = (mY + offsetY) * scale;
          const float valueFont = UITheme::kValueFontSize * scale;
          const float labelFont = UITheme::kLabelFontSize * scale;
-         const float lineH = textLineSpacing(renderer, scale);
+         const float lineFont = std::max(valueFont, labelFont);
+         const float lineH = textLineSpacing(lineFont, scale);
 
-         float contentY = screenY + (kTitleBarHeight + 22) * scale;
+         const float contentTop = screenY + (kTitleBarHeight + 22) * scale;
+         const float textX = screenX + 10 * scale;
 
          char freqText[32];
          formatFrequency(mFrequency, freqText, sizeof(freqText));
-         drawText(renderer, screenX + 10 * scale, contentY, freqText,
-                  UITheme::kTextValue, valueFont);
+         drawText(renderer, textX, textBaselineForLine(contentTop, 0, lineFont, scale),
+                  freqText, UITheme::kTextValue, valueFont);
 
          const char* waveNames[] = { "Sine", "Saw", "Square", "Triangle" };
-         drawText(renderer, screenX + 10 * scale, contentY + lineH,
+         drawText(renderer, textX, textBaselineForLine(contentTop, 1, lineFont, scale),
                   waveNames[mWaveform % 4], UITheme::kTextPrimary, labelFont);
 
          char volText[32];
          snprintf(volText, sizeof(volText), "Level %.0f%%", mVolume * 100.0f);
-         drawText(renderer, screenX + 10 * scale, contentY + lineH * 2.0f,
+         drawText(renderer, textX, textBaselineForLine(contentTop, 2, lineFont, scale),
                   volText, UITheme::kTextSecondary, valueFont);
 
          // Mini waveform preview (matches selected shape)
          float wfX = screenX + 10 * scale;
-         float wfY = contentY + lineH * 3.0f;
+         float wfY = contentTop + lineH * 3.0f;
          float wfW = 70 * scale;
          float wfH = 22 * scale;
 
@@ -501,8 +568,11 @@ namespace bespoke {
                               Color(0.2f, 0.8f, 0.3f, 1.0f),
                               Color(1.0f, 0.2f, 0.1f, 1.0f));
 
-         drawText(renderer, meterX, textBaselineFromTop(renderer, meterY + 48 * scale),
-                  "L   R", UITheme::kTextSecondary, 9.0f * scale);
+         const float meterLabelFont = 9.0f * scale;
+         const float meterLabelY = textBaselineFromTop(renderer, meterY + 48 * scale);
+         drawText(renderer, meterX, meterLabelY, "L", UITheme::kTextSecondary, meterLabelFont);
+         drawText(renderer, meterX + 25 * scale, meterLabelY, "R",
+                  UITheme::kTextSecondary, meterLabelFont);
       }
 
       void OutputModule::setControlValue(const std::string& name, float value)
@@ -538,29 +608,31 @@ namespace bespoke {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
 
-         float contentY = screenY + (kTitleBarHeight + 18) * scale;
-         const float lineH = textLineSpacing(renderer, scale);
+         const float contentTop = screenY + (kTitleBarHeight + 18) * scale;
          const float valueFont = UITheme::kValueFontSize * scale;
          const float labelFont = UITheme::kLabelFontSize * scale;
+         const float lineFont = std::max(valueFont, labelFont);
+         const float lineH = textLineSpacing(lineFont, scale);
+         const float textX = screenX + 10 * scale;
 
          const char* typeNames[] = { "Low-pass", "High-pass", "Band-pass" };
-         drawText(renderer, screenX + 10 * scale, contentY,
+         drawText(renderer, textX, textBaselineForLine(contentTop, 0, lineFont, scale),
                   typeNames[mType % 3], UITheme::kTextPrimary, labelFont);
 
          char cutText[48];
          snprintf(cutText, sizeof(cutText), "Cutoff ");
          formatFrequency(mCutoff, cutText + 7, sizeof(cutText) - 7);
-         drawText(renderer, screenX + 10 * scale, contentY + lineH,
+         drawText(renderer, textX, textBaselineForLine(contentTop, 1, lineFont, scale),
                   cutText, UITheme::kTextValue, valueFont);
 
          char resText[32];
          snprintf(resText, sizeof(resText), "Resonance %.2f", mResonance);
-         drawText(renderer, screenX + 10 * scale, contentY + lineH * 2.0f,
+         drawText(renderer, textX, textBaselineForLine(contentTop, 2, lineFont, scale),
                   resText, UITheme::kTextSecondary, valueFont);
 
          // Simple filter response curve
          float curveX = screenX + 10 * scale;
-         float curveY = contentY + lineH * 3.0f;
+         float curveY = contentTop + lineH * 3.0f;
          float curveW = 80 * scale;
          float curveH = 20 * scale;
 
@@ -617,28 +689,31 @@ namespace bespoke {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
 
-         float contentY = screenY + (kTitleBarHeight + 14) * scale;
-         const float lineH = textLineSpacing(renderer, scale);
+         const float contentTop = screenY + (kTitleBarHeight + 14) * scale;
          const float valueFont = UITheme::kValueFontSize * scale;
+         const float labelFont = UITheme::kLabelFontSize * scale;
+         const float lineFont = std::max(valueFont, labelFont);
+         const float lineH = textLineSpacing(lineFont, scale);
+         const float textX = screenX + 10 * scale;
 
          const char* shapeNames[] = { "Sine", "Triangle", "Saw", "Square" };
 
          char rateText[32];
          snprintf(rateText, sizeof(rateText), "Rate %.2f Hz", mRate);
-         drawText(renderer, screenX + 10 * scale, contentY,
+         drawText(renderer, textX, textBaselineForLine(contentTop, 0, lineFont, scale),
                   rateText, UITheme::kTextValue, valueFont);
 
          char depthText[32];
          snprintf(depthText, sizeof(depthText), "Depth %.0f%%", mDepth * 100.0f);
-         drawText(renderer, screenX + 10 * scale, contentY + lineH,
+         drawText(renderer, textX, textBaselineForLine(contentTop, 1, lineFont, scale),
                   depthText, UITheme::kTextSecondary, valueFont);
 
-         drawText(renderer, screenX + 10 * scale, contentY + lineH * 2.0f,
-                  shapeNames[mShape % 4], UITheme::kTextPrimary, valueFont);
+         drawText(renderer, textX, textBaselineForLine(contentTop, 2, lineFont, scale),
+                  shapeNames[mShape % 4], UITheme::kTextPrimary, labelFont);
 
          // Draw LFO waveform
          float wfX = screenX + 10 * scale;
-         float wfY = contentY + lineH * 3.0f;
+         float wfY = contentTop + lineH * 3.0f;
          float wfW = 80 * scale;
          float wfH = 30 * scale;
 

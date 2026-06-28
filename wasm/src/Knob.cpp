@@ -7,6 +7,7 @@
 
 #include "Knob.h"
 #include "BespokeWasm/Theme.h"
+#include "BespokeWasm/PixelFont.h"
 #include <cmath>
 #include <algorithm>
 #include <cstdio>   // for snprintf in getDisplayString
@@ -119,25 +120,27 @@ void Knob::render(Renderer2D& renderer, float x, float y, float size) {
             break;
     }
     
-    // Draw label + live value (high-impact polish)
+    // Draw label + live value (baseline-aligned with pixel font metrics)
     if (!mLabel.empty()) {
-        const float labelY = y + size * 0.58f;
+        const float sizeScale = size / 80.0f;
+        const float labelFont = UITheme::kLabelFontSize * sizeScale;
+        const float valueFont = UITheme::kValueFontSize * sizeScale;
+        const float labelTop = y + size * 0.5f + UITheme::kKnobLabelOffset * sizeScale;
 
-        // Name (primary label)
         renderer.fillColor(UITheme::kTextPrimary);
-        renderer.fontSize(UITheme::kLabelFontSize * (size / 80.0f));  // Scale with knob size
-        float labelWidth = renderer.textWidth(mLabel.c_str());
-        renderer.text(x - labelWidth * 0.5f, labelY, mLabel.c_str());
+        renderer.fontSize(labelFont);
+        const float labelBaseline = labelTop + renderer.textHeight() * kPixelFontBaselineRatio;
+        const float labelWidth = renderer.textWidth(mLabel.c_str());
+        renderer.text(x - labelWidth * 0.5f, labelBaseline, mLabel.c_str());
 
-        // Live value (below name, cyan accent)
         std::string valStr = getDisplayString();
         if (!valStr.empty()) {
             renderer.fillColor(UITheme::kTextValue);
-            const float valueFont = UITheme::kValueFontSize * (size / 80.0f);
             renderer.fontSize(valueFont);
-            const float lineH = renderer.textHeight();
-            float valWidth = renderer.textWidth(valStr.c_str());
-            renderer.text(x - valWidth * 0.5f, labelY + lineH + 2.0f, valStr.c_str());
+            const float valueTop = labelBaseline + renderer.textHeight() * (1.0f - kPixelFontBaselineRatio) + 2.0f;
+            const float valueBaseline = valueTop + renderer.textHeight() * kPixelFontBaselineRatio;
+            const float valWidth = renderer.textWidth(valStr.c_str());
+            renderer.text(x - valWidth * 0.5f, valueBaseline, valStr.c_str());
         }
     }
 }
