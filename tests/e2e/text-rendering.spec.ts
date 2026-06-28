@@ -1,3 +1,14 @@
+/**
+ * WebGL text rendering regression test.
+ *
+ * Run (starts http-server on :9876 automatically):
+ *   npm run test:e2e:text
+ *
+ * Manual server (must serve dist/ on port 9876):
+ *   npm run build:web-only && cd dist && python3 -m http.server 9876
+ *   PLAYWRIGHT_SKIP_WEBSERVER=1 PLAYWRIGHT_BASE_URL=http://localhost:9876 \\
+ *     npx playwright test tests/e2e/text-rendering.spec.ts --project=chromium --grep webgl
+ */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
