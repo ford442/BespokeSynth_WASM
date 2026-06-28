@@ -15,6 +15,11 @@ import * as path from 'path';
 
 const FIXTURES_DIR = path.join(__dirname, '../fixtures');
 
+async function assertAppShell(page: import('@playwright/test').Page): Promise<void> {
+  await expect(page).toHaveTitle(/BespokeSynth WASM/i, { timeout: 5000 });
+  await expect(page.locator('#canvas')).toBeVisible({ timeout: 5000 });
+}
+
 async function waitForBespokeReady(page: import('@playwright/test').Page): Promise<void> {
   // Module lives on the app instance, not window.Module — wait for the public API.
   await page.waitForFunction(
@@ -55,6 +60,7 @@ for (const backend of ['webgl', 'webgpu'] as const) {
       );
 
       await page.goto(`/?renderer=${backend}&renderTest=1`);
+      await assertAppShell(page);
 
       await waitForBespokeReady(page);
 
