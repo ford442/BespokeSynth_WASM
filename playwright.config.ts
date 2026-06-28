@@ -8,7 +8,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:8080',
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:9876',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -28,9 +28,11 @@ export default defineConfig({
     },
   ],
 
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:8080',
-    reuseExistingServer: !process.env.CI,
-  },
+  webServer: process.env.PLAYWRIGHT_SKIP_WEBSERVER
+    ? undefined
+    : {
+        command: 'npx --yes http-server dist -p 9876 -c-1 --cors',
+        url: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:9876',
+        reuseExistingServer: true,
+      },
 });

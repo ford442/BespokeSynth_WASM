@@ -964,6 +964,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       const mod = app.getModule();
       mod?._bespoke_set_webgl_debug_mode?.(mode);
     },
+    setFontTestVisible: (visible: boolean) => {
+      const mod = app.getModule();
+      mod?._bespoke_set_font_test_visible?.(visible ? 1 : 0);
+      mod?._bespoke_render?.();
+    },
+    renderFrame: () => {
+      app.getModule()?._bespoke_render?.();
+    },
   };
 
   // Cleanup on page unload
