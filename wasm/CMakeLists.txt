@@ -66,13 +66,11 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/nanovg_fix")
 
 # WASM-specific options
 option(BESPOKE_WASM_WEBGPU "Enable WebGPU rendering backend" ON)
-option(BESPOKE_WASM_WEBGL2 "Enable WebGL2 rendering backend" ON)
 option(BESPOKE_WASM_SDL2_AUDIO "Enable SDL2 audio backend" ON)
 option(BESPOKE_WASM_THREADS "Enable threading support" OFF)
 
 message(STATUS "Building BespokeSynth for WebAssembly")
 message(STATUS "  WebGPU: ${BESPOKE_WASM_WEBGPU}")
-message(STATUS "  WebGL2: ${BESPOKE_WASM_WEBGL2}")
 message(STATUS "  SDL2 Audio: ${BESPOKE_WASM_SDL2_AUDIO}")
 message(STATUS "  Threads: ${BESPOKE_WASM_THREADS}")
 
@@ -81,14 +79,10 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/WasmMain.cpp
     ${BESPOKE_WASM_DIR}/src/WebGPUContext.cpp
     ${BESPOKE_WASM_DIR}/src/WebGPURenderer.cpp
-<<<<<<< HEAD
-    ${BESPOKE_WASM_DIR}/src/WebGL2Renderer.cpp
-=======
     ${BESPOKE_WASM_DIR}/src/WebGL2Context.cpp
     ${BESPOKE_WASM_DIR}/src/WebGL2Renderer.cpp
     ${BESPOKE_WASM_DIR}/src/WebGL2Shaders.cpp
     ${BESPOKE_WASM_DIR}/src/PixelFont.cpp
->>>>>>> origin/main
     ${BESPOKE_WASM_DIR}/src/SDL2AudioBackend.cpp
     ${BESPOKE_WASM_DIR}/src/WasmBridge.cpp
     ${BESPOKE_WASM_DIR}/src/Knob.cpp
@@ -148,7 +142,6 @@ target_include_directories(BespokeSynthWASM PRIVATE
 target_compile_definitions(BespokeSynthWASM PRIVATE
     BESPOKE_WASM=1
     $<$<BOOL:${BESPOKE_WASM_WEBGPU}>:BESPOKE_WEBGPU=1>
-    $<$<BOOL:${BESPOKE_WASM_WEBGL2}>:BESPOKE_WEBGL2=1>
     $<$<BOOL:${BESPOKE_WASM_SDL2_AUDIO}>:BESPOKE_SDL2_AUDIO=1>
 )
 
@@ -158,11 +151,7 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
 set(EMSCRIPTEN_LINK_FLAGS
     "-sWASM=1"
     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','allocateUTF8','stringToUTF8','lengthBytesUTF8']"
-<<<<<<< HEAD
-    "-sEXPORTED_FUNCTIONS=['_main','_bespoke_init','_bespoke_shutdown','_bespoke_process_audio','_bespoke_render','_bespoke_resize','_bespoke_process_events','_bespoke_play','_bespoke_stop','_bespoke_set_tempo','_bespoke_get_tempo','_bespoke_set_sample_rate','_bespoke_set_buffer_size','_bespoke_get_sample_rate','_bespoke_get_buffer_size','_bespoke_get_cpu_load','_bespoke_mouse_move','_bespoke_mouse_down','_bespoke_mouse_up','_bespoke_mouse_wheel','_bespoke_key_down','_bespoke_key_up','_bespoke_create_module','_bespoke_delete_module','_bespoke_connect_modules','_bespoke_get_view_mode','_bespoke_set_view_mode','_bespoke_set_control_value','_bespoke_get_control_value','_bespoke_save_state','_bespoke_load_state','_bespoke_get_state_json','_bespoke_load_state_json','_bespoke_get_module_count','_bespoke_set_panel','_bespoke_get_panel','_bespoke_get_panel_count','_bespoke_get_panel_name','_bespoke_is_panel_loaded','_bespoke_is_panel_running','_bespoke_get_panel_frame_count','_bespoke_log_all_panels_status','_bespoke_get_init_state','_bespoke_get_init_error','_bespoke_is_fully_initialized','_bespoke_get_version','_bespoke_set_renderer_backend','_bespoke_get_renderer_backend','_bespoke_capture_frame','_bespoke_free_capture_buffer']"
-=======
     "-sEXPORTED_FUNCTIONS=['_main','_bespoke_init','_bespoke_shutdown','_bespoke_process_audio','_bespoke_render','_bespoke_resize','_bespoke_process_events','_bespoke_play','_bespoke_stop','_bespoke_set_tempo','_bespoke_get_tempo','_bespoke_set_sample_rate','_bespoke_set_buffer_size','_bespoke_get_sample_rate','_bespoke_get_buffer_size','_bespoke_get_cpu_load','_bespoke_mouse_move','_bespoke_mouse_down','_bespoke_mouse_up','_bespoke_mouse_wheel','_bespoke_key_down','_bespoke_key_up','_bespoke_create_module','_bespoke_delete_module','_bespoke_connect_modules','_bespoke_get_view_mode','_bespoke_set_view_mode','_bespoke_set_control_value','_bespoke_get_control_value','_bespoke_save_state','_bespoke_load_state','_bespoke_get_state_json','_bespoke_load_state_json','_bespoke_get_module_count','_bespoke_set_panel','_bespoke_get_panel','_bespoke_get_panel_count','_bespoke_get_panel_name','_bespoke_is_panel_loaded','_bespoke_is_panel_running','_bespoke_get_panel_frame_count','_bespoke_log_all_panels_status','_bespoke_get_init_state','_bespoke_get_init_error','_bespoke_is_fully_initialized','_bespoke_get_version','_bespoke_set_renderer_backend','_bespoke_get_renderer_backend','_bespoke_is_webgl2_supported','_bespoke_get_webgl2_error','_bespoke_set_webgl_debug_mode','_bespoke_get_webgl_debug_mode','_bespoke_capture_screenshot','_bespoke_get_screenshot_pixels','_bespoke_set_render_test_mode','_bespoke_get_render_test_mode','_bespoke_set_font_test_visible','_bespoke_get_font_test_visible','_bespoke_get_control_count','_bespoke_get_control_info','_bespoke_set_theme_color','_bespoke_reset_theme']"
->>>>>>> origin/main
     "-sALLOW_MEMORY_GROWTH=1"
     "-sINITIAL_MEMORY=134217728"  # 128MB initial
     "-sSTACK_SIZE=1048576"  # 1MB stack

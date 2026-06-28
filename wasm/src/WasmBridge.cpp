@@ -5,18 +5,10 @@
  * Licensed under GNU GPL v3
  */
 
-<<<<<<< HEAD
-#include "WasmBridge.h"
-#include "IRenderer.h"
-#include "WebGPUContext.h"
-#include "WebGPURenderer.h"
-#include "WebGL2Renderer.h"
-=======
 #include "BespokeWasm/WasmBridge.h"
 #include "Renderer2D.h"
 #include "WebGPUContext.h"
 #include "WebGL2Context.h"
->>>>>>> origin/main
 #include "SDL2AudioBackend.h"
 #include "ModuleCanvas.h"
 #include "Knob.h"
@@ -80,16 +72,9 @@ static int gScreenshotWidth = 0;
 static int gScreenshotHeight = 0;
 static WebGLDebugMode gWebGLDebugMode = WebGLDebugMode::Normal;
 static std::unique_ptr<WebGPUContext> gContext;
-<<<<<<< HEAD
-static std::unique_ptr<bespoke::wasm::IRenderer> gRenderer;
-=======
 static std::unique_ptr<WebGL2Context> gWebGL2Context;
 static std::unique_ptr<Renderer2D> gRenderer;
->>>>>>> origin/main
 static std::unique_ptr<SDL2AudioBackend> gAudioBackend;
-
-// Active renderer backend selection (0=Auto, 1=WebGPU, 2=WebGL2)
-static int gRendererBackendPref = 0;
 
 // Demo controls
 static std::vector<std::unique_ptr<Knob>> gKnobs;
@@ -358,7 +343,7 @@ static bool initializeAudioAndControls(int sampleRate, int bufferSize)
       Color(0.3f, 0.7f, 0.9f, 1.0f));
    gKnobs.push_back(std::move(knob2));
 
-   auto knob3 = std::make_unique<Knob>("Filter Cutoff", 0.3f);
+   auto knob3 = std::make_unique<Knob>("Filter", 0.3f);
    knob3->setRange(20.0f, 20000.0f);
    knob3->setUnit("Hz");
    knob3->setDisplayPrecision(0);
@@ -514,28 +499,10 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
                                                reportInitProgress("webgpu_ready", "GPU adapter and device acquired successfully");
                                                gContext->resize(gWidth, gHeight);
 
-<<<<<<< HEAD
-                                               // Initialize renderer (backend chosen by gRendererBackendPref)
-                                               // Note: Auto (0) currently behaves the same as WebGPU (1) because
-                                               // automatic fallback to WebGL2 on WebGPU init failure is not yet
-                                               // implemented.  Call bespoke_set_renderer_backend(2) before
-                                               // bespoke_init() to explicitly request the WebGL2 path.
-                                               printf("WasmBridge: Initializing renderer...\n");
-                                               reportInitProgress("renderer_init", "Creating shader pipelines...");
-                                               if (gRendererBackendPref == static_cast<int>(bespoke::wasm::RendererBackend::WebGL2)) {
-                                                  printf("WasmBridge: Using WebGL2 renderer backend.\n");
-                                                  gRenderer = std::make_unique<bespoke::wasm::WebGL2Renderer>();
-                                               } else {
-                                                  printf("WasmBridge: Using WebGPU renderer backend.\n");
-                                                  gRenderer = std::make_unique<WebGPURenderer>(*gContext);
-                                               }
-                                               if (!gRenderer->initialize())
-=======
                                                printf("WasmBridge: Initializing renderer...\n");
                                                reportInitProgress("renderer_init", "Creating shader pipelines...");
                                                auto gpuRenderer = createWebGPURenderer(*gContext);
                                                if (!gpuRenderer->initialize())
->>>>>>> origin/main
                                                {
                                                   reportInitProgress("renderer_failed", "Shader pipeline compilation failed");
                                                   gInitState = InitState::Failed;
@@ -708,20 +675,14 @@ static void renderDemoPanels()
       return (range > 0.0f) ? (k.getValue() - k.getMin()) / range : 0.5f;
    };
    // Draw title
-<<<<<<< HEAD
-   gRenderer->fillColor(Color(0.9f, 0.9f, 0.95f, 1.0f));
-   gRenderer->fontSize(24.0f);
-   gRenderer->text(20, 40, "BespokeSynth WASM");
-=======
    gRenderer->fillColor(UITheme::kTextPrimary);
    gRenderer->fontSize(22.0f);
-   gRenderer->text(20, 36, "BespokeSynth WASM - Legacy Demo Panels");
+   gRenderer->text(20, 36, "BespokeSynth WASM");
 
    // Legacy demo banner
    gRenderer->fillColor(UITheme::kAccentAmber);
    gRenderer->fontSize(11.0f);
    gRenderer->text(20, 56, "Legacy demo panels — Tab switches to Modular Canvas (recommended)");
->>>>>>> origin/main
 
    // Draw panel tabs
    float tabY = 78.0f;
@@ -888,7 +849,7 @@ static void renderDemoPanels()
          gRenderer->text(sliderX, sliderY + 90, "Master");
          gRenderer->drawSlider(sliderX, sliderY + 100, 200, 20, masterVal,
                                UITheme::kBgTrack, UITheme::kAccentMagenta);
-         snprintf(vbuf, sizeof(vbuf), "%.1f dB", 20.0f * log10f(masterVal + 0.001f));
+         snprintf(vbuf, sizeof(vbuf), "%.0f%%", masterVal * 100.0f);
          gRenderer->fillColor(UITheme::kTextValue);
          gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 105, vbuf);
@@ -934,7 +895,7 @@ static void renderDemoPanels()
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 40, "Delay Time");
          gRenderer->drawSlider(effectX, effectY + 50, 250, 20, delayTime, UITheme::kBgTrack, UITheme::kAccentAmber);
-         { char v[32]; snprintf(v, sizeof(v), "%.0f ms", delayMs); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 55, v); }
+         { char v[32]; snprintf(v, sizeof(v), "%.0f ms", delayTime * 1000.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 55, v); }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
@@ -1051,12 +1012,13 @@ static void renderDemoPanels()
    gRenderer->fontSize(12.0f);
 
    char statusText[256];
+   const bool transportPlaying = gCanvas && gCanvas->getTransport() && gCanvas->getTransport()->isPlaying();
    snprintf(statusText, sizeof(statusText),
-            "Legacy Panel: %s | Sample Rate: %d Hz | Buffer: %d | Audio: %s",
-            panelNames[gCurrentPanel],
+            "Sample rate: %d Hz | Buffer: %d | %s | Panel: %s | Tab: Modular Canvas",
             bespoke_get_sample_rate(),
             bespoke_get_buffer_size(),
-            (gAudioBackend && gAudioBackend->isRunning()) ? "Running" : "Stopped");
+            transportPlaying ? "Playing" : "Stopped",
+            panelNames[gCurrentPanel]);
 
    gRenderer->text(20, static_cast<float>(gHeight) - 20, statusText);
 
@@ -1630,64 +1592,6 @@ EMSCRIPTEN_KEEPALIVE void bespoke_reset_theme(void)
    gRuntimeTheme.reset();
 }
 
-<<<<<<< HEAD
-// ---- Renderer backend selection API ----
-
-/**
- * Set the preferred renderer backend before calling bespoke_init().
- * Values: 0 = Auto (WebGPU preferred, WebGL2 fallback),
- *         1 = WebGPU,
- *         2 = WebGL2
- */
-EMSCRIPTEN_KEEPALIVE void bespoke_set_renderer_backend(int backend)
-{
-   gRendererBackendPref = backend;
-   printf("WasmBridge: renderer backend preference set to %d\n", backend);
-}
-
-/**
- * Returns the currently active renderer backend enum value
- * (1=WebGPU, 2=WebGL2, or 0 if not yet initialized).
- */
-EMSCRIPTEN_KEEPALIVE int bespoke_get_renderer_backend(void)
-{
-   if (!gRenderer) return 0;
-   return static_cast<int>(gRenderer->getBackend());
-}
-
-// ---- Screenshot / canvas capture API ----
-
-/**
- * Capture the current frame as an RGBA8 pixel buffer.
- * Returns a pointer to a heap-allocated buffer (caller must free it with
- * bespoke_free_capture_buffer()), or 0 on failure.
- * outWidth and outHeight are written via the provided int* pointers.
- *
- * NOTE: For the WebGPU backend this currently returns 0 (WebGPU requires
- * an asynchronous buffer readback that is not yet implemented).
- * The WebGL2 backend returns full RGBA data immediately.
- */
-EMSCRIPTEN_KEEPALIVE uint8_t* bespoke_capture_frame(int* outWidth, int* outHeight)
-{
-   if (!outWidth || !outHeight) return nullptr;
-   // Pre-zero so that a nullptr return always produces valid (0,0) dimensions.
-   *outWidth  = 0;
-   *outHeight = 0;
-   if (!gRenderer) return nullptr;
-   int w = 0, h = 0;
-   uint8_t* pixels = gRenderer->captureFrame(w, h);
-   *outWidth  = w;
-   *outHeight = h;
-   return pixels;
-}
-
-/**
- * Free a pixel buffer previously returned by bespoke_capture_frame().
- */
-EMSCRIPTEN_KEEPALIVE void bespoke_free_capture_buffer(uint8_t* buf)
-{
-   delete[] buf;
-=======
 EMSCRIPTEN_KEEPALIVE void bespoke_set_renderer_backend(int backend)
 {
    if (gInitState == InitState::NotStarted)
@@ -1797,7 +1701,6 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_font_test_visible(int visible)
 EMSCRIPTEN_KEEPALIVE int bespoke_get_font_test_visible(void)
 {
    return gFontTestVisible ? 1 : 0;
->>>>>>> origin/main
 }
 
 } // extern "C"

@@ -115,11 +115,7 @@ namespace bespoke {
                 worldY >= mY && worldY <= mY + kTitleBarHeight;
       }
 
-<<<<<<< HEAD
-      void Module::renderTitleBar(IRenderer& renderer, float screenX, float screenY, float scale)
-=======
       void Module::renderTitleBar(Renderer2D& renderer, float screenX, float screenY, float scale)
->>>>>>> origin/main
       {
          float w = mWidth * scale;
          float h = kTitleBarHeight * scale;
@@ -171,11 +167,7 @@ namespace bespoke {
          }
       }
 
-<<<<<<< HEAD
-      void Module::renderPorts(IRenderer& renderer, float screenX, float screenY, float scale)
-=======
       void Module::renderPorts(Renderer2D& renderer, float screenX, float screenY, float scale)
->>>>>>> origin/main
       {
          const float labelFont = 9.0f * scale;
          const float portStep = portSpacingFor(renderer, scale);
@@ -250,11 +242,7 @@ namespace bespoke {
          }
       }
 
-<<<<<<< HEAD
-      void Module::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
-=======
       void Module::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
->>>>>>> origin/main
       {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
@@ -287,14 +275,10 @@ namespace bespoke {
          setSize(160, 120);
          addInput("Pitch", PortType::Note);
          addInput("Mod", PortType::Modulation);
-         addOutput("Audio", PortType::Audio);
+         addOutput("Out", PortType::Audio);
       }
 
-<<<<<<< HEAD
-      void OscillatorModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
-=======
       void OscillatorModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
->>>>>>> origin/main
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -413,11 +397,7 @@ namespace bespoke {
          addOutput("Out", PortType::Audio);
       }
 
-<<<<<<< HEAD
-      void GainModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
-=======
       void GainModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
->>>>>>> origin/main
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -501,11 +481,7 @@ namespace bespoke {
          addInput("In", PortType::Audio);
       }
 
-<<<<<<< HEAD
-      void OutputModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
-=======
       void OutputModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
->>>>>>> origin/main
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -551,15 +527,11 @@ namespace bespoke {
       {
          setSize(150, 110);
          addInput("In", PortType::Audio);
-         addInput("Cutoff", PortType::Modulation);
+         addInput("CV", PortType::Modulation);
          addOutput("Out", PortType::Audio);
       }
 
-<<<<<<< HEAD
-      void FilterModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
-=======
       void FilterModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
->>>>>>> origin/main
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -638,11 +610,7 @@ namespace bespoke {
          addOutput("Mod", PortType::Modulation);
       }
 
-<<<<<<< HEAD
-      void LFOModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
-=======
       void LFOModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
->>>>>>> origin/main
       {
          Module::render(renderer, offsetX, offsetY, scale);
 
@@ -718,11 +686,7 @@ namespace bespoke {
          setSize(250, 60);
       }
 
-<<<<<<< HEAD
-      void TransportModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
-=======
       void TransportModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
->>>>>>> origin/main
       {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
@@ -773,10 +737,8 @@ namespace bespoke {
          // Time signature
          char timeSigText[16];
          snprintf(timeSigText, sizeof(timeSigText), "%d/%d", mTimeSigTop, mTimeSigBottom);
-         drawText(renderer, screenX + 140 * scale, textBaselineFromTop(renderer, screenY + 6 * scale),
-                  "Time Sig", UITheme::kTextSecondary, 10.0f * scale);
-         drawText(renderer, screenX + 140 * scale, textBaselineFromTop(renderer, screenY + 18 * scale),
-                  timeSigText, UITheme::kTextPrimary, 11.0f * scale);
+         drawText(renderer, screenX + 140 * scale, textBaselineFromTop(renderer, screenY + 10 * scale),
+                  timeSigText, UITheme::kTextSecondary, 11.0f * scale);
 
          // Swing
          char swingText[16];
@@ -784,7 +746,7 @@ namespace bespoke {
          drawText(renderer, screenX + 185 * scale, textBaselineFromTop(renderer, screenY + 10 * scale),
                   swingText, UITheme::kTextSecondary, 11.0f * scale);
 
-         const char* stateText = mPlaying ? "Transport: Playing" : "Transport: Stopped";
+         const char* stateText = mPlaying ? "Playing" : "Stopped";
          drawText(renderer, screenX + 10 * scale, textBaselineFromTop(renderer, screenY + 38 * scale),
                   stateText, mPlaying ? UITheme::kAccentGreen : UITheme::kTextSecondary, 9.0f * scale);
 
@@ -835,11 +797,7 @@ namespace bespoke {
          setSize(180, 70);
       }
 
-<<<<<<< HEAD
-      void ScaleModule::render(IRenderer& renderer, float offsetX, float offsetY, float scale)
-=======
       void ScaleModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
->>>>>>> origin/main
       {
          float screenX = (mX + offsetX) * scale;
          float screenY = (mY + offsetY) * scale;
@@ -858,18 +816,14 @@ namespace bespoke {
 
          // Root note + scale type
          drawText(renderer, screenX + 10 * scale, textBaselineFromTop(renderer, screenY + 6 * scale),
-                  "Root", UITheme::kTextSecondary, 10.0f * scale);
-         drawText(renderer, screenX + 10 * scale, textBaselineFromTop(renderer, screenY + 18 * scale),
                   kNoteNames[mRootNote % 12], UITheme::kTextPrimary, 13.0f * scale);
 
-         drawText(renderer, screenX + 45 * scale, textBaselineFromTop(renderer, screenY + 6 * scale),
-                  "Scale", UITheme::kTextSecondary, 10.0f * scale);
-         drawText(renderer, screenX + 45 * scale, textBaselineFromTop(renderer, screenY + 18 * scale),
-                  kScaleNames[mScaleType % 7], UITheme::kTextPrimary, 11.0f * scale);
+         drawText(renderer, screenX + 38 * scale, textBaselineFromTop(renderer, screenY + 6 * scale),
+                  kScaleNames[mScaleType % 7], UITheme::kTextSecondary, 11.0f * scale);
 
          // Piano keys visualization (mini)
          float keyX = screenX + 10 * scale;
-         float keyY = screenY + 41 * scale;
+         float keyY = screenY + 32 * scale;
          float keyW = 10 * scale;
          float keyH = 22 * scale;
 
@@ -895,8 +849,9 @@ namespace bespoke {
             renderer.fill();
          }
 
+         // Label below keys
          drawText(renderer, screenX + 10 * scale, textBaselineFromTop(renderer, keyY + keyH + 4 * scale),
-                  "Scale Quantizer", UITheme::kTextSecondary, 9.0f * scale);
+                  "Root / scale", UITheme::kTextSecondary, 9.0f * scale);
       }
 
       void ScaleModule::setControlValue(const std::string& name, float value)
@@ -1141,11 +1096,7 @@ namespace bespoke {
          }
       }
 
-<<<<<<< HEAD
-      void ModuleCanvas::renderTitleBar(IRenderer& renderer, int viewWidth)
-=======
       void ModuleCanvas::renderTitleBar(Renderer2D& renderer, int viewWidth)
->>>>>>> origin/main
       {
          float w = static_cast<float>(viewWidth);
 
@@ -1161,7 +1112,7 @@ namespace bespoke {
 
          // Logo / title
          drawText(renderer, 10.0f, textBaselineFromTop(renderer, 8.0f),
-                  "BespokeSynth WASM", UITheme::kTextPrimary, 14.0f);
+                  "BespokeSynth", UITheme::kTextPrimary, 14.0f);
 
          // Spawn menu buttons by category
          const char* catNames[] = {"Synth", "Audio FX", "Modulators", "Other"};
@@ -1233,11 +1184,7 @@ namespace bespoke {
          }
       }
 
-<<<<<<< HEAD
-      void ModuleCanvas::render(IRenderer& renderer, int viewWidth, int viewHeight)
-=======
       void ModuleCanvas::render(Renderer2D& renderer, int viewWidth, int viewHeight)
->>>>>>> origin/main
       {
          float canvasTop = kTitleBarHeight;
          float canvasHeight = static_cast<float>(viewHeight) - canvasTop;
@@ -1307,19 +1254,24 @@ namespace bespoke {
          // Draw zoom indicator (right-aligned)
          renderer.fontSize(10.0f);
          char zoomText[32];
-         snprintf(zoomText, sizeof(zoomText), "Zoom: %.0f%%", mScale * 100.0f);
+         snprintf(zoomText, sizeof(zoomText), "%.0f%%", mScale * 100.0f);
          const float zoomW = renderer.textWidth(zoomText);
          drawText(renderer, static_cast<float>(viewWidth) - zoomW - 10.0f,
                   textBaselineFromTop(renderer, static_cast<float>(viewHeight) - 18.0f),
                   zoomText, Color(0.55f, 0.55f, 0.60f, 0.85f), 10.0f);
 
+         // Status line
+         const bool playing = mTransport && mTransport->isPlaying();
+         const float bpm = mTransport ? mTransport->getBPM() : 120.0f;
          char countText[128];
          snprintf(countText, sizeof(countText),
-                  "Modules: %d | Cables: %d",
+                  "Modules: %d | Cables: %d | %s | %.1f BPM | Tab: demo panels",
                   static_cast<int>(mModules.size()),
-                  static_cast<int>(mConnections.size()));
+                  static_cast<int>(mConnections.size()),
+                  playing ? "Playing" : "Stopped",
+                  bpm);
          drawText(renderer, 10.0f, textBaselineFromTop(renderer, static_cast<float>(viewHeight) - 18.0f),
-                 countText, UITheme::kTextSecondary, 10.0f);
+                  countText, UITheme::kTextSecondary, 10.0f);
       }
 
       void ModuleCanvas::setOutputLevel(float level)

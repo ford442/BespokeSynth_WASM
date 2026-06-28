@@ -8,11 +8,7 @@
 
 #pragma once
 
-<<<<<<< HEAD
-#include "IRenderer.h"
-=======
 #include "Renderer2D.h"
->>>>>>> origin/main
 #include <string>
 #include <vector>
 #include <memory>
@@ -104,11 +100,7 @@ namespace bespoke {
          const std::vector<Port>& getOutputs() const { return mOutputs; }
 
          // Rendering
-<<<<<<< HEAD
-         virtual void render(IRenderer& renderer, float canvasOffsetX, float canvasOffsetY, float scale);
-=======
          virtual void render(Renderer2D& renderer, float canvasOffsetX, float canvasOffsetY, float scale);
->>>>>>> origin/main
 
          // Hit testing
          bool hitTest(float worldX, float worldY) const;
@@ -126,13 +118,8 @@ namespace bespoke {
       protected:
          void addInput(const std::string& name, PortType type);
          void addOutput(const std::string& name, PortType type);
-<<<<<<< HEAD
-         void renderTitleBar(IRenderer& renderer, float screenX, float screenY, float scale);
-         void renderPorts(IRenderer& renderer, float screenX, float screenY, float scale);
-=======
          void renderTitleBar(Renderer2D& renderer, float screenX, float screenY, float scale);
          void renderPorts(Renderer2D& renderer, float screenX, float screenY, float scale);
->>>>>>> origin/main
 
          int mId;
          std::string mType;
@@ -156,11 +143,7 @@ namespace bespoke {
       {
       public:
          OscillatorModule(int id);
-<<<<<<< HEAD
-         void render(IRenderer& renderer, float offsetX, float offsetY, float scale) override;
-=======
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
->>>>>>> origin/main
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
          bool handleMouseDown(float worldX, float worldY) override;
@@ -178,11 +161,7 @@ namespace bespoke {
       {
       public:
          GainModule(int id);
-<<<<<<< HEAD
-         void render(IRenderer& renderer, float offsetX, float offsetY, float scale) override;
-=======
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
->>>>>>> origin/main
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
          bool handleMouseDown(float worldX, float worldY) override;
@@ -198,13 +177,9 @@ namespace bespoke {
       {
       public:
          OutputModule(int id);
-<<<<<<< HEAD
-         void render(IRenderer& renderer, float offsetX, float offsetY, float scale) override;
-=======
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
->>>>>>> origin/main
 
       private:
          float mLevel = 0.0f;
@@ -214,11 +189,7 @@ namespace bespoke {
       {
       public:
          FilterModule(int id);
-<<<<<<< HEAD
-         void render(IRenderer& renderer, float offsetX, float offsetY, float scale) override;
-=======
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
->>>>>>> origin/main
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
 
@@ -232,11 +203,7 @@ namespace bespoke {
       {
       public:
          LFOModule(int id);
-<<<<<<< HEAD
-         void render(IRenderer& renderer, float offsetX, float offsetY, float scale) override;
-=======
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
->>>>>>> origin/main
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
 
@@ -251,11 +218,7 @@ namespace bespoke {
       {
       public:
          TransportModule(int id);
-<<<<<<< HEAD
-         void render(IRenderer& renderer, float offsetX, float offsetY, float scale) override;
-=======
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
->>>>>>> origin/main
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
 
@@ -277,11 +240,7 @@ namespace bespoke {
       {
       public:
          ScaleModule(int id);
-<<<<<<< HEAD
-         void render(IRenderer& renderer, float offsetX, float offsetY, float scale) override;
-=======
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
->>>>>>> origin/main
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
 
@@ -342,15 +301,9 @@ namespace bespoke {
          void zoom(float factor, float centerX, float centerY);
 
          // Rendering
-<<<<<<< HEAD
-         void render(IRenderer& renderer, int viewWidth, int viewHeight);
-         void renderTitleBar(IRenderer& renderer, int viewWidth);
-         void renderTransport(IRenderer& renderer, int viewWidth);
-=======
          void render(Renderer2D& renderer, int viewWidth, int viewHeight);
          void renderTitleBar(Renderer2D& renderer, int viewWidth);
          void renderTransport(Renderer2D& renderer, int viewWidth);
->>>>>>> origin/main
 
          // Input handling
          void onMouseDown(float x, float y, int button);

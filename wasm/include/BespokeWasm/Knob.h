@@ -8,11 +8,7 @@
 
 #pragma once
 
-<<<<<<< HEAD
-#include "IRenderer.h"
-=======
 #include "Renderer2D.h"
->>>>>>> origin/main
 #include <string>
 #include <functional>
 
@@ -42,11 +38,7 @@ public:
     ~Knob() = default;
     
     // Rendering
-<<<<<<< HEAD
-    void render(IRenderer& renderer, float x, float y, float size);
-=======
     void render(Renderer2D& renderer, float x, float y, float size);
->>>>>>> origin/main
     
     // Value access
     float getValue() const { return mValue; }
@@ -108,19 +100,11 @@ public:
     std::string getDisplayString() const;   // e.g. "440 Hz" or "0.75"
 
 private:
-<<<<<<< HEAD
-    void renderClassicKnob(IRenderer& renderer, float x, float y, float size);
-    void renderVintageKnob(IRenderer& renderer, float x, float y, float size);
-    void renderModernKnob(IRenderer& renderer, float x, float y, float size);
-    void renderLEDKnob(IRenderer& renderer, float x, float y, float size);
-    void renderMinimalKnob(IRenderer& renderer, float x, float y, float size);
-=======
     void renderClassicKnob(Renderer2D& renderer, float x, float y, float size);
     void renderVintageKnob(Renderer2D& renderer, float x, float y, float size);
     void renderModernKnob(Renderer2D& renderer, float x, float y, float size);
     void renderLEDKnob(Renderer2D& renderer, float x, float y, float size);
     void renderMinimalKnob(Renderer2D& renderer, float x, float y, float size);
->>>>>>> origin/main
     
     float valueToAngle(float value) const;
     void notifyValueChanged();
