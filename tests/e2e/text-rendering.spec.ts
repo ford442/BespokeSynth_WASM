@@ -12,13 +12,9 @@
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { gotoApp, waitForBespokeReady as waitForReady } from './helpers';
 
 const FIXTURES_DIR = path.join(__dirname, '../fixtures');
-
-async function assertAppShell(page: import('@playwright/test').Page): Promise<void> {
-  await expect(page).toHaveTitle(/BespokeSynth WASM/i, { timeout: 5000 });
-  await expect(page.locator('#canvas')).toBeVisible({ timeout: 5000 });
-}
 
 function attachInitDiagnostics(page: import('@playwright/test').Page): string[] {
   const errors: string[] = [];
@@ -33,12 +29,8 @@ async function waitForBespokeReady(
   page: import('@playwright/test').Page,
   errors: string[],
 ): Promise<void> {
-  // Module lives on the app instance, not window.Module — wait for the public API.
   try {
-    await page.waitForFunction(
-      () => (window as Window & { __bespoke?: { getRendererBackend?: () => string } }).__bespoke?.getRendererBackend !== undefined,
-      { timeout: 60000 },
-    );
+    await waitForReady(page);
   } catch (err) {
     const status = await page.locator('#status .status-subheader').textContent().catch(() => '(unknown)');
     const hint = errors.length > 0 ? `\nBrowser errors:\n${errors.slice(-8).join('\n')}` : '';
@@ -74,20 +66,16 @@ function meanLuminance(png: Buffer): number {
   return count > 0 ? sum / count : 0;
 }
 
-async function runTextRenderingCase(
-  page: import('@playwright/test').Page,
-  backend: 'webgl' | 'webgpu',
-): Promise<void> {
+async function runTextRenderingCase(page: import('@playwright/test').Page): Promise<void> {
   const errors = attachInitDiagnostics(page);
-  await page.goto(`/?renderer=${backend}&renderTest=1`);
-  await assertAppShell(page);
+  await gotoApp(page, 'renderTest=1');
   await waitForBespokeReady(page, errors);
 
   const reportedBackend = await page.evaluate(() => {
     const w = window as Window & { __bespoke?: { getRendererBackend?: () => string } };
     return w.__bespoke?.getRendererBackend?.();
   });
-  expect(reportedBackend).toBe(backend);
+  expect(reportedBackend).toBe('webgl');
 
   await page.evaluate(() => {
     const api = (window as Window & {
@@ -105,7 +93,7 @@ async function runTextRenderingCase(
   if (!fs.existsSync(FIXTURES_DIR)) {
     fs.mkdirSync(FIXTURES_DIR, { recursive: true });
   }
-  const fixturePath = path.join(FIXTURES_DIR, `render-test-${backend}.png`);
+  const fixturePath = path.join(FIXTURES_DIR, 'render-test-webgl.png');
   if (process.env.UPDATE_TEXT_BASELINES === '1' || !fs.existsSync(fixturePath)) {
     fs.writeFileSync(fixturePath, png);
     test.info().annotations.push({
@@ -123,12 +111,6 @@ async function runTextRenderingCase(
 
 test.describe('text rendering (webgl)', () => {
   test('render test scene initializes with legible canvas output', async ({ page }) => {
-    await runTextRenderingCase(page, 'webgl');
-  });
-});
-
-test.describe.skip('text rendering (webgpu)', () => {
-  test('render test scene initializes with legible canvas output', async ({ page }) => {
-    await runTextRenderingCase(page, 'webgpu');
+    await runTextRenderingCase(page);
   });
 });
