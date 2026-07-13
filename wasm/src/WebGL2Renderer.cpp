@@ -5,10 +5,10 @@
  * Licensed under GNU GPL v3
  */
 
-#include "WebGL2Renderer.h"
-#include "WebGL2Shaders.h"
+#include "BespokeWasm/WebGL2Renderer.h"
+#include "BespokeWasm/WebGL2Shaders.h"
 #include "BespokeWasm/Theme.h"
-#include "PixelFont.h"
+#include "BespokeWasm/PixelFont.h"
 #include <algorithm>
 #include <cmath>
 #include <cstddef>

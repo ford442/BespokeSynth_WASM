@@ -2,6 +2,7 @@
 
 # BespokeSynth WASM Build Script
 # This script builds the WASM version of BespokeSynth using Emscripten
+# CI uses Emscripten 3.1.50; keep the Codespaces SDK on this version when updating it.
 
 set -e
 

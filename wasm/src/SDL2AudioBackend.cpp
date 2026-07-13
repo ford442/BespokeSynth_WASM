@@ -5,7 +5,7 @@
  * Licensed under GNU GPL v3
  */
 
-#include "SDL2AudioBackend.h"
+#include "BespokeWasm/SDL2AudioBackend.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>

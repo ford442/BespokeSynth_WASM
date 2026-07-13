@@ -8,15 +8,19 @@
 
 #pragma once
 
-#include "Renderer2D.h"
+#include "BespokeWasm/Renderer2D.h"
 #include <string>
 #include <vector>
 #include <memory>
 #include <unordered_map>
 #include <functional>
+#include <mutex>
+#include <map>
 
-namespace bespoke {
-   namespace wasm {
+namespace bespoke
+{
+   namespace wasm
+   {
 
       // Module categories matching desktop BespokeSynth
       enum class ModuleCategory
@@ -48,7 +52,11 @@ namespace bespoke {
          float x, y; // Relative position on module
 
          Port(const std::string& name, PortType type, bool isOutput)
-            : name(name), type(type), isOutput(isOutput), x(0), y(0)
+         : name(name)
+         , type(type)
+         , isOutput(isOutput)
+         , x(0)
+         , y(0)
          {
          }
       };
@@ -63,7 +71,10 @@ namespace bespoke {
          Color color;
 
          Connection()
-            : sourceModuleId(-1), sourcePortIndex(0), destModuleId(-1), destPortIndex(0)
+         : sourceModuleId(-1)
+         , sourcePortIndex(0)
+         , destModuleId(-1)
+         , destPortIndex(0)
          {
          }
       };
@@ -86,8 +97,16 @@ namespace bespoke {
          float getY() const { return mY; }
          float getWidth() const { return mWidth; }
          float getHeight() const { return mHeight; }
-         void setPosition(float x, float y) { mX = x; mY = y; }
-         void setSize(float w, float h) { mWidth = w; mHeight = h; }
+         void setPosition(float x, float y)
+         {
+            mX = x;
+            mY = y;
+         }
+         void setSize(float w, float h)
+         {
+            mWidth = w;
+            mHeight = h;
+         }
 
          // State
          bool isEnabled() const { return mEnabled; }
@@ -277,6 +296,72 @@ namespace bespoke {
       class ModuleCanvas
       {
       public:
+         struct AudioGraphNode
+         {
+            int id = -1;
+            std::string type;
+            bool enabled = true;
+            float frequency = 440.0f;
+            float volume = 1.0f;
+            int waveform = 0;
+            float gain = 1.0f;
+            float cutoff = 1000.0f;
+            float resonance = 0.5f;
+            int filterType = 0;
+            float lfoRate = 1.0f;
+            float lfoDepth = 1.0f;
+            int lfoShape = 0;
+         };
+
+         struct AudioGraphConnection
+         {
+            int sourceModuleId = -1;
+            int sourcePortIndex = 0;
+            int destModuleId = -1;
+            int destPortIndex = 0;
+            PortType sourcePortType = PortType::Audio;
+            PortType destPortType = PortType::Audio;
+         };
+
+         struct AudioGraphSnapshot
+         {
+            bool transportPlaying = false;
+            float transportBPM = 120.0f;
+            std::vector<AudioGraphNode> nodes;
+            std::vector<AudioGraphConnection> connections;
+         };
+
+         struct StateModule
+         {
+            int id = -1;
+            std::string type;
+            float x = 0.0f;
+            float y = 0.0f;
+            bool minimized = false;
+            bool enabled = true;
+            std::map<std::string, float> controls;
+         };
+
+         struct StateConnection
+         {
+            int sourceModuleId = -1;
+            int sourcePortIndex = 0;
+            int destModuleId = -1;
+            int destPortIndex = 0;
+         };
+
+         struct StateSnapshot
+         {
+            int schemaVersion = 1;
+            float transportBPM = 120.0f;
+            bool transportPlaying = false;
+            float offsetX = 0.0f;
+            float offsetY = 0.0f;
+            float scale = 1.0f;
+            std::vector<StateModule> modules;
+            std::vector<StateConnection> connections;
+         };
+
          ModuleCanvas();
          ~ModuleCanvas() = default;
 
@@ -286,24 +371,38 @@ namespace bespoke {
          Module* getModule(int moduleId);
          int findFirstModuleOfType(const std::string& type) const;
          int getModuleCount() const { return static_cast<int>(mModules.size()); }
+         bool setModuleControlValue(int moduleId, const std::string& name, float value);
+         bool getModuleControlValue(int moduleId, const std::string& name, float& value) const;
 
          // Connection management
          void connectModules(int sourceId, int sourcePort, int destId, int destPort);
          void disconnectModules(int sourceId, int destId);
          const std::vector<Connection>& getConnections() const { return mConnections; }
+         AudioGraphSnapshot createAudioGraphSnapshot() const;
+         StateSnapshot createStateSnapshot() const;
+         bool applyStateSnapshot(const StateSnapshot& snapshot);
 
          // Canvas view
          float getOffsetX() const { return mOffsetX; }
          float getOffsetY() const { return mOffsetY; }
          float getScale() const { return mScale; }
-         void setOffset(float x, float y) { mOffsetX = x; mOffsetY = y; }
-         void pan(float dx, float dy) { mOffsetX += dx; mOffsetY += dy; }
+         void setOffset(float x, float y)
+         {
+            mOffsetX = x;
+            mOffsetY = y;
+         }
+         void pan(float dx, float dy)
+         {
+            mOffsetX += dx;
+            mOffsetY += dy;
+         }
          void zoom(float factor, float centerX, float centerY);
 
          // Rendering
          void render(Renderer2D& renderer, int viewWidth, int viewHeight);
          void renderTitleBar(Renderer2D& renderer, int viewWidth);
          void renderTransport(Renderer2D& renderer, int viewWidth);
+         void renderSpawnMenu(Renderer2D& renderer, int viewWidth, int viewHeight);
 
          // Input handling
          void onMouseDown(float x, float y, int button);
@@ -330,16 +429,27 @@ namespace bespoke {
          // Transport access
          TransportModule* getTransport() { return mTransport; }
          ScaleModule* getScale() { return mScaleModule; }
+         bool isTransportPlaying() const;
+         void setTransportPlaying(bool playing);
+         void toggleTransportPlaying();
+         float getTransportBPM() const;
+         void setTransportBPM(float bpm);
 
       private:
+         using Lock = std::lock_guard<std::recursive_mutex>;
+
          // Convert screen coordinates to world coordinates
          float screenToWorldX(float screenX) const;
          float screenToWorldY(float screenY) const;
+         bool findPortAt(float worldX, float worldY, bool output, int& moduleId, int& portIndex) const;
+         bool portsAreCompatible(int sourceId, int sourcePort, int destId, int destPort) const;
+         bool removeConnectionAt(float screenX, float screenY);
 
          // Module storage
          std::unordered_map<int, std::unique_ptr<Module>> mModules;
          std::vector<Connection> mConnections;
          int mNextModuleId = 1;
+         mutable std::recursive_mutex mMutex;
 
          // Canvas view state
          float mOffsetX = 0.0f;
@@ -355,11 +465,16 @@ namespace bespoke {
          int mConnectSourceId = -1;
          int mConnectSourcePort = -1;
          float mConnectEndX = 0.0f, mConnectEndY = 0.0f;
+         bool mConnectTargetCompatible = true;
 
          // Spawn menu state
          bool mSpawnMenuOpen = false;
          float mSpawnMenuX = 0.0f, mSpawnMenuY = 0.0f;
          int mSpawnMenuCategory = -1;
+         std::string mSpawnMenuSearch;
+         int mSpawnMenuSelectedIndex = 0;
+         float mLastMouseX = 0.0f, mLastMouseY = 0.0f;
+         float mSpawnMenuRenderX = 0.0f, mSpawnMenuRenderY = 0.0f;
 
          // Singleton modules (always present)
          TransportModule* mTransport = nullptr;

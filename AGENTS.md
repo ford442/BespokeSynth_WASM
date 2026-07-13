@@ -477,10 +477,9 @@ Before submitting changes:
 
 | File | Purpose |
 |------|---------|
-| `wasm/README.md` | WebGPU renderer, shader pipeline, build requirements |
-| `WASM_FIX_SUMMARY.md` | Technical details of WASM fixes |
-| `DEPLOYMENT_GUIDE.md` | Deployment instructions for WASM files |
-| `DEVELOPER_CONTEXT.md` | High-level architecture, complexity hotspots |
+| `docs/wasm/README.md` | Canonical WASM contributor entry point, architecture, roadmap, and debugging links |
+| `wasm/README.md` | Current build options and renderer/runtime reference |
+| `docs/DEVELOPER_CONTEXT.md` | Desktop architecture; links to canonical WASM docs |
 | `CONTRIBUTING.md` | General contribution guidelines |
 | `CODE_OF_CONDUCT.md` | Community guidelines |
 

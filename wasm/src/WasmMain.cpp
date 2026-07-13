@@ -77,8 +77,22 @@ EM_BOOL on_key_up(int eventType, const EmscriptenKeyboardEvent* keyEvent, void* 
 // -------------------------------------------------------------------------
 
 EM_BOOL on_animation_frame(double time, void* userData) {
-    (void)time;
     (void)userData;
+#if defined(BESPOKE_WASM_FRAME_INSTRUMENTATION)
+    static double lastReportTime = 0.0;
+    static unsigned int framesSinceReport = 0;
+    ++framesSinceReport;
+    if (lastReportTime == 0.0)
+        lastReportTime = time;
+    if (time - lastReportTime >= 1000.0) {
+        std::cout << "BespokeSynth Profile: " << framesSinceReport
+                  << " frames in " << (time - lastReportTime) << "ms" << std::endl;
+        lastReportTime = time;
+        framesSinceReport = 0;
+    }
+#else
+    (void)time;
+#endif
     bespoke_render();
     return EM_TRUE;
 }

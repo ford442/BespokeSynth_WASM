@@ -432,7 +432,8 @@ Output appears in browser console.
 - [WebGPU Specification](https://gpuweb.github.io/gpuweb/)
 - [WGSL Spec](https://www.w3.org/TR/WGSL/)
 - [SDL2 Audio](https://wiki.libsdl.org/SDL_OpenAudioDevice)
-- [DEVELOPER_CONTEXT.md](DEVELOPER_CONTEXT.md) - Desktop architecture (for reference, not WASM)
+- [docs/wasm/README.md](docs/wasm/README.md) - Canonical WASM contributor guide
+- [docs/DEVELOPER_CONTEXT.md](docs/DEVELOPER_CONTEXT.md) - Desktop architecture (for reference, not WASM)
 
 ## Build System Internals
 

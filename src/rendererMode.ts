@@ -1,3 +1,5 @@
+import type { BespokeSynthModule } from '../wasm/types/bespoke-synth';
+
 export type RendererBackend = 'webgpu' | 'webgl';
 
 export interface ScreenshotRect {
@@ -126,7 +128,7 @@ function cropDataUrl(
   });
 }
 
-function readWasmScreenshot(module: any): { rgba: Uint8Array; width: number; height: number } | null {
+function readWasmScreenshot(module: BespokeSynthModule): { rgba: Uint8Array; width: number; height: number } | null {
   if (!module?._bespoke_capture_screenshot || !module?._bespoke_get_screenshot_pixels) return null;
 
   const widthPtr = module._malloc(4);
@@ -161,7 +163,7 @@ function readWasmScreenshot(module: any): { rgba: Uint8Array; width: number; hei
 
 export async function captureCanvasScreenshot(
   canvas: HTMLCanvasElement,
-  module?: any,
+  module?: BespokeSynthModule | null,
   options: CaptureScreenshotOptions = {},
 ): Promise<string> {
   let dataUrl: string;

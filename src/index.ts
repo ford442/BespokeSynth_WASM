@@ -6,6 +6,7 @@
  */
 
 import './styles.css';
+import type { BespokeSynthModule } from '../wasm/types/bespoke-synth';
 import {
   resolveRendererBackend,
   publishRendererBreadcrumbs,
@@ -17,6 +18,32 @@ import {
   type RendererBackend,
   type CaptureScreenshotOptions,
 } from './rendererMode';
+import {
+  downloadPatchState,
+  getPatchStateJson,
+  loadBundledLayout,
+  loadPatchStateJson,
+  promptForPatchStateFile,
+} from './patchState';
+import { PatchStorage, type StoredPatch } from './patchStorage';
+import { connectWebMidi } from './midi';
+
+interface BespokeSynthFactoryConfig {
+  canvas: HTMLCanvasElement | HTMLElement | null;
+  print: (text: unknown) => void;
+  printErr: (text: unknown) => void;
+}
+
+type BespokeSynthFactory = (config: BespokeSynthFactoryConfig) => Promise<BespokeSynthModule>;
+
+interface BespokeBrowserWindow extends Window {
+  createBespokeSynth?: BespokeSynthFactory;
+  Module?: BespokeSynthModule;
+  __bespoke_on_init_progress?: (step: string, detail: string) => void;
+  __bespoke_on_init_complete?: (status: number) => void;
+}
+
+const bespokeWindow = window as BespokeBrowserWindow;
 
 // Initialization step definitions
 interface InitStep {
@@ -47,20 +74,20 @@ const WEBGL2_INIT_STEPS: InitStep[] = [
 ];
 
 // Load WASM module script dynamically
-const loadWasmModule = async (canvas?: HTMLCanvasElement): Promise<any> => {
+const loadWasmModule = async (canvas?: HTMLCanvasElement): Promise<BespokeSynthModule> => {
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
     script.src = 'wasm/BespokeSynthWASM.js';
     script.onload = async () => {
       console.log('loadWasmModule: script loaded');
       // If the build was modularized, a factory function will be exposed
-      const factory = (window as any).createBespokeSynth;
+      const factory = bespokeWindow.createBespokeSynth;
       console.log('loadWasmModule: factory type =', typeof factory);
       if (typeof factory === 'function') {
         const config = {
           canvas: canvas ?? document.getElementById('canvas'),
-          print: (text: any) => console.log(text),
-          printErr: (text: any) => console.error(text),
+          print: (text: unknown) => console.log(text),
+          printErr: (text: unknown) => console.error(text),
         };
 
         try {
@@ -77,16 +104,20 @@ const loadWasmModule = async (canvas?: HTMLCanvasElement): Promise<any> => {
       }
 
       // Fallback for non-modularized builds (legacy global Module)
-      if ((window as any).Module?.calledRun) {
-        resolve((window as any).Module);
+      if (bespokeWindow.Module?.calledRun) {
+        resolve(bespokeWindow.Module);
       } else {
-        (window as any).Module = {
-          ...(window as any).Module,
+        bespokeWindow.Module = {
+          ...bespokeWindow.Module,
           onRuntimeInitialized: () => {
             console.log('loadWasmModule: onRuntimeInitialized called — resolving Module');
-            resolve((window as any).Module);
+            if (bespokeWindow.Module) {
+              resolve(bespokeWindow.Module);
+            } else {
+              reject(new Error('WASM Module global was not initialized'));
+            }
           },
-        };
+        } as BespokeSynthModule;
       }
     };
     script.onerror = () => reject(new Error('Failed to load WASM module'));
@@ -97,7 +128,7 @@ const loadWasmModule = async (canvas?: HTMLCanvasElement): Promise<any> => {
 // Main application class
 class BespokeSynthApp {
   private canvas: HTMLCanvasElement | null = null;
-  private module: any = null;
+  private module: BespokeSynthModule | null = null;
   private animationFrameId: number | null = null;
   private isInitialized = false;
   private currentProgress = 0;
@@ -105,6 +136,10 @@ class BespokeSynthApp {
   private activeStep: string | null = null;
   private initStartTime = 0;
   private isProcessingEvents = false;
+  private readonly patchStorage = new PatchStorage();
+  private selectedPatchId: string | undefined;
+  private autoSaveTimer: number | null = null;
+  private lastAutoSaveJson = '';
 
   // Hybrid DOM text overlay
   private guiOverlay: HTMLElement | null = null;
@@ -115,7 +150,7 @@ class BespokeSynthApp {
   private initSteps: InitStep[] =
     resolveRendererBackend() === 'webgl' ? WEBGL2_INIT_STEPS : WEBGPU_INIT_STEPS;
 
-  getModule(): any {
+  getModule(): BespokeSynthModule | null {
     return this.module;
   }
 
@@ -138,6 +173,7 @@ class BespokeSynthApp {
     this.initializeProgressUI();
     this.setupInitProgressCallback();
     this.setupRendererDebugUI();
+    this.setupPatchStorageUI();
     this.setupKeyboardShortcuts();
 
     const statusSubheader = document.querySelector('#status .status-subheader');
@@ -306,13 +342,94 @@ class BespokeSynthApp {
     screenshotBtn.title = 'Capture canvas PNG (Ctrl+Shift+S)';
     screenshotBtn.addEventListener('click', () => void this.captureScreenshot());
 
+    const midiBtn = document.createElement('button');
+    midiBtn.id = 'midiBtn'; midiBtn.className = 'btn'; midiBtn.textContent = 'MIDI';
+    midiBtn.title = 'Connect browser MIDI inputs';
+    midiBtn.addEventListener('click', async () => {
+      if (!this.module) return;
+      try { midiBtn.textContent = `MIDI ${await connectWebMidi(this.module)}`; }
+      catch (error) { console.error('Web MIDI connection failed:', error); midiBtn.textContent = 'MIDI unavailable'; }
+    });
+
+    const saveBtn = document.createElement('button');
+    saveBtn.id = 'savePatchBtn';
+    saveBtn.className = 'btn';
+    saveBtn.textContent = 'Save';
+    saveBtn.title = 'Save patch JSON';
+    saveBtn.addEventListener('click', () => {
+      if (this.module) downloadPatchState(this.module);
+    });
+
+    const loadBtn = document.createElement('button');
+    loadBtn.id = 'loadPatchBtn';
+    loadBtn.className = 'btn';
+    loadBtn.textContent = 'Load';
+    loadBtn.title = 'Load patch JSON';
+    loadBtn.addEventListener('click', () => {
+      if (this.module) void promptForPatchStateFile(this.module);
+    });
+
     headerControls.appendChild(rendererSelect);
     headerControls.appendChild(debugSelect);
     headerControls.appendChild(screenshotBtn);
+    headerControls.appendChild(midiBtn);
+    headerControls.appendChild(saveBtn);
+    headerControls.appendChild(loadBtn);
 
     if (new URLSearchParams(window.location.search).has('debug')) {
       this.setupFloatingRendererToggle();
     }
+  }
+
+  private setupPatchStorageUI(): void {
+    const controls = document.querySelector('#header .controls');
+    if (!controls) return;
+    const select = document.createElement('select');
+    select.id = 'patchSelect'; select.className = 'renderer-select'; select.title = 'Saved browser patches';
+    const save = document.createElement('button'); save.className = 'btn'; save.textContent = 'Save browser';
+    const load = document.createElement('button'); load.className = 'btn'; load.textContent = 'Load browser';
+    const rename = document.createElement('button'); rename.className = 'btn'; rename.textContent = 'Rename';
+    const remove = document.createElement('button'); remove.className = 'btn'; remove.textContent = 'Delete';
+    const auto = document.createElement('label'); auto.className = 'autosave-toggle';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.id = 'autosaveToggle';
+    auto.append(checkbox, document.createTextNode(' Auto-save'));
+    const refresh = async (): Promise<StoredPatch[]> => {
+      const patches = await this.patchStorage.list();
+      select.replaceChildren(new Option('Saved patches', ''));
+      for (const patch of patches) select.add(new Option(patch.name, patch.id));
+      select.value = this.selectedPatchId ?? '';
+      return patches;
+    };
+    save.addEventListener('click', async () => {
+      const name = window.prompt('Patch name', select.selectedOptions[0]?.textContent ?? 'Untitled patch');
+      if (name === null) return;
+      const patch = await this.patchStorage.save(name, getPatchStateJson(this.module), this.selectedPatchId);
+      this.selectedPatchId = patch.id; await refresh();
+    });
+    load.addEventListener('click', async () => {
+      const patch = (await this.patchStorage.list()).find((item) => item.id === select.value);
+      if (patch && loadPatchStateJson(this.module, patch.json)) { this.selectedPatchId = patch.id; this.lastAutoSaveJson = patch.json; }
+    });
+    rename.addEventListener('click', async () => {
+      const patch = (await this.patchStorage.list()).find((item) => item.id === select.value);
+      if (!patch) return;
+      const name = window.prompt('Patch name', patch.name);
+      if (name !== null) { await this.patchStorage.save(name, patch.json, patch.id); await refresh(); }
+    });
+    remove.addEventListener('click', async () => { if (select.value) { await this.patchStorage.remove(select.value); this.selectedPatchId = undefined; await refresh(); } });
+    checkbox.addEventListener('change', () => this.configureAutoSave(checkbox.checked));
+    controls.append(select, save, load, rename, remove, auto);
+    void refresh();
+  }
+
+  private configureAutoSave(enabled: boolean): void {
+    if (this.autoSaveTimer !== null) window.clearInterval(this.autoSaveTimer);
+    this.autoSaveTimer = enabled ? window.setInterval(() => {
+      const json = getPatchStateJson(this.module);
+      if (json === this.lastAutoSaveJson) return;
+      this.lastAutoSaveJson = json;
+      void this.patchStorage.save('Auto-saved patch', json, this.selectedPatchId).then((patch) => { this.selectedPatchId = patch.id; });
+    }, 1500) : null;
   }
 
   private setupFloatingRendererToggle(): void {
@@ -349,6 +466,12 @@ class BespokeSynthApp {
       console.log('Render test mode: canonical scene loaded (?renderTest=1)');
     }
 
+    if (new URLSearchParams(window.location.search).get('patch') === 'starter') {
+      if (!loadBundledLayout(this.module, 'savestate/wasm-starter.bsk')) {
+        console.warn('Bundled starter patch could not be loaded');
+      }
+    }
+
     const activeBackend = this.module._bespoke_get_renderer_backend?.() === 1 ? 'webgl' : 'webgpu';
     this.rendererBackend = activeBackend;
     publishRendererBreadcrumbs(activeBackend, this.rendererFallbackReason);
@@ -375,7 +498,7 @@ class BespokeSynthApp {
   }
 
   private setupInitProgressCallback(): void {
-    (window as any).__bespoke_on_init_progress = (step: string, detail: string) => {
+    bespokeWindow.__bespoke_on_init_progress = (step: string, detail: string) => {
       console.log(`[InitProgress] ${step}: ${detail}`);
 
       const progressToStep: Record<string, string> = {
@@ -557,7 +680,7 @@ class BespokeSynthApp {
 
       const initTimeout = window.setTimeout(() => {
         clearInterval(statePollInterval);
-        delete (window as any).__bespoke_on_init_complete;
+        delete bespokeWindow.__bespoke_on_init_complete;
 
         const elapsed = ((performance.now() - this.initStartTime) / 1000).toFixed(1);
         console.error(`Initialization timed out after ${elapsed}s`);
@@ -569,12 +692,12 @@ class BespokeSynthApp {
       // A separate high-frequency poll interval is not needed and previously caused
       // Asyncify reentrancy crashes by calling _bespoke_process_events() concurrently.
 
-      (window as any).__bespoke_on_init_complete = (status: number) => {
+      bespokeWindow.__bespoke_on_init_complete = (status: number) => {
         console.log('__bespoke_on_init_complete called with status:', status);
 
         window.clearTimeout(initTimeout);
         clearInterval(statePollInterval);
-        delete (window as any).__bespoke_on_init_complete;
+        delete bespokeWindow.__bespoke_on_init_complete;
 
         if (status === 0) {
           this.completeAllSteps();
@@ -683,47 +806,51 @@ class BespokeSynthApp {
 
   private setupEventListeners(): void {
     if (!this.canvas || !this.module) return;
+    const module = this.module;
 
     // Mouse events
     this.canvas.addEventListener('mousedown', (e) => {
-      if (this.module._bespoke_mouse_down) {
-        this.module._bespoke_mouse_down(e.offsetX, e.offsetY, e.button);
+      if (module._bespoke_mouse_down) {
+        module._bespoke_mouse_down(e.offsetX, e.offsetY, e.button);
       }
     });
 
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
     this.canvas.addEventListener('mouseup', (e) => {
-      if (this.module._bespoke_mouse_up) {
-        this.module._bespoke_mouse_up(e.offsetX, e.offsetY, e.button);
+      if (module._bespoke_mouse_up) {
+        module._bespoke_mouse_up(e.offsetX, e.offsetY, e.button);
       }
     });
 
     this.canvas.addEventListener('mousemove', (e) => {
-      if (this.module._bespoke_mouse_move) {
-        this.module._bespoke_mouse_move(e.offsetX, e.offsetY);
+      if (module._bespoke_mouse_move) {
+        module._bespoke_mouse_move(e.offsetX, e.offsetY);
       }
     });
 
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      if (this.module._bespoke_mouse_wheel) {
-        this.module._bespoke_mouse_wheel(e.deltaX, e.deltaY);
+      if (module._bespoke_mouse_wheel) {
+        module._bespoke_mouse_wheel(e.deltaX, e.deltaY);
       }
     }, { passive: false });
 
     // Keyboard events
     document.addEventListener('keydown', (e) => {
-      if (this.module._bespoke_key_down) {
+      if (module._bespoke_key_down) {
         const modifiers = this.getModifiers(e);
-        const keyCode = e.code ? e.code.charCodeAt(0) : (e.keyCode || e.which);
-        this.module._bespoke_key_down(keyCode, modifiers);
+        const keyCode = e.key.length === 1 ? e.key.toUpperCase().charCodeAt(0) : (e.keyCode || e.which);
+        if (e.key === '/' || (e.ctrlKey && e.key.toLowerCase() === 'k')) e.preventDefault();
+        module._bespoke_key_down(keyCode, modifiers);
       }
     });
 
     document.addEventListener('keyup', (e) => {
-      if (this.module._bespoke_key_up) {
+      if (module._bespoke_key_up) {
         const modifiers = this.getModifiers(e);
         const keyCode = e.code ? e.code.charCodeAt(0) : (e.keyCode || e.which);
-        this.module._bespoke_key_up(keyCode, modifiers);
+        module._bespoke_key_up(keyCode, modifiers);
       }
     });
 
@@ -733,16 +860,16 @@ class BespokeSynthApp {
 
     if (playBtn) {
       playBtn.addEventListener('click', () => {
-        if (this.module._bespoke_play) {
-          this.module._bespoke_play();
+        if (module._bespoke_play) {
+          module._bespoke_play();
         }
       });
     }
 
     if (stopBtn) {
       stopBtn.addEventListener('click', () => {
-        if (this.module._bespoke_stop) {
-          this.module._bespoke_stop();
+        if (module._bespoke_stop) {
+          module._bespoke_stop();
         }
       });
     }
@@ -944,6 +1071,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     captureScreenshot: async (options?: CaptureScreenshotOptions) => app.captureScreenshot(options ?? {}),
     downloadScreenshot,
     onScreenshotCaptured,
+    getStateJson: () => getPatchStateJson(app.getModule()),
+    loadStateJson: (json: string) => loadPatchStateJson(app.getModule(), json),
+    downloadPatch: (filename?: string) => downloadPatchState(app.getModule(), filename),
+    loadPatchFile: () => promptForPatchStateFile(app.getModule()),
+    loadBundledLayout: (path: string) => loadBundledLayout(app.getModule(), path),
     setRendererBackend: (backend: RendererBackend) => switchRendererPreference(backend),
     getRendererBackend: () => {
       const mod = app.getModule();

@@ -33,7 +33,6 @@ add_compile_options(
 # 2. Linker options
 add_link_options(
     "-sALLOW_MEMORY_GROWTH=1"
-    "-sASSERTIONS=1"
     "-sUSE_WEBGL2=1"
     "-sMIN_WEBGL_VERSION=2"
     "-sMAX_WEBGL_VERSION=2"
@@ -49,9 +48,8 @@ add_compile_definitions(
 )
 
 # Include Paths
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include/BespokeWasm")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../Source")
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/json/jsoncpp/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/JUCE/modules")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/JUCE/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/nanovg/src") # NanoVG
@@ -68,11 +66,22 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/nanovg_fix")
 option(BESPOKE_WASM_WEBGPU "Enable WebGPU rendering backend" ON)
 option(BESPOKE_WASM_SDL2_AUDIO "Enable SDL2 audio backend" ON)
 option(BESPOKE_WASM_THREADS "Enable threading support" OFF)
+option(BESPOKE_WASM_ASYNCIFY "Enable Asyncify support (off unless an async C++ stack is required)" OFF)
+set(BESPOKE_WASM_BUILD_FLAVOR "Release" CACHE STRING "Release, Debug, or Profile WASM build")
+set_property(CACHE BESPOKE_WASM_BUILD_FLAVOR PROPERTY STRINGS Release Debug Profile)
+
+if(NOT BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Release" AND
+   NOT BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Debug" AND
+   NOT BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Profile")
+    message(FATAL_ERROR "BESPOKE_WASM_BUILD_FLAVOR must be Release, Debug, or Profile")
+endif()
 
 message(STATUS "Building BespokeSynth for WebAssembly")
 message(STATUS "  WebGPU: ${BESPOKE_WASM_WEBGPU}")
 message(STATUS "  SDL2 Audio: ${BESPOKE_WASM_SDL2_AUDIO}")
 message(STATUS "  Threads: ${BESPOKE_WASM_THREADS}")
+message(STATUS "  Asyncify: ${BESPOKE_WASM_ASYNCIFY}")
+message(STATUS "  Build flavor: ${BESPOKE_WASM_BUILD_FLAVOR}")
 
 # Collect WASM-specific sources
 set(WASM_SOURCES
@@ -84,6 +93,12 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/WebGL2Shaders.cpp
     ${BESPOKE_WASM_DIR}/src/PixelFont.cpp
     ${BESPOKE_WASM_DIR}/src/SDL2AudioBackend.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioAnalysis.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmAudioEngine.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmInputRouter.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmRuntimeState.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmPatchState.cpp
     ${BESPOKE_WASM_DIR}/src/WasmBridge.cpp
     ${BESPOKE_WASM_DIR}/src/Knob.cpp
     ${BESPOKE_WASM_DIR}/src/ModuleCanvas.cpp
@@ -130,7 +145,6 @@ target_include_directories(BespokeSynthWASM PRIVATE
     ${BESPOKE_SOURCE_DIR}
     ${BESPOKE_WASM_DIR}/src
     ${BESPOKE_WASM_DIR}/include
-    ${BESPOKE_WASM_DIR}/include/BespokeWasm
     ${BESPOKE_LIBS_DIR}
     ${BESPOKE_LIBS_DIR}/nanovg/src
     ${BESPOKE_LIBS_DIR}/nanovg
@@ -145,7 +159,14 @@ target_compile_definitions(BespokeSynthWASM PRIVATE
     $<$<BOOL:${BESPOKE_WASM_SDL2_AUDIO}>:BESPOKE_SDL2_AUDIO=1>
 )
 
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/jsoncpp/include")
+if(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Debug")
+    target_compile_options(BespokeSynthWASM PRIVATE -O0 -g)
+elseif(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Profile")
+    target_compile_options(BespokeSynthWASM PRIVATE -O2 -g)
+    target_compile_definitions(BespokeSynthWASM PRIVATE BESPOKE_WASM_FRAME_INSTRUMENTATION=1)
+else()
+    target_compile_options(BespokeSynthWASM PRIVATE -O3)
+endif()
 
 # Emscripten linker flags
 set(EMSCRIPTEN_LINK_FLAGS
@@ -156,11 +177,35 @@ set(EMSCRIPTEN_LINK_FLAGS
     "-sINITIAL_MEMORY=134217728"  # 128MB initial
     "-sSTACK_SIZE=1048576"  # 1MB stack
     "--shell-file=${BESPOKE_WASM_DIR}/shell.html"
+    "--preload-file=${BESPOKE_WASM_DIR}/../resource@/resource"
     "-sMODULARIZE=1"
     "-sEXPORT_NAME='createBespokeSynth'"
-    "-sASYNCIFY=1"  # Enable async operations
-    "-sASYNCIFY_STACK_SIZE=2097152"  # 2MB async stack (increased from 512KB; emscripten_sleep() removed from hot path but kept for safety)
 )
+
+# WebGPU initialization is callback-driven and no source uses emscripten_sleep(),
+# so Asyncify is opt-in rather than a production binary-size cost.
+if(BESPOKE_WASM_ASYNCIFY)
+    list(APPEND EMSCRIPTEN_LINK_FLAGS
+        "-sASYNCIFY=1"
+        "-sASYNCIFY_STACK_SIZE=2097152"
+    )
+endif()
+
+if(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Debug")
+    list(APPEND EMSCRIPTEN_LINK_FLAGS "-O0" "-g" "-sASSERTIONS=2")
+elseif(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Profile")
+    list(APPEND EMSCRIPTEN_LINK_FLAGS "-O2" "-g" "-sASSERTIONS=1")
+else()
+    list(APPEND EMSCRIPTEN_LINK_FLAGS "-O3" "-sASSERTIONS=0")
+endif()
+
+# Keep the worklet block processor in the explicit JavaScript export surface.
+string(REPLACE "'_bespoke_process_audio'," "'_bespoke_process_audio','_bespoke_process_audio_block',"
+    EMSCRIPTEN_LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS}")
+string(REPLACE "'_bespoke_reset_theme'" "'_bespoke_reset_theme','_bespoke_midi_note_on','_bespoke_midi_note_off','_bespoke_midi_cc'"
+    EMSCRIPTEN_LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS}")
+string(REPLACE "'_bespoke_midi_cc'" "'_bespoke_midi_cc','_bespoke_load_layout'"
+    EMSCRIPTEN_LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS}")
 
 # Add WebGPU support
 if(BESPOKE_WASM_WEBGPU)
@@ -208,12 +253,18 @@ add_custom_command(TARGET BespokeSynthWASM POST_BUILD
 # Create a simple test target
 add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/tests/test_main.cpp
+    ${BESPOKE_WASM_DIR}/tests/synth_globals_stub.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmPatchState.cpp
     ${BESPOKE_WASM_DIR}/src/PixelFont.cpp
+    ${BESPOKE_SOURCE_DIR}/BiquadFilter.cpp
+    ${BESPOKE_SOURCE_DIR}/Oscillator.cpp
 )
 
 target_include_directories(BespokeSynthWASM_test PRIVATE
-    ${BESPOKE_WASM_DIR}/include/BespokeWasm
+    ${BESPOKE_WASM_DIR}/include
     ${BESPOKE_WASM_DIR}/src
+    ${BESPOKE_SOURCE_DIR}
 )
 
 set_target_properties(BespokeSynthWASM_test PROPERTIES

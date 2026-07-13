@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "Renderer2D.h"
+#include "BespokeWasm/Renderer2D.h"
 
 namespace bespoke {
 namespace wasm {

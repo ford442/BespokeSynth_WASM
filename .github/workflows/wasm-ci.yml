@@ -1,0 +1,80 @@
+name: WASM CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  wasm:
+    name: Build and test WASM
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EMSDK: ${{ runner.temp }}/emsdk
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Restore Emscripten SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/emsdk
+          key: emsdk-${{ runner.os }}-${{ hashFiles('.emscripten-version') }}-v1
+
+      - name: Install Emscripten
+        shell: bash
+        run: |
+          EMSCRIPTEN_VERSION="$(cat .emscripten-version)"
+          if [ ! -d "$EMSDK/.git" ]; then
+            git clone https://github.com/emscripten-core/emsdk.git "$EMSDK"
+          fi
+          "$EMSDK/emsdk" install "$EMSCRIPTEN_VERSION"
+          "$EMSDK/emsdk" activate "$EMSCRIPTEN_VERSION"
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Build WASM
+        shell: bash
+        run: |
+          source "$EMSDK/emsdk_env.sh"
+          npm run build:wasm
+
+      - name: Build web bundle
+        run: npm run build:web-only
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Chromium end-to-end tests
+        run: npm run test:e2e -- --project=chromium
+
+      - name: Upload build and Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-ci-artifacts
+          path: |
+            dist/
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 7

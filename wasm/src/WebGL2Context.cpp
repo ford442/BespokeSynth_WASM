@@ -5,7 +5,7 @@
  * Licensed under GNU GPL v3
  */
 
-#include "WebGL2Context.h"
+#include "BespokeWasm/WebGL2Context.h"
 
 #include <cstdio>
 #include <cstring>

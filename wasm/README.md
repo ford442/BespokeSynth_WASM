@@ -26,7 +26,7 @@ See [INITIALIZATION_FIXES.md](INITIALIZATION_FIXES.md) for detailed information 
 
 ### For Building
 
-- [Emscripten SDK](https://emscripten.org/docs/getting_started/downloads.html) (version 3.0 or later)
+- [Emscripten SDK](https://emscripten.org/docs/getting_started/downloads.html) 3.1.50 (pinned in [`.emscripten-version`](../.emscripten-version) and used by CI)
 - CMake 3.16 or later
 - A modern C++ compiler (for host tools)
 
@@ -46,10 +46,19 @@ See [docs/webgl-fallback.md](../docs/webgl-fallback.md) for renderer selection, 
    source /path/to/emsdk/emsdk_env.sh
    ```
 
-2. Run the build script:
+2. Run the build script. Release is the default; Debug and Profile use separate CMake build directories:
    ```bash
-   ./build.sh
+   ./build.sh             # Release: -O3, ASSERTIONS=0, Asyncify off
+   ./build.sh Debug       # -O0, -g, ASSERTIONS=2
+   ./build.sh Profile     # -O2, -g, frame-instrumentation compile flag
    ```
+
+   The equivalent npm commands are `npm run build:wasm`, `npm run build:wasm:debug`, and
+   `npm run build:wasm:profile`. Set `BESPOKE_WASM_JOBS` to override the bounded default
+   parallelism (the lesser of CPU count and 8).
+
+   `CMakePresets.json` contains matching `wasm-release`, `wasm-debug`, and `wasm-profile`
+   presets for IDEs and manual CMake use. Invoke them through `emcmake cmake --preset wasm-debug`.
 
    Or build manually:
    ```bash
@@ -75,6 +84,18 @@ Then open `http://localhost:8000/` in your browser.
 
 Note: The `shell.html` template includes a default JavaScript handler that will automatically call `Module._bespoke_init` when the Emscripten runtime is ready and will display helpful UI messages if WebGPU initialization fails or times out.
 
+## Bundled resources and demo patches
+
+The build preloads `resource/` into the Emscripten filesystem at `/resource`. This makes the
+desktop-derived layouts, scales, drum maps, and patches available without a second browser fetch.
+`bespoke_load_layout("savestate/wasm-starter.bsk")` loads the portable starter patch; use
+`?patch=starter` to load it on startup. The matching browser helper is
+`window.__bespoke.loadBundledLayout("savestate/wasm-starter.bsk")`.
+
+Desktop `.bsk` examples and `layouts/blank.json` may refer to desktop-only module types, so they
+remain shipped as reference demos but are intentionally rejected unless their graph is supported by
+the WASM module registry.
+
 ## Project Structure
 
 ```
@@ -82,15 +103,17 @@ wasm/
 ├── CMakeLists.txt       # CMake build configuration
 ├── build.sh             # Build script
 ├── shell.html           # HTML template
-├── include/             # Header files
-│   ├── WebGPUContext.h
-│   ├── WebGPURenderer.h
-│   ├── WebGL2Context.h
-│   ├── WebGL2Renderer.h
-│   ├── Renderer2D.h
-│   ├── SDL2AudioBackend.h
-│   ├── Knob.h
-│   └── WasmBridge.h
+├── include/             # Public WASM include root
+│   ├── BespokeWasm/     # Canonical project headers
+│   │   ├── WebGPUContext.h
+│   │   ├── WebGPURenderer.h
+│   │   ├── WebGL2Context.h
+│   │   ├── WebGL2Renderer.h
+│   │   ├── Renderer2D.h
+│   │   ├── SDL2AudioBackend.h
+│   │   ├── Knob.h
+│   │   └── WasmBridge.h
+│   └── webgpu/          # Vendored WebGPU C headers
 ├── src/                 # Implementation files
 │   ├── WasmMain.cpp
 │   ├── WasmBridge.cpp
@@ -107,6 +130,17 @@ wasm/
 └── tests/               # Test files
     └── test_main.cpp
 ```
+
+## Include Conventions
+
+WASM project headers live under `wasm/include/BespokeWasm/`. Source and headers should include them with the explicit namespace path:
+
+```cpp
+#include "BespokeWasm/Knob.h"
+#include "BespokeWasm/Renderer2D.h"
+```
+
+Do not add duplicate project headers directly under `wasm/include/`. `wasm/include` is the CMake include root; `BespokeWasm/` is the canonical project-header namespace. Root-level files such as `exprtk.hpp`, `Tunings.h`, `juce_compat.h`, and `json/` are narrow compatibility forwarders for shared desktop `Source/` files that include those third-party names directly.
 
 ## WebGPU Shaders
 
@@ -221,6 +255,19 @@ The `Knob` class supports multiple visual styles:
 | `BESPOKE_WASM_WEBGPU` | ON | Enable WebGPU rendering |
 | `BESPOKE_WASM_SDL2_AUDIO` | ON | Enable SDL2 audio backend |
 | `BESPOKE_WASM_THREADS` | OFF | Enable threading (experimental) |
+| `BESPOKE_WASM_ASYNCIFY` | OFF | Enable Asyncify only for a future async C++ call stack |
+| `BESPOKE_WASM_BUILD_FLAVOR` | Release | Release, Debug, or Profile flags and assertions |
+
+### Build-size comparison
+
+Measure the generated `.wasm` artifact after a clean build; debug symbols intentionally make
+the Debug artifact much larger. The CI release artifact is the deployment baseline.
+
+| Build | Optimization | Assertions | Asyncify | Expected size relationship |
+|---|---|---:|---:|---|
+| Release | `-O3` | 0 | off | Smallest production artifact |
+| Profile | `-O2 -g` | 1 | off | Larger than Release; keeps symbols and frame instrumentation flag |
+| Debug | `-O0 -g` | 2 | off | Largest; use only for local debugging |
 
 ### Runtime Configuration
 
@@ -237,7 +284,7 @@ Audio and rendering settings can be configured via the JavaScript API or URL par
 
 ## Known Limitations
 
-1. **Threading**: Multi-threaded audio processing requires SharedArrayBuffer, which needs specific HTTP headers (COOP/COEP).
+1. **Threading**: Multi-threaded audio processing requires SharedArrayBuffer, which needs specific HTTP headers (COOP/COEP). The development server sends those headers to support the experimental threaded preset, but the shipping WASM build keeps `BESPOKE_WASM_THREADS=OFF` until a tested pthread audio path is enabled.
 
 2. **File System**: The virtual file system is sandboxed. Use IndexedDB for persistent storage.
 

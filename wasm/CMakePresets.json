@@ -1,0 +1,41 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "wasm-base",
+      "hidden": true,
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "BESPOKE_WASM_WEBGPU": "ON",
+        "BESPOKE_WASM_SDL2_AUDIO": "ON",
+        "BESPOKE_WASM_THREADS": "OFF",
+        "BESPOKE_WASM_ASYNCIFY": "OFF"
+      }
+    },
+    {
+      "name": "wasm-release",
+      "inherits": "wasm-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BESPOKE_WASM_BUILD_FLAVOR": "Release"
+      }
+    },
+    {
+      "name": "wasm-debug",
+      "inherits": "wasm-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BESPOKE_WASM_BUILD_FLAVOR": "Debug"
+      }
+    },
+    {
+      "name": "wasm-profile",
+      "inherits": "wasm-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BESPOKE_WASM_BUILD_FLAVOR": "Profile"
+      }
+    }
+  ]
+}

@@ -7,8 +7,8 @@
 
 #pragma once
 
-#include "Renderer2D.h"
-#include "WebGL2Context.h"
+#include "BespokeWasm/Renderer2D.h"
+#include "BespokeWasm/WebGL2Context.h"
 #include <GLES3/gl3.h>
 #include <array>
 #include <vector>

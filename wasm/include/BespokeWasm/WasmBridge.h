@@ -21,6 +21,7 @@ EMSCRIPTEN_KEEPALIVE void bespoke_shutdown(void);
 
 // Audio processing
 EMSCRIPTEN_KEEPALIVE void bespoke_process_audio(void);
+EMSCRIPTEN_KEEPALIVE void bespoke_process_audio_block(float* output, int frames);
 EMSCRIPTEN_KEEPALIVE void bespoke_set_sample_rate(int sampleRate);
 EMSCRIPTEN_KEEPALIVE void bespoke_set_buffer_size(int bufferSize);
 EMSCRIPTEN_KEEPALIVE int bespoke_get_sample_rate(void);
@@ -49,11 +50,18 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_view_mode(int mode);
 EMSCRIPTEN_KEEPALIVE void bespoke_set_control_value(int moduleId, const char* controlName, float value);
 EMSCRIPTEN_KEEPALIVE float bespoke_get_control_value(int moduleId, const char* controlName);
 
+// Web MIDI input, normalized velocity/value range is [0, 1].
+EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_on(int channel, int pitch, float velocity);
+EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_off(int channel, int pitch);
+EMSCRIPTEN_KEEPALIVE void bespoke_midi_cc(int channel, int cc, float value);
+
 // State management
 EMSCRIPTEN_KEEPALIVE int bespoke_save_state(const char* filename);
 EMSCRIPTEN_KEEPALIVE int bespoke_load_state(const char* filename);
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_state_json(void);
 EMSCRIPTEN_KEEPALIVE int bespoke_load_state_json(const char* json);
+// Loads a bundled WASM patch/layout from the preloaded /resource filesystem.
+EMSCRIPTEN_KEEPALIVE int bespoke_load_layout(const char* path);
 
 // Transport
 EMSCRIPTEN_KEEPALIVE void bespoke_play(void);

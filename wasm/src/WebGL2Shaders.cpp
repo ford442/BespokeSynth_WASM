@@ -5,7 +5,7 @@
  * Licensed under GNU GPL v3
  */
 
-#include "WebGL2Shaders.h"
+#include "BespokeWasm/WebGL2Shaders.h"
 
 namespace bespoke {
 namespace wasm {

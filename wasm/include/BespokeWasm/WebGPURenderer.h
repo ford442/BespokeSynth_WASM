@@ -8,9 +8,9 @@
 
 #pragma once
 
-#include "Renderer2D.h"
-#include "PixelFont.h"
-#include "WebGPUContext.h"
+#include "BespokeWasm/Renderer2D.h"
+#include "BespokeWasm/PixelFont.h"
+#include "BespokeWasm/WebGPUContext.h"
 #include <vector>
 #include <string>
 #include <cstdint>

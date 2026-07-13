@@ -1,5 +1,7 @@
 # Developer Context & Architectural Overview
 
+> The browser-port source of truth is [wasm/README.md](wasm/README.md). This document focuses on desktop architecture and shared context.
+
 ## 1. High-Level Architecture & Intent
 
 **Core Purpose**

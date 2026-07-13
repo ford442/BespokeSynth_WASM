@@ -1,0 +1,25 @@
+{
+  "filetype": "bespokesynth",
+  "format": "bespokesynth-wasm-state",
+  "version": 1,
+  "wasm": {
+    "view_mode": 0,
+    "canvas": { "offset_x": 0.0, "offset_y": 0.0, "scale": 1.0 }
+  },
+  "transport": { "bpm": 120.0, "playing": false },
+  "modules": [
+    { "id": 1, "type": "transport", "position": { "x": 20.0, "y": 50.0 }, "controls": { "bpm": 120.0, "swing": 0.0 } },
+    { "id": 2, "type": "scale", "position": { "x": 290.0, "y": 50.0 }, "controls": { "root": 0.0, "type": 0.0 } },
+    { "id": 3, "type": "oscillator", "position": { "x": 100.0, "y": 150.0 }, "controls": { "frequency": 220.0, "volume": 0.65, "waveform": 0.0 } },
+    { "id": 4, "type": "filter", "position": { "x": 300.0, "y": 155.0 }, "controls": { "cutoff": 1600.0, "resonance": 0.55, "type": 0.0 } },
+    { "id": 5, "type": "gain", "position": { "x": 500.0, "y": 160.0 }, "controls": { "gain": 0.7 } },
+    { "id": 6, "type": "output", "position": { "x": 680.0, "y": 170.0 }, "controls": { "level": 0.8 } },
+    { "id": 7, "type": "lfo", "position": { "x": 100.0, "y": 310.0 }, "controls": { "rate": 2.0, "depth": 0.35, "shape": 0.0 } }
+  ],
+  "connections": [
+    { "source": { "module": 3, "port": 0 }, "destination": { "module": 4, "port": 0 } },
+    { "source": { "module": 4, "port": 0 }, "destination": { "module": 5, "port": 0 } },
+    { "source": { "module": 5, "port": 0 }, "destination": { "module": 6, "port": 0 } },
+    { "source": { "module": 7, "port": 0 }, "destination": { "module": 4, "port": 1 } }
+  ]
+}

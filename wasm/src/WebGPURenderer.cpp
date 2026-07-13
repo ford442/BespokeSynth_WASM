@@ -5,9 +5,9 @@
  * Licensed under GNU GPL v3
  */
 
-#include "WebGPURenderer.h"
+#include "BespokeWasm/WebGPURenderer.h"
 #include "BespokeWasm/Theme.h"
-#include "PixelFont.h"
+#include "BespokeWasm/PixelFont.h"
 #include <cmath>
 #include <cstring>
 #include <algorithm>

@@ -62,8 +62,9 @@ module.exports = (env, argv) => {
       hot: true,
       open: true,
       headers: {
-        // Required for SharedArrayBuffer and other security-sensitive features
-        // like high-resolution timing and cross-origin isolation
+        // Keep development cross-origin isolated so the experimental pthread build
+        // can be tested. This does not enable threads: BESPOKE_WASM_THREADS is OFF
+        // in the default WASM preset and production hosting must opt in separately.
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'require-corp',
       },

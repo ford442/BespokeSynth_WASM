@@ -52,6 +52,8 @@ Join the [Bespoke Discord](https://discord.gg/YdTMkvvpZZ) for support and to dis
 
 This repository also contains a **browser WASM port** with WebGPU rendering (WebGL2 fallback for debugging and screenshots).
 
+**WASM contributors:** start with [docs/wasm/README.md](docs/wasm/README.md) for architecture, roadmap, debugging, and the canonical documentation path.
+
 ```shell
 npm install
 npm run dev          # http://localhost:8080
@@ -66,7 +68,7 @@ npm run build        # WASM + TypeScript + webpack → dist/
 await window.__bespoke.captureScreenshot();
 ```
 
-**Visual regression scene:** `?renderTest=1` — see `wasm/render_test.html` and [docs/webgl-fallback.md](docs/webgl-fallback.md).
+**Visual regression scene:** `?renderTest=1` — see `wasm/render_test.html` and [docs/wasm/webgl-fallback.md](docs/wasm/webgl-fallback.md).
 
 **Keyboard shortcuts:** Ctrl+Shift+S screenshot, Ctrl+Shift+R toggle renderer.
 

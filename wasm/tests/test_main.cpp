@@ -10,7 +10,9 @@
 #include <cstdio>
 #include <cmath>
 #include <string>
-#include "PixelFont.h"
+#include "BespokeWasm/PixelFont.h"
+#include "BespokeWasm/AudioGraphEngine.h"
+#include "BespokeWasm/WasmPatchState.h"
 
 using namespace bespoke::wasm;
 
@@ -18,161 +20,338 @@ using namespace bespoke::wasm;
 static int gTestsPassed = 0;
 static int gTestsFailed = 0;
 
-#define TEST(name, condition) \
-    do { \
-        if (condition) { \
-            printf("[PASS] %s\n", name); \
-            gTestsPassed++; \
-        } else { \
-            printf("[FAIL] %s\n", name); \
-            gTestsFailed++; \
-        } \
-    } while (0)
+#define TEST(name, condition)         \
+   do                                 \
+   {                                  \
+      if (condition)                  \
+      {                               \
+         printf("[PASS] %s\n", name); \
+         gTestsPassed++;              \
+      }                               \
+      else                            \
+      {                               \
+         printf("[FAIL] %s\n", name); \
+         gTestsFailed++;              \
+      }                               \
+   } while (0)
 
 // Basic math tests
-void test_math() {
-    printf("\n=== Math Tests ===\n");
-    
-    TEST("Addition", 2 + 2 == 4);
-    TEST("Multiplication", 3 * 4 == 12);
-    TEST("Division", 10 / 2 == 5);
-    
-    float pi = 3.14159f;
-    TEST("Float constant", pi > 3.14f && pi < 3.15f);
+void test_math()
+{
+   printf("\n=== Math Tests ===\n");
+
+   TEST("Addition", 2 + 2 == 4);
+   TEST("Multiplication", 3 * 4 == 12);
+   TEST("Division", 10 / 2 == 5);
+
+   float pi = 3.14159f;
+   TEST("Float constant", pi > 3.14f && pi < 3.15f);
 }
 
 // Memory tests
-void test_memory() {
-    printf("\n=== Memory Tests ===\n");
-    
-    int* arr = new int[100];
-    TEST("Heap allocation", arr != nullptr);
-    
-    for (int i = 0; i < 100; i++) {
-        arr[i] = i * 2;
-    }
-    
-    TEST("Array write/read", arr[50] == 100);
-    
-    delete[] arr;
-    TEST("Heap deallocation", true);  // If we got here, it didn't crash
+void test_memory()
+{
+   printf("\n=== Memory Tests ===\n");
+
+   int* arr = new int[100];
+   TEST("Heap allocation", arr != nullptr);
+
+   for (int i = 0; i < 100; i++)
+   {
+      arr[i] = i * 2;
+   }
+
+   TEST("Array write/read", arr[50] == 100);
+
+   delete[] arr;
+   TEST("Heap deallocation", true); // If we got here, it didn't crash
 }
 
 // String tests
-void test_strings() {
-    printf("\n=== String Tests ===\n");
-    
-    std::string str = "Hello, WebAssembly!";
-    TEST("String creation", !str.empty());
-    TEST("String length", str.length() == 19);
-    
-    std::string concat = str + " Testing.";
-    TEST("String concatenation", concat.length() > str.length());
+void test_strings()
+{
+   printf("\n=== String Tests ===\n");
+
+   std::string str = "Hello, WebAssembly!";
+   TEST("String creation", !str.empty());
+   TEST("String length", str.length() == 19);
+
+   std::string concat = str + " Testing.";
+   TEST("String concatenation", concat.length() > str.length());
 }
 
 // Vector tests
 #include <vector>
 
-void test_vectors() {
-    printf("\n=== Vector Tests ===\n");
-    
-    std::vector<float> vec;
-    vec.push_back(1.0f);
-    vec.push_back(2.0f);
-    vec.push_back(3.0f);
-    
-    TEST("Vector push_back", vec.size() == 3);
-    TEST("Vector access", vec[1] == 2.0f);
-    
-    vec.clear();
-    TEST("Vector clear", vec.empty());
+void test_vectors()
+{
+   printf("\n=== Vector Tests ===\n");
+
+   std::vector<float> vec;
+   vec.push_back(1.0f);
+   vec.push_back(2.0f);
+   vec.push_back(3.0f);
+
+   TEST("Vector push_back", vec.size() == 3);
+   TEST("Vector access", vec[1] == 2.0f);
+
+   vec.clear();
+   TEST("Vector clear", vec.empty());
 }
 
-void test_pixel_font() {
-    printf("\n=== Pixel Font Tests ===\n");
+void test_pixel_font()
+{
+   printf("\n=== Pixel Font Tests ===\n");
 
-    TEST("Glyph count", kPixelFontGlyphCount == 101);
-    TEST("ASCII index for 'A'", pixelFontCharIndex('A') == 33);
-    TEST("ASCII index for 'a'", pixelFontCharIndex('a') == 65);
-    TEST("Lowercase index below clamp max", pixelFontCharIndex('z') == 90);
-    TEST("Space index", pixelFontCharIndex(' ') == 0);
+   TEST("Glyph count", kPixelFontGlyphCount == 101);
+   TEST("ASCII index for 'A'", pixelFontCharIndex('A') == 33);
+   TEST("ASCII index for 'a'", pixelFontCharIndex('a') == 65);
+   TEST("Lowercase index below clamp max", pixelFontCharIndex('z') == 90);
+   TEST("Space index", pixelFontCharIndex(' ') == 0);
 
-    const char* sharpUtf8 = "\xe2\x99\xaf";
-    PixelFontGlyph sharpGlyph = pixelFontDecodeGlyph(sharpUtf8, 0, 3);
-    TEST("UTF-8 sharp glyph index", sharpGlyph.index == kPixelFontGlyphSharp);
-    TEST("UTF-8 sharp consumes 3 bytes", sharpGlyph.byteLength == 3);
+   const char* sharpUtf8 = "\xe2\x99\xaf";
+   PixelFontGlyph sharpGlyph = pixelFontDecodeGlyph(sharpUtf8, 0, 3);
+   TEST("UTF-8 sharp glyph index", sharpGlyph.index == kPixelFontGlyphSharp);
+   TEST("UTF-8 sharp consumes 3 bytes", sharpGlyph.byteLength == 3);
 
-    const float fontSize = 10.0f;
-    const float spaceAdvance = pixelFontGlyphAdvance(0, fontSize);
-    const float letterAdvance = pixelFontGlyphAdvance(pixelFontCharIndex('m'), fontSize);
-    TEST("Space advance narrower than letters", spaceAdvance < letterAdvance);
+   const float fontSize = 10.0f;
+   const float spaceAdvance = pixelFontGlyphAdvance(0, fontSize);
+   const float letterAdvance = pixelFontGlyphAdvance(pixelFontCharIndex('m'), fontSize);
+   TEST("Space advance narrower than letters", spaceAdvance < letterAdvance);
 
-    const float helloWidth = pixelFontTextWidth("hello", fontSize);
-    const float approxFiveLetters = 5.0f * letterAdvance + 4.0f * fontSize * kPixelFontCharSpacingRatio;
-    TEST("textWidth matches per-glyph advance", std::fabs(helloWidth - approxFiveLetters) < 0.01f);
+   const float helloWidth = pixelFontTextWidth("hello", fontSize);
+   const float approxFiveLetters = 5.0f * letterAdvance + 4.0f * fontSize * kPixelFontCharSpacingRatio;
+   TEST("textWidth matches per-glyph advance", std::fabs(helloWidth - approxFiveLetters) < 0.01f);
 
-    const float spacedWidth = pixelFontTextWidth("a b", fontSize);
-    TEST("textWidth includes narrower space", spacedWidth > helloWidth && spacedWidth < pixelFontTextWidth("abc", fontSize));
+   const float spacedWidth = pixelFontTextWidth("a b", fontSize);
+   TEST("textWidth includes narrower space", spacedWidth > helloWidth && spacedWidth < pixelFontTextWidth("abc", fontSize));
 
-    const uint32_t* cols = getPixelFontColumns();
-    TEST("Font column table populated", cols != nullptr && cols[kPixelFontGlyphCount * 5 - 1] >= 0);
-    TEST("Lowercase 'b' differs from uppercase 'B'",
-         cols[pixelFontCharIndex('b') * 5] != cols[pixelFontCharIndex('B') * 5]);
+   const uint32_t* cols = getPixelFontColumns();
+   TEST("Font column table populated", cols != nullptr && cols[kPixelFontGlyphCount * 5 - 1] >= 0);
+   TEST("Lowercase 'b' differs from uppercase 'B'",
+        cols[pixelFontCharIndex('b') * 5] != cols[pixelFontCharIndex('B') * 5]);
 }
 
 // Audio buffer simulation
-void test_audio_buffer() {
-    printf("\n=== Audio Buffer Tests ===\n");
-    
-    const int bufferSize = 512;
-    const int numChannels = 2;
-    
-    float** buffer = new float*[numChannels];
-    for (int ch = 0; ch < numChannels; ch++) {
-        buffer[ch] = new float[bufferSize];
-        for (int i = 0; i < bufferSize; i++) {
-            buffer[ch][i] = 0.0f;
-        }
-    }
-    
-    TEST("Buffer allocation", buffer != nullptr);
-    TEST("Buffer initialization", buffer[0][0] == 0.0f);
-    
-    // Generate sine wave
-    float phase = 0.0f;
-    float phaseInc = 2.0f * 3.14159f * 440.0f / 44100.0f;
-    
-    for (int i = 0; i < bufferSize; i++) {
-        float sample = sinf(phase);
-        buffer[0][i] = sample;
-        buffer[1][i] = sample;
-        phase += phaseInc;
-    }
-    
-    TEST("Sine generation", buffer[0][0] != 0.0f || buffer[0][100] != 0.0f);
-    
-    for (int ch = 0; ch < numChannels; ch++) {
-        delete[] buffer[ch];
-    }
-    delete[] buffer;
-    
-    TEST("Buffer cleanup", true);
+void test_audio_buffer()
+{
+   printf("\n=== Audio Buffer Tests ===\n");
+
+   const int bufferSize = 512;
+   const int numChannels = 2;
+
+   float** buffer = new float*[numChannels];
+   for (int ch = 0; ch < numChannels; ch++)
+   {
+      buffer[ch] = new float[bufferSize];
+      for (int i = 0; i < bufferSize; i++)
+      {
+         buffer[ch][i] = 0.0f;
+      }
+   }
+
+   TEST("Buffer allocation", buffer != nullptr);
+   TEST("Buffer initialization", buffer[0][0] == 0.0f);
+
+   // Generate sine wave
+   float phase = 0.0f;
+   float phaseInc = 2.0f * 3.14159f * 440.0f / 44100.0f;
+
+   for (int i = 0; i < bufferSize; i++)
+   {
+      float sample = sinf(phase);
+      buffer[0][i] = sample;
+      buffer[1][i] = sample;
+      phase += phaseInc;
+   }
+
+   TEST("Sine generation", buffer[0][0] != 0.0f || buffer[0][100] != 0.0f);
+
+   for (int ch = 0; ch < numChannels; ch++)
+   {
+      delete[] buffer[ch];
+   }
+   delete[] buffer;
+
+   TEST("Buffer cleanup", true);
 }
 
-int main() {
-    printf("BespokeSynth WASM Test Suite\n");
-    printf("============================\n");
-    
-    test_math();
-    test_memory();
-    test_strings();
-    test_vectors();
-    test_pixel_font();
-    test_audio_buffer();
-    
-    printf("\n============================\n");
-    printf("Results: %d passed, %d failed\n", gTestsPassed, gTestsFailed);
-    printf("============================\n");
-    
-    return gTestsFailed > 0 ? 1 : 0;
+static float buffer_rms(const std::vector<float>& buffer)
+{
+   double sum = 0.0;
+   for (float sample : buffer)
+      sum += sample * sample;
+   return std::sqrt(sum / static_cast<double>(buffer.size()));
+}
+
+static ModuleCanvas::AudioGraphSnapshot make_test_graph(float gain, float cutoff, float lfoDepth)
+{
+   ModuleCanvas::AudioGraphSnapshot graph;
+   graph.transportPlaying = true;
+
+   ModuleCanvas::AudioGraphNode osc;
+   osc.id = 1;
+   osc.type = "oscillator";
+   osc.frequency = 440.0f;
+   osc.volume = 0.8f;
+   osc.waveform = 1;
+   graph.nodes.push_back(osc);
+
+   ModuleCanvas::AudioGraphNode filter;
+   filter.id = 2;
+   filter.type = "filter";
+   filter.cutoff = cutoff;
+   filter.resonance = 0.2f;
+   filter.filterType = 0;
+   graph.nodes.push_back(filter);
+
+   ModuleCanvas::AudioGraphNode gainNode;
+   gainNode.id = 3;
+   gainNode.type = "gain";
+   gainNode.gain = gain;
+   graph.nodes.push_back(gainNode);
+
+   ModuleCanvas::AudioGraphNode lfo;
+   lfo.id = 4;
+   lfo.type = "lfo";
+   lfo.lfoRate = 6.0f;
+   lfo.lfoDepth = lfoDepth;
+   lfo.lfoShape = 0;
+   graph.nodes.push_back(lfo);
+
+   ModuleCanvas::AudioGraphNode out;
+   out.id = 5;
+   out.type = "output";
+   graph.nodes.push_back(out);
+
+   auto audioConnection = [](int src, int dst)
+   {
+      ModuleCanvas::AudioGraphConnection conn;
+      conn.sourceModuleId = src;
+      conn.destModuleId = dst;
+      conn.sourcePortType = PortType::Audio;
+      conn.destPortType = PortType::Audio;
+      return conn;
+   };
+   graph.connections.push_back(audioConnection(1, 2));
+   graph.connections.push_back(audioConnection(2, 3));
+   graph.connections.push_back(audioConnection(3, 5));
+
+   ModuleCanvas::AudioGraphConnection cv;
+   cv.sourceModuleId = 4;
+   cv.destModuleId = 2;
+   cv.sourcePortType = PortType::Modulation;
+   cv.destPortType = PortType::Modulation;
+   cv.destPortIndex = 1;
+   graph.connections.push_back(cv);
+
+   return graph;
+}
+
+static std::vector<float> render_graph(ModuleCanvas::AudioGraphSnapshot graph)
+{
+   constexpr int bufferSize = 1024;
+   AudioGraphEngine engine;
+   std::vector<float> left(bufferSize, 0.0f);
+   std::vector<float> right(bufferSize, 0.0f);
+   float* outputs[2] = { left.data(), right.data() };
+   engine.processBlock(graph, outputs, 2, bufferSize, 44100.0f);
+   return left;
+}
+
+void test_audio_graph_engine()
+{
+   printf("\n=== Audio Graph Engine Tests ===\n");
+
+   auto nominal = render_graph(make_test_graph(1.0f, 1800.0f, 0.0f));
+   TEST("Graph renders non-silent output", buffer_rms(nominal) > 0.01f);
+
+   auto quiet = render_graph(make_test_graph(0.25f, 1800.0f, 0.0f));
+   TEST("Gain node scales graph output", buffer_rms(quiet) < buffer_rms(nominal) * 0.35f);
+
+   auto filtered = render_graph(make_test_graph(1.0f, 120.0f, 0.0f));
+   TEST("Filter node affects timbre/level", buffer_rms(filtered) < buffer_rms(nominal) * 0.75f);
+
+   auto modulated = render_graph(make_test_graph(1.0f, 400.0f, 1.0f));
+   double diff = 0.0;
+   for (size_t i = 0; i < filtered.size(); ++i)
+      diff += std::fabs(filtered[i] - modulated[i]);
+   TEST("LFO CV changes filter output", diff > 1.0);
+
+   auto stoppedGraph = make_test_graph(1.0f, 1800.0f, 0.0f);
+   stoppedGraph.transportPlaying = false;
+   auto stopped = render_graph(stoppedGraph);
+   TEST("Stopped transport silences graph", buffer_rms(stopped) == 0.0f);
+}
+
+void test_patch_state_json()
+{
+   printf("\n=== Patch State JSON Tests ===\n");
+
+   ModuleCanvas::StateSnapshot snapshot;
+   snapshot.transportBPM = 128.0f;
+   snapshot.transportPlaying = true;
+   snapshot.offsetX = 12.0f;
+   snapshot.offsetY = 34.0f;
+   snapshot.scale = 1.25f;
+
+   ModuleCanvas::StateModule osc;
+   osc.id = 10;
+   osc.type = "oscillator";
+   osc.x = 100.0f;
+   osc.y = 200.0f;
+   osc.controls["frequency"] = 330.0f;
+   osc.controls["volume"] = 0.5f;
+   snapshot.modules.push_back(osc);
+
+   ModuleCanvas::StateModule gain;
+   gain.id = 20;
+   gain.type = "gain";
+   gain.x = 300.0f;
+   gain.y = 210.0f;
+   gain.controls["gain"] = 0.25f;
+   snapshot.modules.push_back(gain);
+
+   ModuleCanvas::StateConnection conn;
+   conn.sourceModuleId = 10;
+   conn.destModuleId = 20;
+   conn.sourcePortIndex = 0;
+   conn.destPortIndex = 0;
+   snapshot.connections.push_back(conn);
+
+   const std::string json = serializePatchState(snapshot, 0);
+   TEST("State JSON contains modules", json.find("\"modules\"") != std::string::npos);
+   TEST("State JSON contains connections", json.find("\"connections\"") != std::string::npos);
+   TEST("State JSON uses .bsk-compatible filetype", json.find("\"filetype\": \"bespokesynth\"") != std::string::npos);
+
+   ModuleCanvas::StateSnapshot loaded;
+   int viewMode = 1;
+   std::string error;
+   TEST("State JSON deserializes", deserializePatchState(json, loaded, viewMode, error));
+   TEST("State JSON preserves view mode", viewMode == 0);
+   TEST("State JSON preserves module count", loaded.modules.size() == 2);
+   TEST("State JSON preserves connection count", loaded.connections.size() == 1);
+   TEST("State JSON preserves transport BPM", std::fabs(loaded.transportBPM - 128.0f) < 0.01f);
+   TEST("State JSON preserves control value", std::fabs(loaded.modules[0].controls["frequency"] - 330.0f) < 0.01f);
+}
+
+int main()
+{
+   printf("BespokeSynth WASM Test Suite\n");
+   printf("============================\n");
+
+   test_math();
+   test_memory();
+   test_strings();
+   test_vectors();
+   test_pixel_font();
+   test_audio_buffer();
+   test_audio_graph_engine();
+   test_patch_state_json();
+
+   printf("\n============================\n");
+   printf("Results: %d passed, %d failed\n", gTestsPassed, gTestsFailed);
+   printf("============================\n");
+
+   return gTestsFailed > 0 ? 1 : 0;
 }

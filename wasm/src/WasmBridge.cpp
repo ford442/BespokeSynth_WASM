@@ -6,21 +6,30 @@
  */
 
 #include "BespokeWasm/WasmBridge.h"
-#include "Renderer2D.h"
-#include "WebGPUContext.h"
-#include "WebGL2Context.h"
-#include "SDL2AudioBackend.h"
-#include "ModuleCanvas.h"
-#include "Knob.h"
+#include "BespokeWasm/Renderer2D.h"
+#include "BespokeWasm/WebGPUContext.h"
+#include "BespokeWasm/WebGL2Context.h"
+#include "BespokeWasm/SDL2AudioBackend.h"
+#include "BespokeWasm/ModuleCanvas.h"
+#include "BespokeWasm/AudioGraphEngine.h"
+#include "BespokeWasm/WasmPatchState.h"
+#include "BespokeWasm/WasmAudioEngine.h"
+#include "BespokeWasm/WasmInputRouter.h"
+#include "BespokeWasm/WasmRuntimeState.h"
+#include "BespokeWasm/Knob.h"
 #include "BespokeWasm/Theme.h"
 #include "BespokeWasm/PixelFont.h"
 #include <cstdio>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <memory>
 #include <vector>
 #include <atomic>
-#include <emscripten.h>  // Required for emscripten_run_script
+#include <algorithm>
+#include <fstream>
+#include <sstream>
+#include <emscripten.h> // Required for emscripten_run_script
 
 // Key code constants
 static const int KEY_SHIFT = 16;
@@ -29,26 +38,13 @@ static const int KEY_TAB = 9;
 
 using namespace bespoke::wasm;
 
-namespace bespoke {
-namespace wasm {
-bool gBespokePendingScreenshotCapture = false;
-} // namespace wasm
-} // namespace bespoke
-
-// Initialization state tracking
-// These values are exposed to JavaScript via bespoke_get_init_state()
-enum class InitState
+namespace bespoke
 {
-   NotStarted = 0,
-   WebGPURequested = 1, // WebGPU async init started (instance + surface + adapter)
-   WebGPUReady = 2, // WebGPU adapter and device acquired
-   RendererReady = 3, // Renderer pipelines compiled (both backends)
-   AudioReady = 4, // Audio backend initialized
-   FullyInitialized = 5, // All subsystems ready
-   WebGL2Requested = 6, // WebGL2 context creation started
-   WebGL2Ready = 7, // WebGL2 context acquired and extensions queried
-   Failed = -1
-};
+   namespace wasm
+   {
+      bool gBespokePendingScreenshotCapture = false;
+   } // namespace wasm
+} // namespace bespoke
 
 // Helper to report progress to JavaScript
 static void reportInitProgress(const char* step, const char* detail)
@@ -65,188 +61,97 @@ static void reportInitProgress(const char* step, const char* detail)
    emscripten_run_script(script);
 }
 
-// Global state
-static RendererBackendType gRendererBackend = RendererBackendType::WebGPU;
-static bool gRenderTestMode = false;
-static std::vector<uint8_t> gScreenshotPixels;
-static int gScreenshotWidth = 0;
-static int gScreenshotHeight = 0;
-static WebGLDebugMode gWebGLDebugMode = WebGLDebugMode::Normal;
-static std::unique_ptr<WebGPUContext> gContext;
-static std::unique_ptr<WebGL2Context> gWebGL2Context;
-static std::unique_ptr<Renderer2D> gRenderer;
-static std::unique_ptr<SDL2AudioBackend> gAudioBackend;
+// Compatibility aliases keep legacy rendering code readable. Ownership is
+// centralized in WasmRuntimeState and new subsystems use runtimeState() directly.
+static auto& gRuntime = runtimeState();
+static auto& gRendererBackend = gRuntime.rendererBackend;
+static auto& gRenderTestMode = gRuntime.renderTestMode;
+static auto& gScreenshotPixels = gRuntime.screenshotPixels;
+static auto& gScreenshotWidth = gRuntime.screenshotWidth;
+static auto& gScreenshotHeight = gRuntime.screenshotHeight;
+static auto& gWebGLDebugMode = gRuntime.webGLDebugMode;
+static auto& gContext = gRuntime.context;
+static auto& gWebGL2Context = gRuntime.webGL2Context;
+static auto& gRenderer = gRuntime.renderer;
+static auto& gAudioBackend = gRuntime.audioBackend;
+static auto& gAudioGraphEngine = gRuntime.audioGraphEngine;
+static auto& gStateJsonBuffer = gRuntime.stateJsonBuffer;
+static auto& gStateErrorMessage = gRuntime.stateErrorMessage;
+static auto& gKnobs = gRuntime.knobs;
+static auto& gCanvas = gRuntime.canvas;
+static auto& gOscillatorModuleId = gRuntime.oscillatorModuleId;
+static auto& gGainModuleId = gRuntime.gainModuleId;
+static auto& gViewMode = gRuntime.viewMode;
+static auto& gFontTestVisible = gRuntime.fontTestVisible;
+static auto& gWidth = gRuntime.width;
+static auto& gHeight = gRuntime.height;
+static auto& gInitialized = gRuntime.initialized;
+static auto& gRenderTime = gRuntime.renderTime;
+static auto& gCurrentPanel = gRuntime.currentPanel;
+static auto& gPanelStatus = gRuntime.panelStatus;
+static auto& gInitState = gRuntime.initState;
+static auto& gInitErrorMessage = gRuntime.initErrorMessage;
+static auto& gAudioCallbackActive = gRuntime.audioCallbackActive;
 
-// Demo controls
-static std::vector<std::unique_ptr<Knob>> gKnobs;
-
-// Modular canvas
-static std::unique_ptr<bespoke::wasm::ModuleCanvas> gCanvas;
-static int gOscillatorModuleId = -1;
-static int gGainModuleId = -1;
-
-// View modes: 0 = modular canvas (default), 1 = legacy demo panels
-static int gViewMode = 0;
-static bool gFontTestVisible = false;
-
-static int gWidth = 800;
-static int gHeight = 600;
-static bool gInitialized = false;
-static float gTime = 0.0f;
-
-// Panel selection
-enum PanelType
-{
-   PANEL_MIXER = 0,
-   PANEL_EFFECTS,
-   PANEL_SEQUENCER,
-   PANEL_COUNT
-};
-static int gCurrentPanel = PANEL_MIXER;
-
-// Panel status tracking
-struct PanelStatus
-{
-   bool loaded;
-   bool running;
-   int frameCount;
-   float lastUpdateTime;
-};
-static PanelStatus gPanelStatus[PANEL_COUNT] = {
-   { false, false, 0, 0.0f }, // Mixer
-   { false, false, 0, 0.0f }, // Effects
-   { false, false, 0, 0.0f } // Sequencer
-};
+static constexpr int PANEL_MIXER = static_cast<int>(PanelType::Mixer);
+static constexpr int PANEL_EFFECTS = static_cast<int>(PanelType::Effects);
+static constexpr int PANEL_SEQUENCER = static_cast<int>(PanelType::Sequencer);
+static constexpr int PANEL_COUNT = kPanelCount;
 
 // Version string
 static const char* kVersion = "1.0.0-wasm";
 
-// Initialization state
-static InitState gInitState = InitState::NotStarted;
-static std::string gInitErrorMessage;
-static std::atomic<bool> gAudioCallbackActive{false};
-
-// ---- Control inspection cache ----
 // Updated each frame by renderDemoPanels() so that bespoke_get_control_info()
 // always reflects current screen positions.
-struct ControlInfoEntry {
-   int   id;
-   char  type[16];
-   char  label[64];
-   float value;
-   float min;
-   float max;
-   char  unit[16];
-   float x;
-   float y;
-   float size;
-};
-static std::vector<ControlInfoEntry> gControlInfoCache;
+static auto& gControlInfoCache = gRuntime.controlInfoCache;
 
 // Runtime theme – one global instance used by bespoke_set_theme_color().
 // Defines the instance declared 'extern' in BespokeWasm/Theme.h, so it must
 // live in the bespoke::wasm namespace (otherwise an unqualified reference is
 // ambiguous between this global and the namespaced declaration).
-namespace bespoke { namespace wasm { RuntimeTheme gRuntimeTheme; } }
+namespace bespoke
+{
+   namespace wasm
+   {
+      RuntimeTheme gRuntimeTheme;
+   }
+}
 
 // RuntimeTheme::resolve() – returns the override if active, else UITheme default.
 bespoke::wasm::Color bespoke::wasm::RuntimeTheme::resolve(bespoke::wasm::ThemeColorId id) const
 {
    using namespace bespoke::wasm::UITheme;
    int i = static_cast<int>(id);
-   if (i >= 0 && i < static_cast<int>(bespoke::wasm::ThemeColorId::Count) && active[i]) {
+   if (i >= 0 && i < static_cast<int>(bespoke::wasm::ThemeColorId::Count) && active[i])
+   {
       return colors[i];
    }
-   switch (id) {
-      case bespoke::wasm::ThemeColorId::BgDark:        return kBgDark;
-      case bespoke::wasm::ThemeColorId::BgPanel:       return kBgPanel;
-      case bespoke::wasm::ThemeColorId::BgTrack:       return kBgTrack;
-      case bespoke::wasm::ThemeColorId::BgElevated:    return kBgElevated;
-      case bespoke::wasm::ThemeColorId::TextPrimary:   return kTextPrimary;
+   switch (id)
+   {
+      case bespoke::wasm::ThemeColorId::BgDark: return kBgDark;
+      case bespoke::wasm::ThemeColorId::BgPanel: return kBgPanel;
+      case bespoke::wasm::ThemeColorId::BgTrack: return kBgTrack;
+      case bespoke::wasm::ThemeColorId::BgElevated: return kBgElevated;
+      case bespoke::wasm::ThemeColorId::TextPrimary: return kTextPrimary;
       case bespoke::wasm::ThemeColorId::TextSecondary: return kTextSecondary;
-      case bespoke::wasm::ThemeColorId::TextValue:     return kTextValue;
-      case bespoke::wasm::ThemeColorId::AccentCyan:    return kAccentCyan;
+      case bespoke::wasm::ThemeColorId::TextValue: return kTextValue;
+      case bespoke::wasm::ThemeColorId::AccentCyan: return kAccentCyan;
       case bespoke::wasm::ThemeColorId::AccentMagenta: return kAccentMagenta;
-      case bespoke::wasm::ThemeColorId::AccentAmber:   return kAccentAmber;
-      case bespoke::wasm::ThemeColorId::AccentGreen:   return kAccentGreen;
-      case bespoke::wasm::ThemeColorId::KnobBg:        return kKnobBg;
-      case bespoke::wasm::ThemeColorId::KnobFg:        return kKnobFg;
+      case bespoke::wasm::ThemeColorId::AccentAmber: return kAccentAmber;
+      case bespoke::wasm::ThemeColorId::AccentGreen: return kAccentGreen;
+      case bespoke::wasm::ThemeColorId::KnobBg: return kKnobBg;
+      case bespoke::wasm::ThemeColorId::KnobFg: return kKnobFg;
       case bespoke::wasm::ThemeColorId::KnobIndicator: return kKnobIndicator;
-      case bespoke::wasm::ThemeColorId::KnobRim:       return kKnobRim;
-      default:                                          return kTextPrimary;
+      case bespoke::wasm::ThemeColorId::KnobRim: return kKnobRim;
+      default: return kTextPrimary;
    }
 }
 
-// Audio callback — generates oscillator tone gated by transport playing state
+// Audio callback - renders the current modular graph snapshot.
 static void audioCallback(const float* const* input, float* const* output,
                           int numInputChannels, int numOutputChannels, int numSamples)
 {
-   gAudioCallbackActive.store(true);
-
-   if (numOutputChannels <= 0 || numSamples <= 0 || !output)
-   {
-      gAudioCallbackActive.store(false);
-      return;
-   }
-
-   const int maxChannels = 2;
-   int channels = (numOutputChannels > maxChannels) ? maxChannels : numOutputChannels;
-
-   // Silence all channels, then fill if playing
-   for (int ch = 0; ch < channels; ch++)
-      if (output[ch])
-         memset(output[ch], 0, numSamples * sizeof(float));
-
-   // Only generate audio when transport is playing
-   bool isPlaying = false;
-   if (gCanvas && gCanvas->getTransport())
-      isPlaying = gCanvas->getTransport()->isPlaying();
-
-   if (!isPlaying)
-   {
-      gAudioCallbackActive.store(false);
-      return;
-   }
-
-   // Frequency from oscillator module, fallback to first knob
-   float frequency = 440.0f;
-   if (gCanvas && gOscillatorModuleId >= 0)
-   {
-      auto* osc = gCanvas->getModule(gOscillatorModuleId);
-      if (osc)
-         frequency = osc->getControlValue("frequency");
-   }
-   else if (gInitialized && !gKnobs.empty())
-   {
-      frequency = gKnobs[0]->getValue();
-   }
-
-   // Gain from gain module, fallback to 1.0
-   float gain = 1.0f;
-   if (gCanvas && gGainModuleId >= 0)
-   {
-      auto* gainMod = gCanvas->getModule(gGainModuleId);
-      if (gainMod)
-         gain = gainMod->getControlValue("gain");
-   }
-
-   float sampleRate = gAudioBackend ? gAudioBackend->getSampleRate() : 44100;
-   float phaseInc = 2.0f * 3.14159265f * frequency / sampleRate;
-   static float phase = 0.0f;
-
-   for (int i = 0; i < numSamples; i++)
-   {
-      float sample = sinf(phase) * 0.3f * gain;
-      phase += phaseInc;
-      if (phase > 2.0f * 3.14159265f)
-         phase -= 2.0f * 3.14159265f;
-
-      for (int ch = 0; ch < channels; ch++)
-         if (output[ch])
-            output[ch][i] = sample;
-   }
-
-   gAudioCallbackActive.store(false);
+   processWasmAudio(input, output, numInputChannels, numOutputChannels, numSamples);
 }
 
 // Helper function to get panel name
@@ -328,9 +233,9 @@ static bool initializeAudioAndControls(int sampleRate, int bufferSize)
    knob1->setDisplayPrecision(0);
    knob1->setStyle(KnobStyle::Classic);
    knob1->setColors(
-      Color(0.25f, 0.25f, 0.28f, 1.0f),
-      Color(0.7f, 0.7f, 0.75f, 1.0f),
-      Color(0.4f, 0.8f, 0.5f, 1.0f));
+   Color(0.25f, 0.25f, 0.28f, 1.0f),
+   Color(0.7f, 0.7f, 0.75f, 1.0f),
+   Color(0.4f, 0.8f, 0.5f, 1.0f));
    gKnobs.push_back(std::move(knob1));
 
    auto knob2 = std::make_unique<Knob>("Volume", 0.7f);
@@ -339,9 +244,9 @@ static bool initializeAudioAndControls(int sampleRate, int bufferSize)
    knob2->setDisplayPrecision(0);
    knob2->setStyle(KnobStyle::Modern);
    knob2->setColors(
-      Color(0.2f, 0.2f, 0.22f, 1.0f),
-      Color(0.6f, 0.6f, 0.65f, 1.0f),
-      Color(0.3f, 0.7f, 0.9f, 1.0f));
+   Color(0.2f, 0.2f, 0.22f, 1.0f),
+   Color(0.6f, 0.6f, 0.65f, 1.0f),
+   Color(0.3f, 0.7f, 0.9f, 1.0f));
    gKnobs.push_back(std::move(knob2));
 
    auto knob3 = std::make_unique<Knob>("Filter", 0.3f);
@@ -350,9 +255,9 @@ static bool initializeAudioAndControls(int sampleRate, int bufferSize)
    knob3->setDisplayPrecision(0);
    knob3->setStyle(KnobStyle::LED);
    knob3->setColors(
-      Color(0.15f, 0.15f, 0.18f, 1.0f),
-      Color(0.5f, 0.5f, 0.55f, 1.0f),
-      Color(0.9f, 0.4f, 0.2f, 1.0f));
+   Color(0.15f, 0.15f, 0.18f, 1.0f),
+   Color(0.5f, 0.5f, 0.55f, 1.0f),
+   Color(0.9f, 0.4f, 0.2f, 1.0f));
    gKnobs.push_back(std::move(knob3));
 
    auto knob4 = std::make_unique<Knob>("Pan", 0.5f);
@@ -368,17 +273,22 @@ static bool initializeAudioAndControls(int sampleRate, int bufferSize)
 
    printf("WasmBridge: Creating modular canvas...\n");
    gCanvas = std::make_unique<bespoke::wasm::ModuleCanvas>();
+   gAudioGraphEngine = std::make_unique<AudioGraphEngine>();
 
    const int oscId = gCanvas->createModule("oscillator", 100, 150);
-   const int gainId = gCanvas->createModule("gain", 320, 160);
-   const int outputId = gCanvas->createModule("output", 500, 170);
+   const int filterId = gCanvas->createModule("filter", 300, 155);
+   const int gainId = gCanvas->createModule("gain", 500, 160);
+   const int lfoId = gCanvas->createModule("lfo", 100, 310);
+   const int outputId = gCanvas->createModule("output", 680, 170);
    gOscillatorModuleId = oscId;
    gGainModuleId = gainId;
 
-   if (oscId > 0 && gainId > 0 && outputId > 0)
+   if (oscId > 0 && filterId > 0 && gainId > 0 && lfoId > 0 && outputId > 0)
    {
-      gCanvas->connectModules(oscId, 0, gainId, 0);
+      gCanvas->connectModules(oscId, 0, filterId, 0);
+      gCanvas->connectModules(filterId, 0, gainId, 0);
       gCanvas->connectModules(gainId, 0, outputId, 0);
+      gCanvas->connectModules(lfoId, 0, filterId, 1);
 
       // Seed canvas module values from demo knobs
       if (auto* osc = gCanvas->getModule(oscId))
@@ -386,8 +296,18 @@ static bool initializeAudioAndControls(int sampleRate, int bufferSize)
          osc->setControlValue("frequency", gKnobs[0]->getValue());
          osc->setControlValue("volume", gKnobs[1]->getValue());
       }
+      if (auto* filter = gCanvas->getModule(filterId))
+      {
+         filter->setControlValue("cutoff", gKnobs[2]->getValue());
+         filter->setControlValue("resonance", 0.55f);
+      }
       if (auto* gain = gCanvas->getModule(gainId))
          gain->setControlValue("gain", gKnobs[1]->getValue());
+      if (auto* lfo = gCanvas->getModule(lfoId))
+      {
+         lfo->setControlValue("rate", 2.0f);
+         lfo->setControlValue("depth", 0.35f);
+      }
    }
 
    gInitState = InitState::FullyInitialized;
@@ -551,10 +471,6 @@ EMSCRIPTEN_KEEPALIVE void bespoke_shutdown(void)
 {
    printf("BespokeSynth WASM: Shutting down\n");
 
-   // Clear controls first
-   gKnobs.clear();
-   gCanvas.reset();
-
    // Stop and cleanup audio
    if (gAudioBackend)
    {
@@ -569,6 +485,11 @@ EMSCRIPTEN_KEEPALIVE void bespoke_shutdown(void)
    {
       // Just a short busy wait - audio callback should complete within 1-2 buffer periods
    }
+
+   // Clear graph-owned state after the audio callback has stopped.
+   gKnobs.clear();
+   gCanvas.reset();
+   gAudioGraphEngine.reset();
 
    // Cleanup renderer and context
    gRenderer.reset();
@@ -586,6 +507,11 @@ EMSCRIPTEN_KEEPALIVE void bespoke_shutdown(void)
 EMSCRIPTEN_KEEPALIVE void bespoke_process_audio(void)
 {
    // Audio is handled by SDL callback, nothing to do here
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_process_audio_block(float* output, int frames)
+{
+   processWasmAudioInterleaved(output, frames);
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_set_sample_rate(int sampleRate)
@@ -628,8 +554,8 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
    if (!gRenderer)
       return;
 
-   gTime += 0.016f;
-   gRenderer->beginFrame(gWidth, gHeight, 1.0f, gTime);
+   gRenderTime += 0.016f;
+   gRenderer->beginFrame(gWidth, gHeight, 1.0f, gRenderTime);
 
    // Clear background
    gRenderer->fillColor(Color(0.12f, 0.12f, 0.14f, 1.0f));
@@ -639,9 +565,9 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
    if (gViewMode == 0 && gCanvas)
    {
       // Keep transport play state and audio backend in sync
-      if (gCanvas->getTransport() && gAudioBackend)
+      if (gAudioBackend)
       {
-         const bool playing = gCanvas->getTransport()->isPlaying();
+         const bool playing = gCanvas->isTransportPlaying();
          if (playing && !gAudioBackend->isRunning())
             gAudioBackend->start();
          else if (!playing && gAudioBackend->isRunning())
@@ -669,8 +595,10 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
 static void renderDemoPanels()
 {
    // Utility: return the 0–1 normalised position of knob[idx]
-   auto knobNormalized = [](int idx) -> float {
-      if (idx < 0 || idx >= static_cast<int>(gKnobs.size())) return 0.5f;
+   auto knobNormalized = [](int idx) -> float
+   {
+      if (idx < 0 || idx >= static_cast<int>(gKnobs.size()))
+         return 0.5f;
       const auto& k = *gKnobs[idx];
       float range = k.getMax() - k.getMin();
       return (range > 0.0f) ? (k.getValue() - k.getMin()) / range : 0.5f;
@@ -754,16 +682,16 @@ static void renderDemoPanels()
       gKnobs[i]->render(*gRenderer, x, startY, knobSize);
 
       ControlInfoEntry& entry = gControlInfoCache[i];
-      entry.id    = static_cast<int>(i);
-      snprintf(entry.type,  sizeof(entry.type),  "knob");
+      entry.id = static_cast<int>(i);
+      snprintf(entry.type, sizeof(entry.type), "knob");
       snprintf(entry.label, sizeof(entry.label), "%s", gKnobs[i]->getLabel().c_str());
       entry.value = gKnobs[i]->getValue();
-      entry.min   = gKnobs[i]->getMin();
-      entry.max   = gKnobs[i]->getMax();
-      snprintf(entry.unit,  sizeof(entry.unit),  "%s", gKnobs[i]->getUnit().c_str());
-      entry.x     = x;
-      entry.y     = startY;
-      entry.size  = knobSize;
+      entry.min = gKnobs[i]->getMin();
+      entry.max = gKnobs[i]->getMax();
+      snprintf(entry.unit, sizeof(entry.unit), "%s", gKnobs[i]->getUnit().c_str());
+      entry.x = x;
+      entry.y = startY;
+      entry.size = knobSize;
    }
 
    // Draw cables connecting knobs
@@ -819,8 +747,8 @@ static void renderDemoPanels()
          // Channel 1 tracks the Volume knob (idx 1).
          // Channel 2 tracks the Pan knob (idx 3) remapped from -1..1 to 0..1.
          // Master blends Volume and the Frequency position.
-         float ch1Val    = knobNormalized(1);
-         float ch2Val    = knobNormalized(3);
+         float ch1Val = knobNormalized(1);
+         float ch2Val = knobNormalized(3);
          float masterVal = (knobNormalized(0) * 0.4f + knobNormalized(1) * 0.6f);
 
          // Mixer sliders – live values driven by gKnobs
@@ -830,7 +758,8 @@ static void renderDemoPanels()
          gRenderer->drawSlider(sliderX, sliderY, 200, 20, ch1Val,
                                UITheme::kBgTrack, UITheme::kAccentGreen);
 
-         char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%.0f%%", ch1Val * 100.0f);
+         char vbuf[32];
+         snprintf(vbuf, sizeof(vbuf), "%.0f%%", ch1Val * 100.0f);
          gRenderer->fillColor(UITheme::kTextValue);
          gRenderer->fontSize(10.0f);
          gRenderer->text(sliderX + 205, sliderY + 5, vbuf);
@@ -881,34 +810,58 @@ static void renderDemoPanels()
          float effectY = panelY + 50;
 
          // Live values: Filter → Reverb Mix / Chorus Depth; Frequency → Delay Time; Pan → Distortion
-         float reverbMix     = knobNormalized(2);         // Filter knob normalised
-         float delayTime     = knobNormalized(0);         // Frequency knob normalised
-         float chorusDepth   = knobNormalized(1);         // Volume knob normalised
-         float distortion    = 1.0f - knobNormalized(2); // Inverted filter
+         float reverbMix = knobNormalized(2); // Filter knob normalised
+         float delayTime = knobNormalized(0); // Frequency knob normalised
+         float chorusDepth = knobNormalized(1); // Volume knob normalised
+         float distortion = 1.0f - knobNormalized(2); // Inverted filter
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY - 10, "Reverb Mix");
          gRenderer->drawSlider(effectX, effectY, 250, 20, reverbMix, UITheme::kBgTrack, UITheme::kAccentMagenta);
-         { char v[32]; snprintf(v, sizeof(v), "%.0f%%", reverbMix * 100.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 5, v); }
+         {
+            char v[32];
+            snprintf(v, sizeof(v), "%.0f%%", reverbMix * 100.0f);
+            gRenderer->fillColor(UITheme::kTextValue);
+            gRenderer->fontSize(10.0f);
+            gRenderer->text(effectX + 255, effectY + 5, v);
+         }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 40, "Delay Time");
          gRenderer->drawSlider(effectX, effectY + 50, 250, 20, delayTime, UITheme::kBgTrack, UITheme::kAccentAmber);
-         { char v[32]; snprintf(v, sizeof(v), "%.0f ms", delayTime * 1000.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 55, v); }
+         {
+            char v[32];
+            snprintf(v, sizeof(v), "%.0f ms", delayTime * 1000.0f);
+            gRenderer->fillColor(UITheme::kTextValue);
+            gRenderer->fontSize(10.0f);
+            gRenderer->text(effectX + 255, effectY + 55, v);
+         }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 90, "Chorus Depth");
          gRenderer->drawSlider(effectX, effectY + 100, 250, 20, chorusDepth, UITheme::kBgTrack, UITheme::kAccentCyan);
-         { char v[32]; snprintf(v, sizeof(v), "%.0f%%", chorusDepth * 100.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 105, v); }
+         {
+            char v[32];
+            snprintf(v, sizeof(v), "%.0f%%", chorusDepth * 100.0f);
+            gRenderer->fillColor(UITheme::kTextValue);
+            gRenderer->fontSize(10.0f);
+            gRenderer->text(effectX + 255, effectY + 105, v);
+         }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
          gRenderer->text(effectX, effectY + 140, "Distortion");
          gRenderer->drawSlider(effectX, effectY + 150, 250, 20, distortion, UITheme::kBgTrack, UITheme::kAccentMagenta);
-         { char v[32]; snprintf(v, sizeof(v), "%.0f%%", distortion * 100.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(effectX + 255, effectY + 155, v); }
+         {
+            char v[32];
+            snprintf(v, sizeof(v), "%.0f%%", distortion * 100.0f);
+            gRenderer->fillColor(UITheme::kTextValue);
+            gRenderer->fontSize(10.0f);
+            gRenderer->text(effectX + 255, effectY + 155, v);
+         }
 
          // Draw effect visualizer
          float vizX = panelX + panelW - 200;
@@ -943,7 +896,7 @@ static void renderDemoPanels()
 
          // BPM tracks the Frequency knob (100–900 Hz → mapped to 60–200 BPM).
          // Swing tracks the Pan knob (-1..1 → 0..1).
-         float bpmNorm  = knobNormalized(0);
+         float bpmNorm = knobNormalized(0);
          float swingNorm = knobNormalized(3);
          float bpmDisplay = 60.0f + bpmNorm * 140.0f; // 60–200 BPM
 
@@ -953,7 +906,13 @@ static void renderDemoPanels()
          gRenderer->drawSlider(seqX, seqY, 150, 20, bpmNorm,
                                Color(0.25f, 0.25f, 0.28f, 1.0f),
                                Color(0.5f, 0.8f, 0.4f, 1.0f));
-         { char v[32]; snprintf(v, sizeof(v), "%.0f BPM", bpmDisplay); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(seqX + 155, seqY + 5, v); }
+         {
+            char v[32];
+            snprintf(v, sizeof(v), "%.0f BPM", bpmDisplay);
+            gRenderer->fillColor(UITheme::kTextValue);
+            gRenderer->fontSize(10.0f);
+            gRenderer->text(seqX + 155, seqY + 5, v);
+         }
 
          gRenderer->fillColor(UITheme::kTextPrimary);
          gRenderer->fontSize(12.0f);
@@ -961,7 +920,13 @@ static void renderDemoPanels()
          gRenderer->drawSlider(seqX + 200, seqY, 150, 20, swingNorm,
                                Color(0.25f, 0.25f, 0.28f, 1.0f),
                                Color(0.8f, 0.7f, 0.4f, 1.0f));
-         { char v[32]; snprintf(v, sizeof(v), "%.0f%%", swingNorm * 100.0f); gRenderer->fillColor(UITheme::kTextValue); gRenderer->fontSize(10.0f); gRenderer->text(seqX + 355, seqY + 5, v); }
+         {
+            char v[32];
+            snprintf(v, sizeof(v), "%.0f%%", swingNorm * 100.0f);
+            gRenderer->fillColor(UITheme::kTextValue);
+            gRenderer->fontSize(10.0f);
+            gRenderer->text(seqX + 355, seqY + 5, v);
+         }
 
          // Draw step sequencer grid
          float gridX = seqX;
@@ -1013,7 +978,7 @@ static void renderDemoPanels()
    gRenderer->fontSize(12.0f);
 
    char statusText[256];
-   const bool transportPlaying = gCanvas && gCanvas->getTransport() && gCanvas->getTransport()->isPlaying();
+   const bool transportPlaying = gCanvas && gCanvas->isTransportPlaying();
    snprintf(statusText, sizeof(statusText),
             "Sample rate: %d Hz | Buffer: %d | %s | Panel: %s | Tab: Modular Canvas",
             bespoke_get_sample_rate(),
@@ -1128,177 +1093,32 @@ static bool gMouseDown = false;
 
 EMSCRIPTEN_KEEPALIVE void bespoke_mouse_move(int x, int y)
 {
-   int prevX = gMouseX;
-   int prevY = gMouseY;
-   gMouseX = x;
-   gMouseY = y;
-
-   // Route to modular canvas
-   if (gViewMode == 0 && gCanvas)
-   {
-      gCanvas->onMouseMove(static_cast<float>(x), static_cast<float>(y),
-                           static_cast<float>(prevX), static_cast<float>(prevY));
-      return;
-   }
-
-   // Handle knob dragging
-   if (gMouseDown)
-   {
-      for (auto& knob : gKnobs)
-      {
-         knob->onMouseDrag(static_cast<float>(x), static_cast<float>(y),
-                           static_cast<float>(prevX), static_cast<float>(prevY));
-      }
-   }
+   routeMouseMove(x, y);
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_mouse_down(int x, int y, int button)
 {
-   gMouseDown = true;
-   gMouseX = x;
-   gMouseY = y;
-
-   // Route to modular canvas
-   if (gViewMode == 0 && gCanvas)
-   {
-      gCanvas->onMouseDown(static_cast<float>(x), static_cast<float>(y), button);
-      return;
-   }
-
-   // Check panel tab clicks
-   float tabY = 70.0f;
-   float tabHeight = 35.0f;
-   float tabWidth = 150.0f;
-   float tabSpacing = 5.0f;
-
-   if (y >= tabY && y <= tabY + tabHeight)
-   {
-      for (int i = 0; i < PANEL_COUNT; i++)
-      {
-         float tabX = 20.0f + i * (tabWidth + tabSpacing);
-         if (x >= tabX && x <= tabX + tabWidth)
-         {
-            int prevPanel = gCurrentPanel;
-            gCurrentPanel = i;
-            printf("DEBUG [Panel Switch] From:%s To:%s\n",
-                   getPanelName(prevPanel), getPanelName(i));
-            logPanelStatus(i, "ACTIVATED");
-            return;
-         }
-      }
-   }
-
-   // Check knob hit testing
-   float knobSize = 80.0f;
-   float startX = 100.0f;
-   float startY = 130.0f; // Updated to match render
-   float spacing = 120.0f;
-
-   for (size_t i = 0; i < gKnobs.size(); i++)
-   {
-      float kx = startX + i * spacing;
-      if (gKnobs[i]->hitTest(static_cast<float>(x), static_cast<float>(y), kx, startY, knobSize))
-      {
-         gKnobs[i]->onMouseDown(static_cast<float>(x), static_cast<float>(y), kx, startY, knobSize);
-         break;
-      }
-   }
+   routeMouseDown(x, y, button);
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_mouse_up(int x, int y, int button)
 {
-   gMouseDown = false;
-
-   // Route to modular canvas
-   if (gViewMode == 0 && gCanvas)
-   {
-      gCanvas->onMouseUp(static_cast<float>(x), static_cast<float>(y), button);
-      return;
-   }
-
-   for (auto& knob : gKnobs)
-   {
-      knob->onMouseUp();
-   }
+   routeMouseUp(x, y, button);
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_mouse_wheel(float deltaX, float deltaY)
 {
-   // Route to modular canvas for zoom
-   if (gViewMode == 0 && gCanvas)
-   {
-      gCanvas->onMouseWheel(deltaX, deltaY, static_cast<float>(gMouseX), static_cast<float>(gMouseY));
-      return;
-   }
-
-   // Handle scroll on knobs
-   float knobSize = 80.0f;
-   float startX = 100.0f;
-   float startY = 130.0f; // Updated to match render
-   float spacing = 120.0f;
-
-   for (size_t i = 0; i < gKnobs.size(); i++)
-   {
-      float kx = startX + i * spacing;
-      if (gKnobs[i]->hitTest(static_cast<float>(gMouseX), static_cast<float>(gMouseY), kx, startY, knobSize))
-      {
-         gKnobs[i]->onScroll(deltaY);
-         break;
-      }
-   }
+   routeMouseWheel(deltaX, deltaY);
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_key_down(int keyCode, int modifiers)
 {
-   // Tab key switches between modular canvas and demo panels
-   if (keyCode == KEY_TAB)
-   {
-      gViewMode = (gViewMode == 0) ? 1 : 0;
-      printf("BespokeSynth WASM: Switched to %s view\n",
-             gViewMode == 0 ? "Modular Canvas" : "Demo Panels");
-      return;
-   }
-
-   // Route to modular canvas
-   if (gViewMode == 0 && gCanvas)
-   {
-      gCanvas->onKeyDown(keyCode, modifiers);
-   }
-
-   // Handle shift for fine mode
-   if (keyCode == KEY_SHIFT)
-   {
-      for (auto& knob : gKnobs)
-      {
-         knob->setFineMode(true);
-      }
-   }
-
-   // Space toggles transport; audio backend follows play state
-   if (keyCode == KEY_SPACE && gAudioBackend)
-   {
-      if (gViewMode != 0 && gCanvas && gCanvas->getTransport())
-         gCanvas->getTransport()->setPlaying(!gCanvas->getTransport()->isPlaying());
-
-      if (gCanvas && gCanvas->getTransport())
-      {
-         if (gCanvas->getTransport()->isPlaying())
-            gAudioBackend->start();
-         else
-            gAudioBackend->stop();
-      }
-   }
+   routeKeyDown(keyCode, modifiers);
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_key_up(int keyCode, int modifiers)
 {
-   if (keyCode == KEY_SHIFT)
-   {
-      for (auto& knob : gKnobs)
-      {
-         knob->setFineMode(false);
-      }
-   }
+   routeKeyUp(keyCode, modifiers);
 }
 
 EMSCRIPTEN_KEEPALIVE int bespoke_create_module(const char* type, float x, float y)
@@ -1348,12 +1168,8 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_control_value(int moduleId, const char* co
    // Try canvas modules first
    if (gCanvas)
    {
-      auto* mod = gCanvas->getModule(moduleId);
-      if (mod)
-      {
-         mod->setControlValue(controlName, value);
+      if (gCanvas->setModuleControlValue(moduleId, controlName ? controlName : "", value))
          return;
-      }
    }
    // Fallback: control knobs directly
    if (moduleId >= 0 && moduleId < static_cast<int>(gKnobs.size()))
@@ -1367,11 +1183,9 @@ EMSCRIPTEN_KEEPALIVE float bespoke_get_control_value(int moduleId, const char* c
    // Try canvas modules first
    if (gCanvas)
    {
-      auto* mod = gCanvas->getModule(moduleId);
-      if (mod)
-      {
-         return mod->getControlValue(controlName);
-      }
+      float value = 0.0f;
+      if (gCanvas->getModuleControlValue(moduleId, controlName ? controlName : "", value))
+         return value;
    }
    // Fallback: read from knobs
    if (moduleId >= 0 && moduleId < static_cast<int>(gKnobs.size()))
@@ -1381,28 +1195,142 @@ EMSCRIPTEN_KEEPALIVE float bespoke_get_control_value(int moduleId, const char* c
    return 0.0f;
 }
 
+EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_on(int channel, int pitch, float velocity)
+{
+   (void)channel;
+   if (!gAudioGraphEngine) return;
+   gAudioGraphEngine->queueNote({ pitch, std::max(0.0f, std::min(1.0f, velocity)), true,
+                                  emscripten_get_now() / 1000.0 });
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_off(int channel, int pitch)
+{
+   (void)channel;
+   if (!gAudioGraphEngine) return;
+   gAudioGraphEngine->queueNote({ pitch, 0.0f, false, emscripten_get_now() / 1000.0 });
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_midi_cc(int channel, int cc, float value)
+{
+   (void)channel;
+   if (!gCanvas) return;
+   value = std::max(0.0f, std::min(1.0f, value));
+   if (cc == 7)
+   {
+      const int gain = gCanvas->findFirstModuleOfType("gain");
+      if (gain >= 0) gCanvas->setModuleControlValue(gain, "gain", value);
+   }
+   else if (cc == 74)
+   {
+      const int filter = gCanvas->findFirstModuleOfType("filter");
+      if (filter >= 0) gCanvas->setModuleControlValue(filter, "cutoff", 20.0f + value * 19980.0f);
+   }
+   else if (cc == 1)
+   {
+      const int lfo = gCanvas->findFirstModuleOfType("lfo");
+      if (lfo >= 0) gCanvas->setModuleControlValue(lfo, "depth", value);
+   }
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_load_state_json(const char* json);
+
 EMSCRIPTEN_KEEPALIVE int bespoke_save_state(const char* filename)
 {
-   printf("BespokeSynth WASM: Save state to '%s'\n", filename);
-   return 0;
+   if (!gCanvas || !filename || filename[0] == '\0')
+      return -1;
+
+   const std::string json = serializePatchState(gCanvas->createStateSnapshot(), gViewMode);
+   std::ofstream out(filename, std::ios::binary);
+   if (!out)
+   {
+      printf("BespokeSynth WASM: Failed to open state file '%s' for writing\n", filename);
+      return -2;
+   }
+   out << json;
+   printf("BespokeSynth WASM: Saved state to '%s' (%zu bytes)\n", filename, json.size());
+   return out.good() ? 0 : -3;
 }
 
 EMSCRIPTEN_KEEPALIVE int bespoke_load_state(const char* filename)
 {
-   printf("BespokeSynth WASM: Load state from '%s'\n", filename);
-   return 0;
+   if (!gCanvas || !filename || filename[0] == '\0')
+      return -1;
+
+   std::ifstream in(filename, std::ios::binary);
+   if (!in)
+   {
+      printf("BespokeSynth WASM: Failed to open state file '%s' for reading\n", filename);
+      return -2;
+   }
+
+   std::ostringstream contents;
+   contents << in.rdbuf();
+   return bespoke_load_state_json(contents.str().c_str());
 }
 
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_state_json(void)
 {
-   // TODO: Return actual state
-   return "{}";
+   if (!gCanvas)
+   {
+      gStateJsonBuffer = "{}";
+      return gStateJsonBuffer.c_str();
+   }
+
+   gStateJsonBuffer = serializePatchState(gCanvas->createStateSnapshot(), gViewMode);
+   return gStateJsonBuffer.c_str();
 }
 
 EMSCRIPTEN_KEEPALIVE int bespoke_load_state_json(const char* json)
 {
-   printf("BespokeSynth WASM: Load state from JSON\n");
+   if (!gCanvas || !json)
+      return -1;
+
+   ModuleCanvas::StateSnapshot snapshot;
+   int loadedViewMode = gViewMode;
+   gStateErrorMessage.clear();
+   if (!deserializePatchState(json, snapshot, loadedViewMode, gStateErrorMessage))
+   {
+      printf("BespokeSynth WASM: Failed to load state JSON: %s\n", gStateErrorMessage.c_str());
+      return -2;
+   }
+
+   gViewMode = (loadedViewMode == 0) ? 0 : 1;
+   if (!gCanvas->applyStateSnapshot(snapshot))
+      return -3;
+
+   gOscillatorModuleId = gCanvas->findFirstModuleOfType("oscillator");
+   gGainModuleId = gCanvas->findFirstModuleOfType("gain");
+   gAudioGraphEngine = std::make_unique<AudioGraphEngine>();
+   printf("BespokeSynth WASM: Loaded state JSON (%zu modules, %zu connections)\n",
+          snapshot.modules.size(), snapshot.connections.size());
    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_load_layout(const char* path)
+{
+   if (!path || path[0] == '\0')
+      return -1;
+
+   std::string resourcePath(path);
+   if (resourcePath.find("..") != std::string::npos)
+      return -1;
+   if (resourcePath.rfind("/resource/", 0) != 0)
+      resourcePath = "/resource/userdata_original/" + resourcePath;
+
+   std::ifstream in(resourcePath, std::ios::binary);
+   if (!in)
+   {
+      printf("BespokeSynth WASM: Bundled layout not found: '%s'\n", resourcePath.c_str());
+      return -2;
+   }
+
+   std::ostringstream contents;
+   contents << in.rdbuf();
+   const int result = bespoke_load_state_json(contents.str().c_str());
+   if (result != 0)
+      printf("BespokeSynth WASM: '%s' is not a WASM patch-state layout (result=%d)\n",
+             resourcePath.c_str(), result);
+   return result;
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_play(void)
@@ -1411,10 +1339,8 @@ EMSCRIPTEN_KEEPALIVE void bespoke_play(void)
    {
       gAudioBackend->start();
    }
-   if (gCanvas && gCanvas->getTransport())
-   {
-      gCanvas->getTransport()->setPlaying(true);
-   }
+   if (gCanvas)
+      gCanvas->setTransportPlaying(true);
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_stop(void)
@@ -1423,27 +1349,21 @@ EMSCRIPTEN_KEEPALIVE void bespoke_stop(void)
    {
       gAudioBackend->stop();
    }
-   if (gCanvas && gCanvas->getTransport())
-   {
-      gCanvas->getTransport()->setPlaying(false);
-   }
+   if (gCanvas)
+      gCanvas->setTransportPlaying(false);
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_set_tempo(float bpm)
 {
-   if (gCanvas && gCanvas->getTransport())
-   {
-      gCanvas->getTransport()->setBPM(bpm);
-   }
+   if (gCanvas)
+      gCanvas->setTransportBPM(bpm);
    printf("BespokeSynth WASM: Set tempo to %.1f BPM\n", bpm);
 }
 
 EMSCRIPTEN_KEEPALIVE float bespoke_get_tempo(void)
 {
-   if (gCanvas && gCanvas->getTransport())
-   {
-      return gCanvas->getTransport()->getBPM();
-   }
+   if (gCanvas)
+      return gCanvas->getTransportBPM();
    return 120.0f;
 }
 
@@ -1454,8 +1374,7 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_version(void)
 
 EMSCRIPTEN_KEEPALIVE float bespoke_get_cpu_load(void)
 {
-   // TODO: Calculate actual CPU load
-   return 0.0f;
+   return wasmAudioCpuLoad();
 }
 
 EMSCRIPTEN_KEEPALIVE int bespoke_get_module_count(void)
@@ -1561,8 +1480,12 @@ static char* jsonEscape(char* dst, const char* end, const char* src)
    {
       if (*src == '"' || *src == '\\')
       {
-         if (dst < end - 2) { *dst++ = '\\'; }
-         else break;
+         if (dst < end - 2)
+         {
+            *dst++ = '\\';
+         }
+         else
+            break;
       }
       *dst++ = *src;
    }
@@ -1584,14 +1507,14 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_control_info(int index)
    const ControlInfoEntry& e = gControlInfoCache[index];
 
    // Build JSON with proper escaping for the string fields.
-   char* p   = sJsonBuf;
+   char* p = sJsonBuf;
    char* end = sJsonBuf + sizeof(sJsonBuf) - 1;
 
    p += snprintf(p, end - p, "{\"id\":%d,\"type\":\"%s\",\"label\":\"", e.id, e.type);
-   p  = jsonEscape(p, end, e.label);
+   p = jsonEscape(p, end, e.label);
    p += snprintf(p, end - p, "\",\"value\":%.6f,\"min\":%.6f,\"max\":%.6f,\"unit\":\"",
                  e.value, e.min, e.max);
-   p  = jsonEscape(p, end, e.unit);
+   p = jsonEscape(p, end, e.unit);
    p += snprintf(p, end - p, "\",\"x\":%.2f,\"y\":%.2f,\"size\":%.2f}",
                  e.x, e.y, e.size);
    *p = '\0';

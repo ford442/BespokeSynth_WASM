@@ -5,18 +5,24 @@
  * Licensed under GNU GPL v3
  */
 
-#include "ModuleCanvas.h"
+#include "BespokeWasm/ModuleCanvas.h"
 #include "BespokeWasm/Theme.h"
 #include "BespokeWasm/PixelFont.h"
+#include "BespokeWasm/AudioAnalysis.h"
 #include <cstdio>
 #include <cmath>
 #include <cstring>
 #include <algorithm>
+#include <cctype>
+#include <array>
 
-namespace bespoke {
-   namespace wasm {
+namespace bespoke
+{
+   namespace wasm
+   {
 
-      namespace {
+      namespace
+      {
 
          float textBaselineFromTop(float topY, float fontSize)
          {
@@ -99,6 +105,50 @@ namespace bespoke {
                snprintf(buf, buflen, "%.1f dB", 20.0f * log10f(gain));
          }
 
+         std::string lowercase(const std::string& value)
+         {
+            std::string result = value;
+            std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c)
+                           {
+                              return static_cast<char>(std::tolower(c));
+                           });
+            return result;
+         }
+
+         bool fuzzyMatches(const ModuleTypeInfo& type, const std::string& query)
+         {
+            if (query.empty())
+               return true;
+
+            const std::string candidate = lowercase(type.displayName + " " + type.type);
+            size_t queryIndex = 0;
+            for (char c : candidate)
+            {
+               if (queryIndex < query.size() && c == query[queryIndex])
+                  ++queryIndex;
+            }
+            return queryIndex == query.size();
+         }
+
+         std::vector<ModuleTypeInfo> spawnMenuTypes(int category, const std::string& query)
+         {
+            std::vector<ModuleTypeInfo> result;
+            for (const auto& type : ModuleFactory::instance().getRegisteredTypes())
+            {
+               if (type.type == "transport" || type.type == "scale")
+                  continue;
+               if (category >= 0 && static_cast<int>(type.category) != category)
+                  continue;
+               if (fuzzyMatches(type, query))
+                  result.push_back(type);
+            }
+            std::sort(result.begin(), result.end(), [](const ModuleTypeInfo& a, const ModuleTypeInfo& b)
+                      {
+                         return a.displayName < b.displayName;
+                      });
+            return result;
+         }
+
          float waveformSample(int waveform, float t)
          {
             const float phase = fmodf(t, 1.0f) * 6.2831853f;
@@ -120,6 +170,25 @@ namespace bespoke {
             return std::max(15.0f * scale, textLineSpacing(labelFont, scale));
          }
 
+         std::vector<std::string> serializableControlsForType(const std::string& type)
+         {
+            if (type == "oscillator")
+               return { "frequency", "volume", "waveform" };
+            if (type == "filter")
+               return { "cutoff", "resonance", "type" };
+            if (type == "gain")
+               return { "gain" };
+            if (type == "output")
+               return { "level" };
+            if (type == "lfo")
+               return { "rate", "depth", "shape" };
+            if (type == "transport")
+               return { "bpm", "swing" };
+            if (type == "scale")
+               return { "root", "type" };
+            return {};
+         }
+
       } // namespace
 
       // ============================================================
@@ -127,16 +196,16 @@ namespace bespoke {
       // ============================================================
 
       Module::Module(int id, const std::string& type, const std::string& name, ModuleCategory category)
-         : mId(id)
-         , mType(type)
-         , mName(name)
-         , mCategory(category)
-         , mX(0)
-         , mY(0)
-         , mWidth(150)
-         , mHeight(100)
-         , mEnabled(true)
-         , mMinimized(false)
+      : mId(id)
+      , mType(type)
+      , mName(name)
+      , mCategory(category)
+      , mX(0)
+      , mY(0)
+      , mWidth(150)
+      , mHeight(100)
+      , mEnabled(true)
+      , mMinimized(false)
       {
       }
 
@@ -335,7 +404,7 @@ namespace bespoke {
       // ============================================================
 
       OscillatorModule::OscillatorModule(int id)
-         : Module(id, "oscillator", "Oscillator", ModuleCategory::Synth)
+      : Module(id, "oscillator", "Oscillator", ModuleCategory::Synth)
       {
          setSize(160, 120);
          addInput("Pitch", PortType::Note);
@@ -456,7 +525,7 @@ namespace bespoke {
       // ============================================================
 
       GainModule::GainModule(int id)
-         : Module(id, "gain", "Gain", ModuleCategory::AudioEffect)
+      : Module(id, "gain", "Gain", ModuleCategory::AudioEffect)
       {
          setSize(120, 80);
          addInput("In", PortType::Audio);
@@ -542,7 +611,7 @@ namespace bespoke {
       // ============================================================
 
       OutputModule::OutputModule(int id)
-         : Module(id, "output", "Output", ModuleCategory::Other)
+      : Module(id, "output", "Output", ModuleCategory::Other)
       {
          setSize(120, 90);
          addInput("In", PortType::Audio);
@@ -593,7 +662,7 @@ namespace bespoke {
       // ============================================================
 
       FilterModule::FilterModule(int id)
-         : Module(id, "filter", "Filter", ModuleCategory::AudioEffect)
+      : Module(id, "filter", "Filter", ModuleCategory::AudioEffect)
       {
          setSize(150, 110);
          addInput("In", PortType::Audio);
@@ -676,7 +745,7 @@ namespace bespoke {
       // ============================================================
 
       LFOModule::LFOModule(int id)
-         : Module(id, "lfo", "LFO", ModuleCategory::Modulator)
+      : Module(id, "lfo", "LFO", ModuleCategory::Modulator)
       {
          setSize(130, 100);
          addOutput("Mod", PortType::Modulation);
@@ -756,7 +825,7 @@ namespace bespoke {
       // ============================================================
 
       TransportModule::TransportModule(int id)
-         : Module(id, "transport", "Transport", ModuleCategory::Other)
+      : Module(id, "transport", "Transport", ModuleCategory::Other)
       {
          setSize(250, 60);
       }
@@ -867,7 +936,7 @@ namespace bespoke {
       };
 
       ScaleModule::ScaleModule(int id)
-         : Module(id, "scale", "Scale", ModuleCategory::Other)
+      : Module(id, "scale", "Scale", ModuleCategory::Other)
       {
          setSize(180, 70);
       }
@@ -959,13 +1028,13 @@ namespace bespoke {
       ModuleFactory::ModuleFactory()
       {
          // Register all available module types
-         mTypes.push_back({"oscillator", "Oscillator", ModuleCategory::Synth});
-         mTypes.push_back({"gain", "Gain", ModuleCategory::AudioEffect});
-         mTypes.push_back({"output", "Output", ModuleCategory::Other});
-         mTypes.push_back({"filter", "Filter", ModuleCategory::AudioEffect});
-         mTypes.push_back({"lfo", "LFO", ModuleCategory::Modulator});
-         mTypes.push_back({"transport", "Transport", ModuleCategory::Other});
-         mTypes.push_back({"scale", "Scale", ModuleCategory::Other});
+         mTypes.push_back({ "oscillator", "Oscillator", ModuleCategory::Synth });
+         mTypes.push_back({ "gain", "Gain", ModuleCategory::AudioEffect });
+         mTypes.push_back({ "output", "Output", ModuleCategory::Other });
+         mTypes.push_back({ "filter", "Filter", ModuleCategory::AudioEffect });
+         mTypes.push_back({ "lfo", "LFO", ModuleCategory::Modulator });
+         mTypes.push_back({ "transport", "Transport", ModuleCategory::Other });
+         mTypes.push_back({ "scale", "Scale", ModuleCategory::Other });
       }
 
       std::unique_ptr<Module> ModuleFactory::createModule(const std::string& type, int id)
@@ -1025,6 +1094,7 @@ namespace bespoke {
 
       int ModuleCanvas::createModule(const std::string& type, float x, float y)
       {
+         Lock lock(mMutex);
          auto module = ModuleFactory::instance().createModule(type, mNextModuleId);
          if (!module)
          {
@@ -1042,6 +1112,7 @@ namespace bespoke {
 
       void ModuleCanvas::deleteModule(int moduleId)
       {
+         Lock lock(mMutex);
          // Don't allow deleting Transport or Scale
          if (mTransport && moduleId == mTransport->getId())
             return;
@@ -1050,12 +1121,12 @@ namespace bespoke {
 
          // Remove connections involving this module
          mConnections.erase(
-            std::remove_if(mConnections.begin(), mConnections.end(),
-                           [moduleId](const Connection& c)
-                           {
-                              return c.sourceModuleId == moduleId || c.destModuleId == moduleId;
-                           }),
-            mConnections.end());
+         std::remove_if(mConnections.begin(), mConnections.end(),
+                        [moduleId](const Connection& c)
+                        {
+                           return c.sourceModuleId == moduleId || c.destModuleId == moduleId;
+                        }),
+         mConnections.end());
 
          mModules.erase(moduleId);
          printf("ModuleCanvas: Deleted module %d\n", moduleId);
@@ -1063,6 +1134,7 @@ namespace bespoke {
 
       Module* ModuleCanvas::getModule(int moduleId)
       {
+         Lock lock(mMutex);
          auto it = mModules.find(moduleId);
          if (it != mModules.end())
             return it->second.get();
@@ -1071,6 +1143,7 @@ namespace bespoke {
 
       int ModuleCanvas::findFirstModuleOfType(const std::string& type) const
       {
+         Lock lock(mMutex);
          for (const auto& [id, module] : mModules)
          {
             if (module->getType() == type)
@@ -1079,8 +1152,41 @@ namespace bespoke {
          return -1;
       }
 
+      bool ModuleCanvas::setModuleControlValue(int moduleId, const std::string& name, float value)
+      {
+         Lock lock(mMutex);
+         auto it = mModules.find(moduleId);
+         if (it == mModules.end())
+            return false;
+         it->second->setControlValue(name, value);
+         return true;
+      }
+
+      bool ModuleCanvas::getModuleControlValue(int moduleId, const std::string& name, float& value) const
+      {
+         Lock lock(mMutex);
+         auto it = mModules.find(moduleId);
+         if (it == mModules.end())
+            return false;
+         value = it->second->getControlValue(name);
+         return true;
+      }
+
       void ModuleCanvas::connectModules(int sourceId, int sourcePort, int destId, int destPort)
       {
+         Lock lock(mMutex);
+         if (!portsAreCompatible(sourceId, sourcePort, destId, destPort))
+         {
+            printf("ModuleCanvas: Rejected incompatible connection %d:%d -> %d:%d\n",
+                   sourceId, sourcePort, destId, destPort);
+            return;
+         }
+         for (const auto& existing : mConnections)
+         {
+            if (existing.sourceModuleId == sourceId && existing.sourcePortIndex == sourcePort &&
+                existing.destModuleId == destId && existing.destPortIndex == destPort)
+               return;
+         }
          Connection conn;
          conn.sourceModuleId = sourceId;
          conn.sourcePortIndex = sourcePort;
@@ -1118,17 +1224,261 @@ namespace bespoke {
 
       void ModuleCanvas::disconnectModules(int sourceId, int destId)
       {
+         Lock lock(mMutex);
          mConnections.erase(
-            std::remove_if(mConnections.begin(), mConnections.end(),
-                           [sourceId, destId](const Connection& c)
-                           {
-                              return c.sourceModuleId == sourceId && c.destModuleId == destId;
-                           }),
-            mConnections.end());
+         std::remove_if(mConnections.begin(), mConnections.end(),
+                        [sourceId, destId](const Connection& c)
+                        {
+                           return c.sourceModuleId == sourceId && c.destModuleId == destId;
+                        }),
+         mConnections.end());
+      }
+
+      bool ModuleCanvas::portsAreCompatible(int sourceId, int sourcePort, int destId, int destPort) const
+      {
+         auto sourceIt = mModules.find(sourceId);
+         auto destIt = mModules.find(destId);
+         if (sourceIt == mModules.end() || destIt == mModules.end() || sourceId == destId ||
+             sourcePort < 0 || destPort < 0)
+            return false;
+         const auto& outputs = sourceIt->second->getOutputs();
+         const auto& inputs = destIt->second->getInputs();
+         return sourcePort < static_cast<int>(outputs.size()) && destPort < static_cast<int>(inputs.size()) &&
+                outputs[sourcePort].type == inputs[destPort].type;
+      }
+
+      bool ModuleCanvas::findPortAt(float worldX, float worldY, bool output, int& moduleId, int& portIndex) const
+      {
+         const float hitRadius = Module::kPortRadius + 4.0f;
+         for (const auto& [id, module] : mModules)
+         {
+            const auto& ports = output ? module->getOutputs() : module->getInputs();
+            const float portX = module->getX() + (output ? module->getWidth() : 0.0f);
+            for (size_t index = 0; index < ports.size(); ++index)
+            {
+               const float portY = module->getY() + Module::kTitleBarHeight + 10.0f + index * 15.0f;
+               const float dx = worldX - portX;
+               const float dy = worldY - portY;
+               if (dx * dx + dy * dy <= hitRadius * hitRadius)
+               {
+                  moduleId = id;
+                  portIndex = static_cast<int>(index);
+                  return true;
+               }
+            }
+         }
+         return false;
+      }
+
+      bool ModuleCanvas::removeConnectionAt(float screenX, float screenY)
+      {
+         const float canvasTop = kTitleBarHeight;
+         const float threshold = 8.0f;
+         for (auto it = mConnections.begin(); it != mConnections.end(); ++it)
+         {
+            auto sourceIt = mModules.find(it->sourceModuleId);
+            auto destIt = mModules.find(it->destModuleId);
+            if (sourceIt == mModules.end() || destIt == mModules.end())
+               continue;
+            const Module& source = *sourceIt->second;
+            const Module& dest = *destIt->second;
+            const float x1 = (source.getX() + source.getWidth() + mOffsetX) * mScale;
+            const float y1 = (source.getY() + Module::kTitleBarHeight + 10.0f + it->sourcePortIndex * 15.0f + mOffsetY) * mScale + canvasTop;
+            const float x2 = (dest.getX() + mOffsetX) * mScale;
+            const float y2 = (dest.getY() + Module::kTitleBarHeight + 10.0f + it->destPortIndex * 15.0f + mOffsetY) * mScale + canvasTop;
+            const float dx = x2 - x1;
+            const float dy = y2 - y1;
+            const float lengthSquared = dx * dx + dy * dy;
+            const float t = lengthSquared > 0.0f
+                            ? std::max(0.0f, std::min(1.0f, ((screenX - x1) * dx + (screenY - y1) * dy) / lengthSquared))
+                            : 0.0f;
+            const float px = x1 + t * dx;
+            const float py = y1 + t * dy;
+            const float distanceX = screenX - px;
+            const float distanceY = screenY - py;
+            if (distanceX * distanceX + distanceY * distanceY <= threshold * threshold)
+            {
+               mConnections.erase(it);
+               return true;
+            }
+         }
+         return false;
+      }
+
+      ModuleCanvas::AudioGraphSnapshot ModuleCanvas::createAudioGraphSnapshot() const
+      {
+         Lock lock(mMutex);
+
+         AudioGraphSnapshot snapshot;
+         snapshot.transportPlaying = mTransport && mTransport->isPlaying();
+         snapshot.transportBPM = mTransport ? mTransport->getBPM() : 120.0f;
+         snapshot.nodes.reserve(mModules.size());
+         snapshot.connections.reserve(mConnections.size());
+
+         for (const auto& [id, module] : mModules)
+         {
+            AudioGraphNode node;
+            node.id = id;
+            node.type = module->getType();
+            node.enabled = module->isEnabled();
+
+            if (node.type == "oscillator")
+            {
+               node.frequency = module->getControlValue("frequency");
+               node.volume = module->getControlValue("volume");
+               node.waveform = static_cast<int>(module->getControlValue("waveform"));
+            }
+            else if (node.type == "gain")
+            {
+               node.gain = module->getControlValue("gain");
+            }
+            else if (node.type == "filter")
+            {
+               node.cutoff = module->getControlValue("cutoff");
+               node.resonance = module->getControlValue("resonance");
+               node.filterType = static_cast<int>(module->getControlValue("type"));
+            }
+            else if (node.type == "lfo")
+            {
+               node.lfoRate = module->getControlValue("rate");
+               node.lfoDepth = module->getControlValue("depth");
+               node.lfoShape = static_cast<int>(module->getControlValue("shape"));
+            }
+
+            snapshot.nodes.push_back(node);
+         }
+
+         for (const auto& conn : mConnections)
+         {
+            auto srcIt = mModules.find(conn.sourceModuleId);
+            auto dstIt = mModules.find(conn.destModuleId);
+            if (srcIt == mModules.end() || dstIt == mModules.end())
+               continue;
+
+            const auto& outputs = srcIt->second->getOutputs();
+            const auto& inputs = dstIt->second->getInputs();
+            if (conn.sourcePortIndex < 0 || conn.destPortIndex < 0 ||
+                conn.sourcePortIndex >= static_cast<int>(outputs.size()) ||
+                conn.destPortIndex >= static_cast<int>(inputs.size()))
+               continue;
+
+            AudioGraphConnection audioConn;
+            audioConn.sourceModuleId = conn.sourceModuleId;
+            audioConn.sourcePortIndex = conn.sourcePortIndex;
+            audioConn.destModuleId = conn.destModuleId;
+            audioConn.destPortIndex = conn.destPortIndex;
+            audioConn.sourcePortType = outputs[conn.sourcePortIndex].type;
+            audioConn.destPortType = inputs[conn.destPortIndex].type;
+            snapshot.connections.push_back(audioConn);
+         }
+
+         return snapshot;
+      }
+
+      ModuleCanvas::StateSnapshot ModuleCanvas::createStateSnapshot() const
+      {
+         Lock lock(mMutex);
+
+         StateSnapshot snapshot;
+         snapshot.transportBPM = mTransport ? mTransport->getBPM() : 120.0f;
+         snapshot.transportPlaying = mTransport && mTransport->isPlaying();
+         snapshot.offsetX = mOffsetX;
+         snapshot.offsetY = mOffsetY;
+         snapshot.scale = mScale;
+         snapshot.modules.reserve(mModules.size());
+         snapshot.connections.reserve(mConnections.size());
+
+         for (const auto& [id, module] : mModules)
+         {
+            StateModule stateModule;
+            stateModule.id = id;
+            stateModule.type = module->getType();
+            stateModule.x = module->getX();
+            stateModule.y = module->getY();
+            stateModule.minimized = module->isMinimized();
+            stateModule.enabled = module->isEnabled();
+
+            for (const auto& controlName : serializableControlsForType(stateModule.type))
+               stateModule.controls[controlName] = module->getControlValue(controlName);
+
+            snapshot.modules.push_back(stateModule);
+         }
+
+         for (const auto& conn : mConnections)
+         {
+            StateConnection stateConn;
+            stateConn.sourceModuleId = conn.sourceModuleId;
+            stateConn.sourcePortIndex = conn.sourcePortIndex;
+            stateConn.destModuleId = conn.destModuleId;
+            stateConn.destPortIndex = conn.destPortIndex;
+            snapshot.connections.push_back(stateConn);
+         }
+
+         return snapshot;
+      }
+
+      bool ModuleCanvas::applyStateSnapshot(const StateSnapshot& snapshot)
+      {
+         Lock lock(mMutex);
+         std::unordered_map<int, int> idMap;
+
+         clearUserModules();
+         setViewTransform(snapshot.offsetX, snapshot.offsetY, snapshot.scale);
+
+         if (mTransport)
+         {
+            mTransport->setBPM(snapshot.transportBPM);
+            mTransport->setPlaying(snapshot.transportPlaying);
+         }
+
+         for (const auto& stateModule : snapshot.modules)
+         {
+            Module* module = nullptr;
+            int newId = -1;
+
+            if (stateModule.type == "transport")
+            {
+               module = mTransport;
+               newId = module ? module->getId() : -1;
+            }
+            else if (stateModule.type == "scale")
+            {
+               module = mScaleModule;
+               newId = module ? module->getId() : -1;
+            }
+            else
+            {
+               newId = createModule(stateModule.type, stateModule.x, stateModule.y);
+               module = getModule(newId);
+            }
+
+            if (!module || newId < 0)
+               continue;
+
+            idMap[stateModule.id] = newId;
+            module->setPosition(stateModule.x, stateModule.y);
+            module->setMinimized(stateModule.minimized);
+            module->setEnabled(stateModule.enabled);
+
+            for (const auto& [name, value] : stateModule.controls)
+               module->setControlValue(name, value);
+         }
+
+         for (const auto& stateConn : snapshot.connections)
+         {
+            auto srcIt = idMap.find(stateConn.sourceModuleId);
+            auto dstIt = idMap.find(stateConn.destModuleId);
+            if (srcIt == idMap.end() || dstIt == idMap.end())
+               continue;
+            connectModules(srcIt->second, stateConn.sourcePortIndex, dstIt->second, stateConn.destPortIndex);
+         }
+
+         return true;
       }
 
       void ModuleCanvas::zoom(float factor, float centerX, float centerY)
       {
+         Lock lock(mMutex);
          float worldCenterX = screenToWorldX(centerX);
          float worldCenterY = screenToWorldY(centerY);
 
@@ -1189,78 +1539,98 @@ namespace bespoke {
          drawText(renderer, 10.0f, textBaselineFromTop(renderer, 8.0f),
                   "BespokeSynth", UITheme::kTextPrimary, 14.0f);
 
-         // Spawn menu buttons by category
-         const char* catNames[] = {"Synth", "Audio FX", "Modulators", "Other"};
-         ModuleCategory catValues[] = {
-            ModuleCategory::Synth,
-            ModuleCategory::AudioEffect,
-            ModuleCategory::Modulator,
-            ModuleCategory::Other
-         };
-
          float btnX = 140.0f;
-         float btnW = 75.0f;
+         float btnW = 112.0f;
          float btnH = 24.0f;
          float btnY = 8.0f;
+         renderer.fillColor(mSpawnMenuOpen ? Color(0.25f, 0.25f, 0.30f, 1.0f)
+                                           : Color(0.18f, 0.18f, 0.20f, 1.0f));
+         renderer.roundedRect(btnX, btnY, btnW, btnH, 3.0f);
+         renderer.fill();
+         renderer.strokeColor(Color(0.30f, 0.70f, 0.50f, 1.0f));
+         renderer.strokeWidth(1.0f);
+         renderer.roundedRect(btnX, btnY, btnW, btnH, 3.0f);
+         renderer.stroke();
+         drawText(renderer, btnX + 8.0f, textBaselineFromTop(renderer, btnY + 4.0f),
+                  "Add module  /", UITheme::kTextSecondary, 11.0f);
+      }
 
-         for (int i = 0; i < 4; i++)
+      void ModuleCanvas::renderSpawnMenu(Renderer2D& renderer, int viewWidth, int viewHeight)
+      {
+         // Keep the palette native so it shares the canvas transform and Bespoke visual language.
+         // TypeScript only forwards browser-only input; a DOM overlay would be easier to iterate
+         // on, but would need duplicate placement, focus, and renderer-backend coordination.
+         if (!mSpawnMenuOpen)
+            return;
+
+         const auto types = spawnMenuTypes(mSpawnMenuCategory, mSpawnMenuSearch);
+         constexpr float kMenuWidth = 260.0f;
+         constexpr float kSearchHeight = 29.0f;
+         constexpr float kCategoryHeight = 25.0f;
+         constexpr float kRowHeight = 24.0f;
+         constexpr int kMaxRows = 8;
+         const int rows = std::min(static_cast<int>(types.size()), kMaxRows);
+         const float menuHeight = kSearchHeight + kCategoryHeight + 8.0f + rows * kRowHeight + 10.0f;
+         const float menuX = std::max(6.0f, std::min(mSpawnMenuX, static_cast<float>(viewWidth) - kMenuWidth - 6.0f));
+         const float menuY = std::max(kTitleBarHeight + 4.0f,
+                                      std::min(mSpawnMenuY, static_cast<float>(viewHeight) - menuHeight - 6.0f));
+         mSpawnMenuRenderX = menuX;
+         mSpawnMenuRenderY = menuY;
+
+         renderer.fillColor(Color(0.12f, 0.12f, 0.14f, 0.98f));
+         renderer.roundedRect(menuX, menuY, kMenuWidth, menuHeight, 5.0f);
+         renderer.fill();
+         renderer.strokeColor(Color(0.38f, 0.38f, 0.44f, 1.0f));
+         renderer.strokeWidth(1.0f);
+         renderer.roundedRect(menuX, menuY, kMenuWidth, menuHeight, 5.0f);
+         renderer.stroke();
+
+         const std::string searchLabel = mSpawnMenuSearch.empty() ? "Search modules..." : mSpawnMenuSearch;
+         drawText(renderer, menuX + 10.0f, textBaselineFromTop(renderer, menuY + 7.0f),
+                  searchLabel.c_str(), mSpawnMenuSearch.empty() ? UITheme::kTextSecondary : UITheme::kTextPrimary, 12.0f);
+         renderer.strokeColor(Color(0.28f, 0.28f, 0.33f, 1.0f));
+         renderer.line(menuX + 8.0f, menuY + kSearchHeight, menuX + kMenuWidth - 8.0f, menuY + kSearchHeight);
+
+         const char* categories[] = { "All", "Synth", "FX", "Mod", "Other" };
+         const int categoryValues[] = { -1, static_cast<int>(ModuleCategory::Synth), static_cast<int>(ModuleCategory::AudioEffect),
+                                        static_cast<int>(ModuleCategory::Modulator), static_cast<int>(ModuleCategory::Other) };
+         for (int i = 0; i < 5; ++i)
          {
-            bool isActive = mSpawnMenuOpen && mSpawnMenuCategory == i;
-
-            if (isActive)
+            const float chipX = menuX + 8.0f + i * 48.5f;
+            if (mSpawnMenuCategory == categoryValues[i])
             {
-               renderer.fillColor(Color(0.25f, 0.25f, 0.3f, 1.0f));
+               renderer.fillColor(Color(0.25f, 0.35f, 0.30f, 1.0f));
+               renderer.roundedRect(chipX, menuY + kSearchHeight + 3.0f, 44.0f, 18.0f, 3.0f);
+               renderer.fill();
             }
-            else
-            {
-               renderer.fillColor(Color(0.18f, 0.18f, 0.2f, 1.0f));
-            }
-            renderer.roundedRect(btnX + i * (btnW + 5), btnY, btnW, btnH, 3.0f);
-            renderer.fill();
-
-            renderer.strokeColor(getCategoryColor(catValues[i]));
-            renderer.strokeWidth(1.0f);
-            renderer.roundedRect(btnX + i * (btnW + 5), btnY, btnW, btnH, 3.0f);
-            renderer.stroke();
-
-            drawText(renderer, btnX + i * (btnW + 5) + 8, textBaselineFromTop(renderer, btnY + 4),
-                     catNames[i], UITheme::kTextSecondary, 11.0f);
+            drawText(renderer, chipX + 5.0f, textBaselineFromTop(renderer, menuY + kSearchHeight + 6.0f),
+                     categories[i], UITheme::kTextSecondary, 10.0f);
          }
 
-         // Render spawn dropdown if open
-         if (mSpawnMenuOpen && mSpawnMenuCategory >= 0 && mSpawnMenuCategory < 4)
+         const float rowsY = menuY + kSearchHeight + kCategoryHeight + 2.0f;
+         if (types.empty())
          {
-            ModuleCategory cat = catValues[mSpawnMenuCategory];
-            auto types = ModuleFactory::instance().getTypesByCategory(cat);
-
-            float dropX = 140.0f + mSpawnMenuCategory * (btnW + 5);
-            float dropY = kTitleBarHeight;
-            float dropW = 140.0f;
-            float dropH = types.size() * 25.0f + 10.0f;
-
-            // Dropdown background
-            renderer.fillColor(Color(0.15f, 0.15f, 0.17f, 0.98f));
-            renderer.roundedRect(dropX, dropY, dropW, dropH, 4.0f);
-            renderer.fill();
-
-            renderer.strokeColor(Color(0.35f, 0.35f, 0.4f, 1.0f));
-            renderer.strokeWidth(1.0f);
-            renderer.roundedRect(dropX, dropY, dropW, dropH, 4.0f);
-            renderer.stroke();
-
-            // Module type entries
-            for (size_t i = 0; i < types.size(); i++)
+            drawText(renderer, menuX + 10.0f, textBaselineFromTop(renderer, rowsY + 5.0f),
+                     "No matching modules", UITheme::kTextSecondary, 11.0f);
+            return;
+         }
+         for (int i = 0; i < rows; ++i)
+         {
+            const float rowY = rowsY + i * kRowHeight;
+            if (i == mSpawnMenuSelectedIndex)
             {
-               float entryY = dropY + 5 + i * 25.0f;
-
-               drawText(renderer, dropX + 10, textBaselineFromTop(renderer, entryY + 4),
-                        types[i].displayName.c_str(), UITheme::kTextPrimary, 11.0f);
+               renderer.fillColor(Color(0.24f, 0.30f, 0.34f, 1.0f));
+               renderer.rect(menuX + 5.0f, rowY, kMenuWidth - 10.0f, kRowHeight);
+               renderer.fill();
             }
+            drawText(renderer, menuX + 11.0f, textBaselineFromTop(renderer, rowY + 4.0f),
+                     types[i].displayName.c_str(), UITheme::kTextPrimary, 12.0f);
          }
       }
 
       void ModuleCanvas::render(Renderer2D& renderer, int viewWidth, int viewHeight)
       {
+         Lock lock(mMutex);
          float canvasTop = kTitleBarHeight;
          float canvasHeight = static_cast<float>(viewHeight) - canvasTop;
 
@@ -1295,10 +1665,14 @@ namespace bespoke {
             // Calculate port positions
             float srcX = (srcMod->getX() + srcMod->getWidth() + mOffsetX) * mScale;
             float srcY = (srcMod->getY() + Module::kTitleBarHeight + 10 +
-                          conn.sourcePortIndex * 15 + mOffsetY) * mScale + canvasTop;
+                          conn.sourcePortIndex * 15 + mOffsetY) *
+                         mScale +
+                         canvasTop;
             float dstX = (dstMod->getX() + mOffsetX) * mScale;
             float dstY = (dstMod->getY() + Module::kTitleBarHeight + 10 +
-                          conn.destPortIndex * 15 + mOffsetY) * mScale + canvasTop;
+                          conn.destPortIndex * 15 + mOffsetY) *
+                         mScale +
+                         canvasTop;
 
             renderer.drawCableWithSag(srcX, srcY, dstX, dstY, conn.color, 2.5f * mScale, 0.2f);
          }
@@ -1311,9 +1685,14 @@ namespace bespoke {
             {
                float srcX = (srcMod->getX() + srcMod->getWidth() + mOffsetX) * mScale;
                float srcY = (srcMod->getY() + Module::kTitleBarHeight + 10 +
-                             mConnectSourcePort * 15 + mOffsetY) * mScale + canvasTop;
+                             mConnectSourcePort * 15 + mOffsetY) *
+                            mScale +
+                            canvasTop;
+               const Color previewColor = mConnectTargetCompatible
+                                          ? Color(0.7f, 0.7f, 0.75f, 0.75f)
+                                          : Color(0.95f, 0.2f, 0.2f, 0.85f);
                renderer.drawCableWithSag(srcX, srcY, mConnectEndX, mConnectEndY,
-                                         Color(0.7f, 0.7f, 0.75f, 0.6f), 2.0f, 0.15f);
+                                         previewColor, 2.0f, 0.15f);
             }
          }
 
@@ -1325,6 +1704,22 @@ namespace bespoke {
 
          // Render title bar on top
          renderTitleBar(renderer, viewWidth);
+         renderSpawnMenu(renderer, viewWidth, viewHeight);
+
+         // Docked live analyzer: its data is copied from the audio callback's lock-free ring.
+         std::array<float, 256> waveform{};
+         std::array<float, AudioAnalysis::kSpectrumBins> spectrum{};
+         AudioAnalysis::copyLatest(waveform.data(), static_cast<int>(waveform.size()));
+         AudioAnalysis::computeSpectrum(spectrum.data(), static_cast<int>(spectrum.size()));
+         const float analyzerX = static_cast<float>(viewWidth) - 210.0f;
+         const float analyzerY = static_cast<float>(viewHeight) - 135.0f;
+         renderer.drawPanel(analyzerX, analyzerY, 200.0f, 105.0f, true);
+         drawText(renderer, analyzerX + 8.0f, textBaselineFromTop(renderer, analyzerY + 5.0f),
+                  "ANALYZER", UITheme::kTextSecondary, 9.0f);
+         renderer.drawWaveform(analyzerX + 8.0f, analyzerY + 20.0f, 184.0f, 34.0f,
+                               waveform.data(), static_cast<int>(waveform.size()), false);
+         renderer.drawSpectrum(analyzerX + 8.0f, analyzerY + 61.0f, 184.0f, 35.0f,
+                               spectrum.data(), static_cast<int>(spectrum.size()));
 
          // Draw zoom indicator (right-aligned)
          renderer.fontSize(10.0f);
@@ -1351,6 +1746,7 @@ namespace bespoke {
 
       void ModuleCanvas::setOutputLevel(float level)
       {
+         Lock lock(mMutex);
          for (auto& [id, module] : mModules)
          {
             if (module->getType() == "output")
@@ -1363,6 +1759,7 @@ namespace bespoke {
 
       void ModuleCanvas::clearUserModules()
       {
+         Lock lock(mMutex);
          std::vector<int> toDelete;
          for (const auto& [id, module] : mModules)
          {
@@ -1378,6 +1775,7 @@ namespace bespoke {
 
       void ModuleCanvas::setViewTransform(float offsetX, float offsetY, float scale)
       {
+         Lock lock(mMutex);
          mOffsetX = offsetX;
          mOffsetY = offsetY;
          mScale = std::max(0.25f, std::min(4.0f, scale));
@@ -1385,6 +1783,7 @@ namespace bespoke {
 
       void ModuleCanvas::setupCanonicalRenderTestScene()
       {
+         Lock lock(mMutex);
          clearUserModules();
          setViewTransform(0.0f, 80.0f, 1.0f);
 
@@ -1441,75 +1840,69 @@ namespace bespoke {
 
       void ModuleCanvas::onMouseDown(float x, float y, int button)
       {
-         // Check title bar spawn menu buttons
+         Lock lock(mMutex);
+         mLastMouseX = x;
+         mLastMouseY = y;
+
+         // The title-bar button is a convenient discoverable alternative to right-click.
          if (y < kTitleBarHeight)
          {
             float btnX = 140.0f;
-            float btnW = 75.0f;
+            float btnW = 112.0f;
             float btnH = 24.0f;
             float btnTop = 8.0f;
-
-            for (int i = 0; i < 4; i++)
+            if (x >= btnX && x <= btnX + btnW && y >= btnTop && y <= btnTop + btnH)
             {
-               float bx = btnX + i * (btnW + 5);
-               if (x >= bx && x <= bx + btnW && y >= btnTop && y <= btnTop + btnH)
-               {
-                  if (mSpawnMenuOpen && mSpawnMenuCategory == i)
-                  {
-                     closeSpawnMenu();
-                  }
-                  else
-                  {
-                     openSpawnMenu(x, y);
-                     mSpawnMenuCategory = i;
-                  }
-                  return;
-               }
+               if (mSpawnMenuOpen)
+                  closeSpawnMenu();
+               else
+                  openSpawnMenu(x, kTitleBarHeight + 4.0f);
+               return;
             }
-
-            // Close menu if clicking elsewhere on title bar
             if (mSpawnMenuOpen)
-            {
                closeSpawnMenu();
-            }
             return;
          }
 
-         // Check spawn menu dropdown clicks
          if (mSpawnMenuOpen)
          {
-            ModuleCategory catValues[] = {
-               ModuleCategory::Synth,
-               ModuleCategory::AudioEffect,
-               ModuleCategory::Modulator,
-               ModuleCategory::Other
-            };
+            constexpr float kMenuWidth = 260.0f;
+            constexpr float kSearchHeight = 29.0f;
+            constexpr float kCategoryHeight = 25.0f;
+            constexpr float kRowHeight = 24.0f;
+            const auto types = spawnMenuTypes(mSpawnMenuCategory, mSpawnMenuSearch);
+            const int rows = std::min(static_cast<int>(types.size()), 8);
+            const float menuHeight = kSearchHeight + kCategoryHeight + 8.0f + rows * kRowHeight + 10.0f;
+            const float menuX = mSpawnMenuRenderX;
+            const float menuY = mSpawnMenuRenderY;
 
-            if (mSpawnMenuCategory >= 0 && mSpawnMenuCategory < 4)
+            if (x >= menuX && x <= menuX + kMenuWidth && y >= menuY && y <= menuY + menuHeight)
             {
-               ModuleCategory cat = catValues[mSpawnMenuCategory];
-               auto types = ModuleFactory::instance().getTypesByCategory(cat);
-
-               float btnW = 75.0f;
-               float dropX = 140.0f + mSpawnMenuCategory * (btnW + 5);
-               float dropY = kTitleBarHeight;
-               float dropW = 140.0f;
-
-               for (size_t i = 0; i < types.size(); i++)
+               const int categoryValues[] = { -1, static_cast<int>(ModuleCategory::Synth), static_cast<int>(ModuleCategory::AudioEffect),
+                                              static_cast<int>(ModuleCategory::Modulator), static_cast<int>(ModuleCategory::Other) };
+               const float categoryY = menuY + kSearchHeight + 3.0f;
+               if (y >= categoryY && y <= categoryY + 18.0f)
                {
-                  float entryY = dropY + 5 + i * 25.0f;
-                  if (x >= dropX && x <= dropX + dropW && y >= entryY && y <= entryY + 25.0f)
+                  const int chip = static_cast<int>((x - menuX - 8.0f) / 48.5f);
+                  if (chip >= 0 && chip < 5)
                   {
-                     // Spawn module near the spawn menu location
-                     float worldX = screenToWorldX(mSpawnMenuX + 100.0f);
-                     float worldY = screenToWorldY(mSpawnMenuY + 60.0f);
-                     createModule(types[i].type, worldX, worldY);
-                     closeSpawnMenu();
-                     return;
+                     mSpawnMenuCategory = categoryValues[chip];
+                     mSpawnMenuSelectedIndex = 0;
                   }
+                  return;
                }
+               const float rowsY = menuY + kSearchHeight + kCategoryHeight + 2.0f;
+               const int row = static_cast<int>((y - rowsY) / kRowHeight);
+               if (row >= 0 && row < static_cast<int>(types.size()))
+               {
+                  const float worldX = screenToWorldX(mSpawnMenuX);
+                  const float worldY = screenToWorldY(mSpawnMenuY - kTitleBarHeight);
+                  createModule(types[row].type, worldX, worldY);
+                  closeSpawnMenu();
+                  return;
+               }
+               return;
             }
-
             closeSpawnMenu();
             return;
          }
@@ -1517,6 +1910,36 @@ namespace bespoke {
          // Convert to world coordinates for module hit testing
          float worldX = screenToWorldX(x);
          float worldY = screenToWorldY(y - kTitleBarHeight);
+
+         if (button == 2)
+         {
+            if (removeConnectionAt(x, y))
+               return;
+            bool moduleAtCursor = false;
+            for (const auto& [id, module] : mModules)
+               moduleAtCursor = moduleAtCursor || module->hitTest(worldX, worldY);
+            if (!moduleAtCursor)
+            {
+               openSpawnMenu(x, y);
+               return;
+            }
+         }
+
+         if (button == 0)
+         {
+            int sourceId = -1;
+            int sourcePort = -1;
+            if (findPortAt(worldX, worldY, true, sourceId, sourcePort))
+            {
+               mIsConnecting = true;
+               mConnectSourceId = sourceId;
+               mConnectSourcePort = sourcePort;
+               mConnectEndX = x;
+               mConnectEndY = y;
+               mConnectTargetCompatible = true;
+               return;
+            }
+         }
 
          // Transport play/stop button
          if (mTransport && mTransport->hitTest(worldX, worldY))
@@ -1570,6 +1993,17 @@ namespace bespoke {
 
       void ModuleCanvas::onMouseUp(float x, float y, int button)
       {
+         Lock lock(mMutex);
+         if (mIsConnecting && button == 0)
+         {
+            const float worldX = screenToWorldX(x);
+            const float worldY = screenToWorldY(y - kTitleBarHeight);
+            int destId = -1;
+            int destPort = -1;
+            if (findPortAt(worldX, worldY, false, destId, destPort) &&
+                portsAreCompatible(mConnectSourceId, mConnectSourcePort, destId, destPort))
+               connectModules(mConnectSourceId, mConnectSourcePort, destId, destPort);
+         }
          if (mControlModuleId >= 0)
          {
             Module* mod = getModule(mControlModuleId);
@@ -1580,10 +2014,15 @@ namespace bespoke {
          mDraggedModuleId = -1;
          mIsPanning = false;
          mIsConnecting = false;
+         mConnectSourceId = -1;
+         mConnectSourcePort = -1;
       }
 
       void ModuleCanvas::onMouseMove(float x, float y, float prevX, float prevY)
       {
+         Lock lock(mMutex);
+         mLastMouseX = x;
+         mLastMouseY = y;
          if (mControlModuleId >= 0)
          {
             Module* mod = getModule(mControlModuleId);
@@ -1618,21 +2057,86 @@ namespace bespoke {
          {
             mConnectEndX = x;
             mConnectEndY = y;
+            const float worldX = screenToWorldX(x);
+            const float worldY = screenToWorldY(y - kTitleBarHeight);
+            int destId = -1;
+            int destPort = -1;
+            mConnectTargetCompatible = !findPortAt(worldX, worldY, false, destId, destPort) ||
+                                       portsAreCompatible(mConnectSourceId, mConnectSourcePort, destId, destPort);
          }
       }
 
       void ModuleCanvas::onMouseWheel(float deltaX, float deltaY, float mouseX, float mouseY)
       {
+         Lock lock(mMutex);
+         (void)deltaX;
          float zoomFactor = 1.0f - deltaY * 0.001f;
          zoom(zoomFactor, mouseX, mouseY);
       }
 
       void ModuleCanvas::onKeyDown(int keyCode, int modifiers)
       {
-         (void)modifiers;
+         Lock lock(mMutex);
          static const int kKeyDelete = 46;
          static const int kKeyBackspace = 8;
          static const int kKeySpace = 32;
+         static const int kKeyEscape = 27;
+         static const int kKeyEnter = 13;
+         static const int kKeyUp = 38;
+         static const int kKeyDown = 40;
+         static const int kKeySlash = 191;
+         static const int kKeyK = 75;
+
+         if (!mSpawnMenuOpen && ((keyCode == kKeySlash || keyCode == '/') || ((modifiers & 4) != 0 && keyCode == kKeyK)))
+         {
+            openSpawnMenu(mLastMouseX, std::max(mLastMouseY, kTitleBarHeight + 4.0f));
+            return;
+         }
+
+         if (mSpawnMenuOpen)
+         {
+            auto types = spawnMenuTypes(mSpawnMenuCategory, mSpawnMenuSearch);
+            if (keyCode == kKeyEscape)
+            {
+               closeSpawnMenu();
+               return;
+            }
+            if (keyCode == kKeyBackspace)
+            {
+               if (!mSpawnMenuSearch.empty())
+                  mSpawnMenuSearch.pop_back();
+               mSpawnMenuSelectedIndex = 0;
+               return;
+            }
+            if (keyCode == kKeyUp && !types.empty())
+            {
+               mSpawnMenuSelectedIndex = (mSpawnMenuSelectedIndex + static_cast<int>(types.size()) - 1) % static_cast<int>(types.size());
+               return;
+            }
+            if (keyCode == kKeyDown && !types.empty())
+            {
+               mSpawnMenuSelectedIndex = (mSpawnMenuSelectedIndex + 1) % static_cast<int>(types.size());
+               return;
+            }
+            if (keyCode == kKeyEnter && !types.empty())
+            {
+               const int selected = std::min(mSpawnMenuSelectedIndex, static_cast<int>(types.size()) - 1);
+               createModule(types[selected].type, screenToWorldX(mSpawnMenuX),
+                            screenToWorldY(mSpawnMenuY - kTitleBarHeight));
+               closeSpawnMenu();
+               return;
+            }
+            if ((modifiers & (2 | 4 | 8)) == 0 && keyCode >= 32 && keyCode <= 126)
+            {
+               const char character = static_cast<char>(std::tolower(static_cast<unsigned char>(keyCode)));
+               if (std::isalnum(static_cast<unsigned char>(character)) || character == ' ' || character == '-' || character == '_')
+               {
+                  mSpawnMenuSearch.push_back(character);
+                  mSpawnMenuSelectedIndex = 0;
+               }
+            }
+            return;
+         }
 
          if (keyCode == kKeySpace && mTransport)
          {
@@ -1653,15 +2157,52 @@ namespace bespoke {
 
       void ModuleCanvas::openSpawnMenu(float x, float y)
       {
+         Lock lock(mMutex);
          mSpawnMenuOpen = true;
          mSpawnMenuX = x;
          mSpawnMenuY = y;
+         mSpawnMenuSearch.clear();
+         mSpawnMenuSelectedIndex = 0;
       }
 
       void ModuleCanvas::closeSpawnMenu()
       {
+         Lock lock(mMutex);
          mSpawnMenuOpen = false;
          mSpawnMenuCategory = -1;
+      }
+
+      bool ModuleCanvas::isTransportPlaying() const
+      {
+         Lock lock(mMutex);
+         return mTransport && mTransport->isPlaying();
+      }
+
+      void ModuleCanvas::setTransportPlaying(bool playing)
+      {
+         Lock lock(mMutex);
+         if (mTransport)
+            mTransport->setPlaying(playing);
+      }
+
+      void ModuleCanvas::toggleTransportPlaying()
+      {
+         Lock lock(mMutex);
+         if (mTransport)
+            mTransport->setPlaying(!mTransport->isPlaying());
+      }
+
+      float ModuleCanvas::getTransportBPM() const
+      {
+         Lock lock(mMutex);
+         return mTransport ? mTransport->getBPM() : 120.0f;
+      }
+
+      void ModuleCanvas::setTransportBPM(float bpm)
+      {
+         Lock lock(mMutex);
+         if (mTransport)
+            mTransport->setBPM(bpm);
       }
 
    } // namespace wasm

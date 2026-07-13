@@ -5,7 +5,7 @@
  * Licensed under GNU GPL v3
  */
 
-#include "Knob.h"
+#include "BespokeWasm/Knob.h"
 #include "BespokeWasm/Theme.h"
 #include "BespokeWasm/PixelFont.h"
 #include <cmath>

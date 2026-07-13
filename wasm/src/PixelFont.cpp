@@ -5,7 +5,7 @@
  * Licensed under GNU GPL v3
  */
 
-#include "PixelFont.h"
+#include "BespokeWasm/PixelFont.h"
 #include <cstring>
 
 namespace bespoke {
@@ -14,7 +14,7 @@ namespace wasm {
 namespace {
 
 const uint32_t kFontCols[kPixelFontGlyphCount * kPixelFontColumnsPerGlyph] = {
-#include "pixel_font_glyphs.inc"
+#include "BespokeWasm/pixel_font_glyphs.inc"
 };
 
 } // namespace
