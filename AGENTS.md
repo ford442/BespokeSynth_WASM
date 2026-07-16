@@ -490,3 +490,22 @@ GNU General Public License v3.0 - See `LICENSE` file.
 ---
 
 *Note: This project maintains two distinct codebases (Desktop and WASM). When in doubt, prioritize WASM compatibility for this repository.*
+
+## Cursor Cloud specific instructions
+
+These notes cover non-obvious gotchas discovered while setting up this environment. Standard commands live in `package.json` scripts and section 4 above.
+
+### Emscripten toolchain (important)
+- The pinned `.emscripten-version` (`3.1.50`) is **stale and does not build this repo**: the WASM sources call `--use-port=emdawnwebgpu` and the modern Dawn WebGPU API (`WGPUStringView`, `WGPURequest*CallbackInfo`, `userdata1/2`), none of which exist in 3.1.50. Building with it fails at compile with `clang++: error: unknown argument: '--use-port=emdawnwebgpu'`. The upstream WASM CI is red for this same reason.
+- A newer Emscripten is required and is already installed in this VM at `$HOME/emsdk` (`emsdk activate latest`, currently `emcc 6.0.3`), which provides the `emdawnwebgpu` port. The build succeeds with it.
+- `wasm/build.sh` only auto-sources `emsdk_env.sh` from `<repo>/emsdk` or `../../emsdk`, so it will NOT find `$HOME/emsdk`. `emcc` must already be on `PATH`. This is handled here by `source "$HOME/emsdk/emsdk_env.sh"` in `~/.bashrc`; if `emcc` is missing in a shell, source that file first.
+- `npm run build:wasm` writes `wasm/dist/{BespokeSynthWASM.js,.wasm,.data}` (+ `resource/`). It is required before the web app can initialize (no WASM artifacts are committed). The `.data` preload bundle (~32 MB) is large but expected.
+
+### npm install
+- There is **no `package-lock.json`**, so `npm ci` fails. Use `npm install`.
+
+### Running / rendering (headless & browsers)
+- Dev server: `npm run dev` serves on `http://localhost:8080` (webpack, with COOP/COEP headers). It starts even without WASM artifacts, but the synth will not initialize until `wasm/dist` exists.
+- Headless/VM Chrome cannot create a hardware GL context. The default desktop Chrome fails WebGL2 init with `WebGL2 context creation failed — the canvas may already be bound to WebGPU`, and WebGPU is also unavailable. Use SwiftShader: launch Chromium with `--use-gl=angle --use-angle=swiftshader-webgl` (already set for the `chromium` project in `playwright.config.ts`).
+- The reliable way to run/screenshot the app headlessly is **Playwright** (`npm run test:e2e -- --project=chromium`), which serves `dist/` on port `9876` and forces the WebGL2 backend. Requires `npx playwright install chromium` and a prior `npm run build` (or `build:web-only`) so `dist/` exists.
+- Useful URL params: `?renderer=webgl` (force WebGL2, best for headless) and `?renderTest=1` (loads a canonical Transport/Scale/Osc→Filter→Gain→Output + LFO patch). Clicking the header **Play** button starts the transport (Output VU meters and the bottom-right scope become active).
