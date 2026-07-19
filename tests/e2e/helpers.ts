@@ -17,7 +17,12 @@ export async function gotoApp(page: Page, query = ''): Promise<void> {
 
 export async function waitForBespokeReady(page: Page, timeout = 60000): Promise<void> {
   await page.waitForFunction(
-    () => (window as Window & { __bespoke?: { getRendererBackend?: () => string } }).__bespoke?.getRendererBackend !== undefined,
+    () => {
+      const w = window as Window & { __bespoke?: { getRendererBackend?: () => string } };
+      const hasApi = w.__bespoke?.getRendererBackend !== undefined;
+      const statusHidden = document.querySelector('#status')?.classList.contains('hidden');
+      return hasApi && statusHidden === true;
+    },
     { timeout },
   );
 }

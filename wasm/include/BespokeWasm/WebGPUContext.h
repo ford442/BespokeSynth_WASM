@@ -47,6 +47,9 @@ private:
     // Called when the device request completes successfully
     void onDeviceReady();
 
+    // Release helpers
+    void releaseGpuResources();
+
     WGPUInstance mInstance = nullptr;
     WGPUAdapter mAdapter = nullptr;
     WGPUDevice mDevice = nullptr;
