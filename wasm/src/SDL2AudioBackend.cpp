@@ -64,29 +64,29 @@ bool SDL2AudioBackend::initialize(int sampleRate, int bufferSize, int numOutputC
     printf("  Obtained buffer size: %d\n", mObtainedSpec.samples);
     printf("  Obtained channels: %d\n", mObtainedSpec.channels);
     
-    // Update actual values
+    // Update actual values from the opened device
     mSampleRate = mObtainedSpec.freq;
     mBufferSize = mObtainedSpec.samples;
     mNumOutputChannels = mObtainedSpec.channels;
-    
-    // Allocate channel buffers
-    mOutputChannelBuffers.resize(numOutputChannels);
-    mOutputChannelPtrs.resize(numOutputChannels);
-    for (int i = 0; i < numOutputChannels; i++) {
-        mOutputChannelBuffers[i].resize(bufferSize);
+
+    // Allocate channel buffers using obtained (not requested) sizes
+    mOutputChannelBuffers.resize(mNumOutputChannels);
+    mOutputChannelPtrs.resize(mNumOutputChannels);
+    for (int i = 0; i < mNumOutputChannels; i++) {
+        mOutputChannelBuffers[i].resize(mBufferSize);
         mOutputChannelPtrs[i] = mOutputChannelBuffers[i].data();
     }
-    
-    mInterleavedOutputBuffer.resize(bufferSize * numOutputChannels);
-    
+
+    mInterleavedOutputBuffer.resize(mBufferSize * mNumOutputChannels);
+
     if (numInputChannels > 0) {
         mInputChannelBuffers.resize(numInputChannels);
         mInputChannelPtrs.resize(numInputChannels);
         for (int i = 0; i < numInputChannels; i++) {
-            mInputChannelBuffers[i].resize(bufferSize);
+            mInputChannelBuffers[i].resize(mBufferSize);
             mInputChannelPtrs[i] = mInputChannelBuffers[i].data();
         }
-        mInterleavedInputBuffer.resize(bufferSize * numInputChannels);
+        mInterleavedInputBuffer.resize(mBufferSize * numInputChannels);
     }
     
     return true;

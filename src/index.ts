@@ -259,9 +259,8 @@ class BespokeSynthApp {
             !this.wasWebGPUExplicitlyRequested() &&
             this.module?._bespoke_shutdown;
 
-          if (canFallback && await this.retryWithWebGL2(sampleRate, bufferSize)) {
+          if (canFallback && await this.retryWithWebGL2(sampleRate, bufferSize, statePollInterval)) {
             clearInterval(statePollInterval);
-            this.completeAllSteps();
             this.isInitialized = true;
             publishRendererBreadcrumbs('webgl', this.rendererFallbackReason);
             this.showReadyState();
@@ -278,7 +277,28 @@ class BespokeSynthApp {
       }
     } catch (error) {
       console.error('Failed to initialize BespokeSynth:', error);
-      this.showErrorState(error instanceof Error ? error.message : 'Unknown error');
+      this.showErrorState(
+        error instanceof Error ? error.message : 'Unknown error',
+        { canRetryWebGL: this.rendererBackend === 'webgpu' },
+      );
+    }
+  }
+
+  /** Swap #canvas so WebGL2 can bind after a failed WebGPU attempt left the surface occupied. */
+  private replaceCanvasElement(): void {
+    if (!this.canvas?.parentElement) return;
+
+    const parent = this.canvas.parentElement;
+    const replacement = document.createElement('canvas');
+    replacement.id = 'canvas';
+    replacement.width = this.canvas.width;
+    replacement.height = this.canvas.height;
+    parent.replaceChild(replacement, this.canvas);
+    this.canvas = replacement;
+
+    const moduleWithCanvas = this.module as (BespokeSynthModule & { canvas?: HTMLCanvasElement }) | null;
+    if (moduleWithCanvas) {
+      moduleWithCanvas.canvas = replacement;
     }
   }
 
@@ -288,13 +308,25 @@ class BespokeSynthApp {
     return explicit === 'webgpu' || params.has('webgpu');
   }
 
-  private async retryWithWebGL2(sampleRate: number, bufferSize: number): Promise<boolean> {
+  private async retryWithWebGL2(
+    sampleRate: number,
+    bufferSize: number,
+    previousPollInterval?: number,
+  ): Promise<boolean> {
     if (!this.canvas || !this.module) return false;
 
     console.warn('WebGPU init failed; retrying with WebGL2 fallback...');
+    if (previousPollInterval !== undefined) {
+      clearInterval(previousPollInterval);
+    }
+    delete bespokeWindow.__bespoke_on_init_complete;
+
     this.module._bespoke_shutdown?.();
+    this.replaceCanvasElement();
     this.rendererBackend = 'webgl';
     this.rendererFallbackReason = 'WebGPU initialization failed; fell back to WebGL2';
+    this.completedSteps.clear();
+    this.activeStep = null;
     this.initSteps = WEBGL2_INIT_STEPS;
     this.initializeProgressUI();
     this.module._bespoke_set_renderer_backend?.(1);
@@ -303,13 +335,42 @@ class BespokeSynthApp {
     const debugSelect = document.getElementById('webglDebugSelect') as HTMLSelectElement | null;
     if (debugSelect) debugSelect.disabled = false;
 
-    const result = this.module._bespoke_init?.(
-      this.canvas.width,
-      this.canvas.height,
-      sampleRate,
-      bufferSize,
-    );
-    return result === 0;
+    const statusSubheader = document.querySelector('#status .status-subheader');
+    if (statusSubheader) {
+      statusSubheader.textContent = 'Retrying with WebGL2 renderer...';
+    }
+    const statusEl = document.getElementById('status');
+    statusEl?.classList.remove('error');
+    statusEl?.querySelector('.init-recovery')?.remove();
+
+    const statePollInterval = window.setInterval(() => {
+      this.pollInitState();
+    }, 50);
+
+    try {
+      const result = this.module._bespoke_init?.(
+        this.canvas.width,
+        this.canvas.height,
+        sampleRate,
+        bufferSize,
+      );
+
+      if (result === 0) {
+        this.completeAllSteps();
+        return true;
+      }
+      if (result === 1) {
+        await this.awaitAsyncInitCompletion(statePollInterval);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('WebGL2 fallback initialization failed:', error);
+      return false;
+    } finally {
+      clearInterval(statePollInterval);
+      delete bespokeWindow.__bespoke_on_init_complete;
+    }
   }
 
   private setupRendererDebugUI(): void {
@@ -684,7 +745,7 @@ class BespokeSynthApp {
     }
   }
 
-  private async waitForAsyncInit(statePollInterval: number): Promise<void> {
+  private awaitAsyncInitCompletion(statePollInterval: number): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       console.log('Waiting for async initialization...');
 
@@ -717,7 +778,11 @@ class BespokeSynthApp {
           reject(new Error(`Initialization failed: ${errorMsg} (code: ${status})`));
         }
       };
-    }).then(() => {
+    });
+  }
+
+  private async waitForAsyncInit(statePollInterval: number): Promise<void> {
+    return this.awaitAsyncInitCompletion(statePollInterval).then(() => {
       // Initialization completed successfully
       this.isInitialized = true;
       publishRendererBreadcrumbs(
@@ -754,11 +819,13 @@ class BespokeSynthApp {
   private showReadyState(): void {
     const statusEl = document.getElementById('status');
     const subheaderEl = statusEl?.querySelector('.status-subheader');
-    
+
     if (subheaderEl) {
       subheaderEl.textContent = 'Ready!';
     }
-    
+
+    this.updateFallbackBadge();
+
     // Hide status after a short delay
     setTimeout(() => {
       if (statusEl) {
@@ -767,28 +834,49 @@ class BespokeSynthApp {
     }, 500);
   }
 
-  private showErrorState(message: string): void {
+  private updateFallbackBadge(): void {
+    const header = document.getElementById('header');
+    if (!header) return;
+
+    let badge = header.querySelector('.renderer-fallback-badge') as HTMLElement | null;
+    if (this.rendererFallbackReason) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'renderer-fallback-badge';
+        header.querySelector('h1')?.insertAdjacentElement('afterend', badge);
+      }
+      badge.textContent = 'WebGL2 fallback';
+      badge.title = this.rendererFallbackReason;
+    } else {
+      badge?.remove();
+    }
+  }
+
+  private showErrorState(message: string, options: { canRetryWebGL?: boolean } = {}): void {
     const statusEl = document.getElementById('status');
     const headerEl = statusEl?.querySelector('.status-header');
     const subheaderEl = statusEl?.querySelector('.status-subheader');
-    
-    if (statusEl) statusEl.classList.add('error');
+
+    if (statusEl) {
+      statusEl.classList.remove('hidden');
+      statusEl.classList.add('error');
+    }
     if (headerEl) headerEl.textContent = 'Initialization Failed';
     if (subheaderEl) subheaderEl.textContent = message;
-    
+
     // Show error in progress bar
     const fillEl = document.getElementById('progress-fill');
     if (fillEl) {
       fillEl.style.width = '100%';
       fillEl.style.background = 'linear-gradient(90deg, #f44336, #ff5722)';
     }
-    
+
     const textEl = document.getElementById('progress-text');
     if (textEl) {
       textEl.textContent = 'Error';
       textEl.style.color = '#f44336';
     }
-    
+
     // Mark active step as error
     if (this.activeStep) {
       const stepEl = document.getElementById(`step-${this.activeStep}`);
@@ -797,6 +885,21 @@ class BespokeSynthApp {
         stepEl.classList.add('error');
         stepEl.querySelector('.init-step-icon')!.textContent = '✗';
       }
+    }
+
+    statusEl?.querySelector('.init-recovery')?.remove();
+    const canRetryWebGL = options.canRetryWebGL ?? false;
+    if (canRetryWebGL && statusEl) {
+      const recovery = document.createElement('div');
+      recovery.className = 'init-recovery';
+      recovery.innerHTML = `
+        <p class="init-recovery-hint">WebGPU is not available in this browser. The WebGL2 renderer works as a fallback.</p>
+        <button type="button" class="btn init-retry-btn">Use WebGL2 renderer</button>
+      `;
+      recovery.querySelector('.init-retry-btn')?.addEventListener('click', () => {
+        switchRendererPreference('webgl');
+      });
+      statusEl.appendChild(recovery);
     }
   }
 

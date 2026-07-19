@@ -102,8 +102,51 @@ WebGPUContext::WebGPUContext() {
 }
 
 WebGPUContext::~WebGPUContext() {
-    if (mScreenshotStagingBuffer)
+    releaseGpuResources();
+}
+
+void WebGPUContext::releaseGpuResources() {
+    if (mCurrentPass) {
+        wgpuRenderPassEncoderRelease(mCurrentPass);
+        mCurrentPass = nullptr;
+    }
+    if (mCurrentView) {
+        wgpuTextureViewRelease(mCurrentView);
+        mCurrentView = nullptr;
+    }
+    if (mCurrentSurfaceTexture) {
+        wgpuTextureRelease(mCurrentSurfaceTexture);
+        mCurrentSurfaceTexture = nullptr;
+    }
+    if (mCurrentEncoder) {
+        wgpuCommandEncoderRelease(mCurrentEncoder);
+        mCurrentEncoder = nullptr;
+    }
+    if (mScreenshotStagingBuffer) {
         wgpuBufferRelease(mScreenshotStagingBuffer);
+        mScreenshotStagingBuffer = nullptr;
+    }
+    if (mSurface) {
+        wgpuSurfaceRelease(mSurface);
+        mSurface = nullptr;
+    }
+    if (mDevice) {
+        wgpuDeviceRelease(mDevice);
+        mDevice = nullptr;
+    }
+    if (mAdapter) {
+        wgpuAdapterRelease(mAdapter);
+        mAdapter = nullptr;
+    }
+    if (mQueue) {
+        wgpuQueueRelease(mQueue);
+        mQueue = nullptr;
+    }
+    if (mInstance) {
+        wgpuInstanceRelease(mInstance);
+        mInstance = nullptr;
+    }
+    mOnComplete = nullptr;
 }
 
 bool WebGPUContext::initializeAsync(const char* selector, std::function<void(bool)> onComplete) {
