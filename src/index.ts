@@ -32,7 +32,14 @@ interface BespokeSynthFactoryConfig {
   canvas: HTMLCanvasElement | HTMLElement | null;
   print: (text: unknown) => void;
   printErr: (text: unknown) => void;
+  locateFile?: (path: string, scriptDirectory: string) => string;
 }
+
+const WASM_SCRIPT_PATH = 'wasm/BespokeSynthWASM.js';
+
+/** Resolve Emscripten companion assets (.wasm, .data) next to the injected script. */
+const resolveWasmAssetUrl = (scriptElement: HTMLScriptElement, file: string): string =>
+  new URL(file, new URL(scriptElement.src, document.baseURI)).href;
 
 type BespokeSynthFactory = (config: BespokeSynthFactoryConfig) => Promise<BespokeSynthModule>;
 
@@ -77,17 +84,19 @@ const WEBGL2_INIT_STEPS: InitStep[] = [
 const loadWasmModule = async (canvas?: HTMLCanvasElement): Promise<BespokeSynthModule> => {
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = 'wasm/BespokeSynthWASM.js';
+    script.src = WASM_SCRIPT_PATH;
     script.onload = async () => {
       console.log('loadWasmModule: script loaded');
+      const locateWasmAsset = (path: string) => resolveWasmAssetUrl(script, path);
       // If the build was modularized, a factory function will be exposed
       const factory = bespokeWindow.createBespokeSynth;
       console.log('loadWasmModule: factory type =', typeof factory);
       if (typeof factory === 'function') {
-        const config = {
+        const config: BespokeSynthFactoryConfig = {
           canvas: canvas ?? document.getElementById('canvas'),
           print: (text: unknown) => console.log(text),
           printErr: (text: unknown) => console.error(text),
+          locateFile: locateWasmAsset,
         };
 
         try {
@@ -109,6 +118,7 @@ const loadWasmModule = async (canvas?: HTMLCanvasElement): Promise<BespokeSynthM
       } else {
         bespokeWindow.Module = {
           ...bespokeWindow.Module,
+          locateFile: locateWasmAsset,
           onRuntimeInitialized: () => {
             console.log('loadWasmModule: onRuntimeInitialized called — resolving Module');
             if (bespokeWindow.Module) {
