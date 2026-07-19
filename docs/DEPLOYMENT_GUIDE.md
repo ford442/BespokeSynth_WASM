@@ -66,6 +66,7 @@ ls -lh build/BespokeSynthWASM.*
 # You should see:
 # BespokeSynthWASM.js
 # BespokeSynthWASM.wasm
+# BespokeSynthWASM.data   # preload bundle (~32 MB) — required at runtime
 ```
 
 ## Step 4: Deploy to Your Server
@@ -75,6 +76,7 @@ Upload the new files to replace the existing ones:
 **Old files** (to be replaced):
 - `https://test.1ink.us/modular/wasm/BespokeSynthWASM.js`
 - `https://test.1ink.us/modular/wasm/BespokeSynthWASM.wasm`
+- `https://test.1ink.us/modular/wasm/BespokeSynthWASM.data`
 
 **Deploy method options:**
 
@@ -82,12 +84,14 @@ Upload the new files to replace the existing ones:
 ```bash
 scp wasm/build/BespokeSynthWASM.js user@test.1ink.us:/path/to/modular/wasm/
 scp wasm/build/BespokeSynthWASM.wasm user@test.1ink.us:/path/to/modular/wasm/
+scp wasm/build/BespokeSynthWASM.data user@test.1ink.us:/path/to/modular/wasm/
 ```
 
 ### Option B: Using FTP/SFTP
 Use your FTP client (FileZilla, WinSCP, etc.) to upload:
 - `wasm/build/BespokeSynthWASM.js` → `/modular/wasm/BespokeSynthWASM.js`
 - `wasm/build/BespokeSynthWASM.wasm` → `/modular/wasm/BespokeSynthWASM.wasm`
+- `wasm/build/BespokeSynthWASM.data` → `/modular/wasm/BespokeSynthWASM.data`
 
 ### Option C: Using rsync
 ```bash
@@ -132,6 +136,7 @@ Verify the files are accessible:
 ```bash
 curl -I https://test.1ink.us/modular/wasm/BespokeSynthWASM.js
 curl -I https://test.1ink.us/modular/wasm/BespokeSynthWASM.wasm
+curl -I https://test.1ink.us/modular/wasm/BespokeSynthWASM.data
 ```
 
 Check the file sizes match your build output.
@@ -182,6 +187,7 @@ WebGPU is required and supported in:
 Typical file sizes after build:
 - `BespokeSynthWASM.js`: ~100KB - 500KB
 - `BespokeSynthWASM.wasm`: ~2MB - 10MB (depends on what's included)
+- `BespokeSynthWASM.data`: ~32MB (fonts and other preloaded resources)
 
 If your files are significantly different, something may have gone wrong in the build.
 
