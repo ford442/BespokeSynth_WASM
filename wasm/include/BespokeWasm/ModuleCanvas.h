@@ -378,6 +378,9 @@ namespace bespoke
          void connectModules(int sourceId, int sourcePort, int destId, int destPort);
          void disconnectModules(int sourceId, int destId);
          const std::vector<Connection>& getConnections() const { return mConnections; }
+         /** Lock-free read for the audio thread — no mutex or allocation. */
+         std::shared_ptr<const AudioGraphSnapshot> getAudioGraphSnapshot() const;
+         /** Builds a fresh snapshot under the canvas mutex (tests / debugging). */
          AudioGraphSnapshot createAudioGraphSnapshot() const;
          StateSnapshot createStateSnapshot() const;
          bool applyStateSnapshot(const StateSnapshot& snapshot);
@@ -444,6 +447,8 @@ namespace bespoke
          bool findPortAt(float worldX, float worldY, bool output, int& moduleId, int& portIndex) const;
          bool portsAreCompatible(int sourceId, int sourcePort, int destId, int destPort) const;
          bool removeConnectionAt(float screenX, float screenY);
+         void buildAudioGraphSnapshotLocked(AudioGraphSnapshot& snapshot) const;
+         void publishAudioGraphSnapshotLocked();
 
          // Module storage
          std::unordered_map<int, std::unique_ptr<Module>> mModules;
@@ -479,6 +484,9 @@ namespace bespoke
          // Singleton modules (always present)
          TransportModule* mTransport = nullptr;
          ScaleModule* mScaleModule = nullptr;
+
+         // Double-buffered graph snapshot for lock-free audio-thread reads.
+         mutable std::shared_ptr<const AudioGraphSnapshot> mPublishedAudioGraph;
 
          // Title bar constants
          static constexpr float kTitleBarHeight = 40.0f;

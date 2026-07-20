@@ -39,11 +39,20 @@ namespace bespoke::wasm
          return;
       }
 
-      const auto graph = state.canvas->createAudioGraphSnapshot();
+      const auto graph = state.canvas->getAudioGraphSnapshot();
+      if (!graph)
+      {
+         for (int channel = 0; channel < std::min(numOutputChannels, 2); ++channel)
+            if (output[channel])
+               std::memset(output[channel], 0, numSamples * sizeof(float));
+         state.audioCallbackActive.store(false);
+         return;
+      }
+
       const float sampleRate = state.audioBackend
          ? static_cast<float>(state.audioBackend->getSampleRate())
          : 44100.0f;
-      state.audioGraphEngine->processBlock(graph, output, numOutputChannels, numSamples, sampleRate);
+      state.audioGraphEngine->processBlock(*graph, output, numOutputChannels, numSamples, sampleRate);
       // Analysis is a single-producer ring write; never allocate or wait in the callback.
       AudioAnalysis::pushSamples(output[0], numSamples);
       const float elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - started).count();

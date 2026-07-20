@@ -25,8 +25,13 @@ import {
   loadPatchStateJson,
   promptForPatchStateFile,
 } from './patchState';
-import { PatchStorage, type StoredPatch } from './patchStorage';
-import { connectWebMidi } from './midi';
+import {
+  PatchStorage,
+  PATCH_DEFAULT_AUTOSAVE_NAME,
+  PATCH_EMPTY_PLACEHOLDER,
+  type StoredPatch,
+} from './patchStorage';
+import { connectWebMidi, type MidiConnectResult } from './midi';
 
 interface BespokeSynthFactoryConfig {
   canvas: HTMLCanvasElement | HTMLElement | null;
@@ -150,6 +155,10 @@ class BespokeSynthApp {
   private selectedPatchId: string | undefined;
   private autoSaveTimer: number | null = null;
   private lastAutoSaveJson = '';
+  private autoSaveDefaultName = PATCH_DEFAULT_AUTOSAVE_NAME;
+  private autoSaveNamePrompted = false;
+  private patchStatusTimer: number | null = null;
+  private refreshPatchList: (() => Promise<StoredPatch[]>) | null = null;
 
   // Hybrid DOM text overlay
   private guiOverlay: HTMLElement | null = null;
@@ -413,14 +422,7 @@ class BespokeSynthApp {
     screenshotBtn.title = 'Capture canvas PNG (Ctrl+Shift+S)';
     screenshotBtn.addEventListener('click', () => void this.captureScreenshot());
 
-    const midiBtn = document.createElement('button');
-    midiBtn.id = 'midiBtn'; midiBtn.className = 'btn'; midiBtn.textContent = 'MIDI';
-    midiBtn.title = 'Connect browser MIDI inputs';
-    midiBtn.addEventListener('click', async () => {
-      if (!this.module) return;
-      try { midiBtn.textContent = `MIDI ${await connectWebMidi(this.module)}`; }
-      catch (error) { console.error('Web MIDI connection failed:', error); midiBtn.textContent = 'MIDI unavailable'; }
-    });
+    this.setupMidiControl(headerControls);
 
     const saveBtn = document.createElement('button');
     saveBtn.id = 'savePatchBtn';
@@ -443,12 +445,117 @@ class BespokeSynthApp {
     headerControls.appendChild(rendererSelect);
     headerControls.appendChild(debugSelect);
     headerControls.appendChild(screenshotBtn);
-    headerControls.appendChild(midiBtn);
     headerControls.appendChild(saveBtn);
     headerControls.appendChild(loadBtn);
 
     if (new URLSearchParams(window.location.search).has('debug')) {
       this.setupFloatingRendererToggle();
+    }
+  }
+
+  private setupMidiControl(headerControls: Element): void {
+    const wrap = document.createElement('div');
+    wrap.className = 'midi-control';
+
+    const midiBtn = document.createElement('button');
+    midiBtn.id = 'midiBtn';
+    midiBtn.className = 'btn';
+    midiBtn.textContent = 'MIDI';
+    midiBtn.title = 'Connect browser MIDI inputs';
+    midiBtn.setAttribute('aria-haspopup', 'true');
+    midiBtn.setAttribute('aria-expanded', 'false');
+
+    const popover = document.createElement('div');
+    popover.id = 'midiPopover';
+    popover.className = 'midi-popover';
+    popover.hidden = true;
+    popover.setAttribute('role', 'status');
+    popover.setAttribute('aria-live', 'polite');
+
+    let connecting = false;
+
+    const setPopoverOpen = (open: boolean): void => {
+      popover.hidden = !open;
+      midiBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    };
+
+    const updateMidiButtonLabel = (result: MidiConnectResult): void => {
+      switch (result.state) {
+        case 'connected':
+          midiBtn.textContent = `MIDI ${result.connectedCount}`;
+          break;
+        case 'no-devices':
+          midiBtn.textContent = 'MIDI 0';
+          break;
+        case 'denied':
+          midiBtn.textContent = 'MIDI denied';
+          break;
+        case 'timeout':
+          midiBtn.textContent = 'MIDI timeout';
+          break;
+        case 'unsupported':
+        case 'insecure':
+          midiBtn.textContent = 'MIDI N/A';
+          break;
+        default:
+          midiBtn.textContent = 'MIDI error';
+      }
+    };
+
+    midiBtn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (!this.module || connecting) return;
+
+      connecting = true;
+      midiBtn.disabled = true;
+      midiBtn.textContent = 'MIDI…';
+      this.renderMidiPopover(popover, {
+        state: 'error',
+        inputs: [],
+        connectedCount: 0,
+        message: 'Requesting MIDI access…',
+      }, true);
+      setPopoverOpen(true);
+
+      const result = await connectWebMidi(this.module);
+      connecting = false;
+      midiBtn.disabled = false;
+      this.renderMidiPopover(popover, result);
+      updateMidiButtonLabel(result);
+      setPopoverOpen(true);
+    });
+
+    document.addEventListener('click', (event) => {
+      if (!wrap.contains(event.target as Node)) setPopoverOpen(false);
+    });
+
+    wrap.append(midiBtn, popover);
+    headerControls.appendChild(wrap);
+  }
+
+  private renderMidiPopover(
+    popover: HTMLElement,
+    result: MidiConnectResult,
+    pending = false,
+  ): void {
+    popover.replaceChildren();
+    const status = document.createElement('div');
+    status.className = `midi-popover-status midi-popover-status--${pending ? 'pending' : result.state}`;
+    status.textContent = result.message;
+    popover.appendChild(status);
+
+    if (result.inputs.length > 0) {
+      const heading = document.createElement('div');
+      heading.className = 'midi-popover-heading';
+      heading.textContent = 'Detected inputs';
+      const list = document.createElement('ul');
+      list.className = 'midi-popover-inputs';
+      for (const input of result.inputs) {
+        const item = document.createElement('li');
+        item.textContent = input.name;
+        list.appendChild(item);
+      }
+      popover.append(heading, list);
     }
   }
 
@@ -466,41 +573,136 @@ class BespokeSynthApp {
     auto.append(checkbox, document.createTextNode(' Auto-save'));
     const refresh = async (): Promise<StoredPatch[]> => {
       const patches = await this.patchStorage.list();
-      select.replaceChildren(new Option('Saved patches', ''));
-      for (const patch of patches) select.add(new Option(patch.name, patch.id));
-      select.value = this.selectedPatchId ?? '';
+      select.replaceChildren();
+      if (patches.length === 0) {
+        const placeholder = new Option(PATCH_EMPTY_PLACEHOLDER, '');
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        select.add(placeholder);
+        select.value = '';
+      } else {
+        for (const patch of patches) select.add(new Option(patch.name, patch.id));
+        const selectedId = this.selectedPatchId && patches.some((patch) => patch.id === this.selectedPatchId)
+          ? this.selectedPatchId
+          : '';
+        select.value = selectedId;
+      }
       return patches;
     };
+    this.refreshPatchList = refresh;
     save.addEventListener('click', async () => {
-      const name = window.prompt('Patch name', select.selectedOptions[0]?.textContent ?? 'Untitled patch');
+      const defaultName = select.value
+        ? select.selectedOptions[0]?.textContent ?? 'Untitled patch'
+        : 'Untitled patch';
+      const name = window.prompt('Patch name', defaultName);
       if (name === null) return;
-      const patch = await this.patchStorage.save(name, getPatchStateJson(this.module), this.selectedPatchId);
-      this.selectedPatchId = patch.id; await refresh();
+      try {
+        const patch = await this.patchStorage.save(name, getPatchStateJson(this.module), this.selectedPatchId);
+        this.selectedPatchId = patch.id;
+        this.lastAutoSaveJson = patch.json;
+        await refresh();
+        this.showPatchStatus(`Saved "${patch.name}"`);
+      } catch (error) {
+        console.error('Patch save failed:', error);
+        this.showPatchStatus('Save failed — patch may be too large or invalid');
+      }
     });
     load.addEventListener('click', async () => {
       const patch = (await this.patchStorage.list()).find((item) => item.id === select.value);
-      if (patch && loadPatchStateJson(this.module, patch.json)) { this.selectedPatchId = patch.id; this.lastAutoSaveJson = patch.json; }
+      if (!patch) {
+        this.showPatchStatus('Select a saved patch to load');
+        return;
+      }
+      if (loadPatchStateJson(this.module, patch.json)) {
+        this.selectedPatchId = patch.id;
+        this.lastAutoSaveJson = patch.json;
+        this.showPatchStatus(`Loaded "${patch.name}"`);
+      } else {
+        this.showPatchStatus('Failed to load patch');
+      }
     });
     rename.addEventListener('click', async () => {
       const patch = (await this.patchStorage.list()).find((item) => item.id === select.value);
-      if (!patch) return;
+      if (!patch) {
+        this.showPatchStatus('Select a saved patch to rename');
+        return;
+      }
       const name = window.prompt('Patch name', patch.name);
-      if (name !== null) { await this.patchStorage.save(name, patch.json, patch.id); await refresh(); }
+      if (name === null) return;
+      const renamed = await this.patchStorage.save(name, patch.json, patch.id);
+      await refresh();
+      this.showPatchStatus(`Renamed to "${renamed.name}"`);
     });
-    remove.addEventListener('click', async () => { if (select.value) { await this.patchStorage.remove(select.value); this.selectedPatchId = undefined; await refresh(); } });
-    checkbox.addEventListener('change', () => this.configureAutoSave(checkbox.checked));
+    remove.addEventListener('click', async () => {
+      if (!select.value) {
+        this.showPatchStatus('Select a saved patch to delete');
+        return;
+      }
+      const patchName = select.selectedOptions[0]?.textContent ?? 'patch';
+      await this.patchStorage.remove(select.value);
+      this.selectedPatchId = undefined;
+      await refresh();
+      this.showPatchStatus(`Deleted "${patchName}"`);
+    });
+    checkbox.addEventListener('change', () => {
+      this.configureAutoSave(checkbox.checked);
+      if (checkbox.checked) {
+        this.showPatchStatus('Auto-save enabled');
+      }
+    });
     controls.append(select, save, load, rename, remove, auto);
     void refresh();
   }
 
+  private showPatchStatus(message: string, durationMs = 3200): void {
+    let toast = document.getElementById('patch-status-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'patch-status-toast';
+      toast.className = 'patch-status-toast';
+      toast.setAttribute('role', 'status');
+      toast.setAttribute('aria-live', 'polite');
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add('visible');
+    if (this.patchStatusTimer !== null) window.clearTimeout(this.patchStatusTimer);
+    this.patchStatusTimer = window.setTimeout(() => {
+      toast?.classList.remove('visible');
+      this.patchStatusTimer = null;
+    }, durationMs);
+  }
+
   private configureAutoSave(enabled: boolean): void {
     if (this.autoSaveTimer !== null) window.clearInterval(this.autoSaveTimer);
-    this.autoSaveTimer = enabled ? window.setInterval(() => {
-      const json = getPatchStateJson(this.module);
-      if (json === this.lastAutoSaveJson) return;
-      this.lastAutoSaveJson = json;
-      void this.patchStorage.save('Auto-saved patch', json, this.selectedPatchId).then((patch) => { this.selectedPatchId = patch.id; });
-    }, 1500) : null;
+    this.autoSaveTimer = enabled ? window.setInterval(() => void this.runAutoSave(), 1500) : null;
+  }
+
+  private async runAutoSave(): Promise<void> {
+    if (!this.module) return;
+    const json = getPatchStateJson(this.module);
+    if (json === this.lastAutoSaveJson) return;
+    this.lastAutoSaveJson = json;
+
+    let name = this.autoSaveDefaultName;
+    if (!this.selectedPatchId && !this.autoSaveNamePrompted) {
+      this.autoSaveNamePrompted = true;
+      const prompted = window.prompt('Name your auto-save', this.autoSaveDefaultName);
+      if (prompted !== null && prompted.trim()) {
+        name = prompted.trim();
+        this.autoSaveDefaultName = name;
+      }
+    }
+
+    try {
+      const patch = await this.patchStorage.save(name, json, this.selectedPatchId);
+      this.selectedPatchId = patch.id;
+      await this.refreshPatchList?.();
+      this.showPatchStatus(`Auto-saved "${patch.name}"`);
+    } catch (error) {
+      console.error('Auto-save failed:', error);
+      this.showPatchStatus('Auto-save failed');
+    }
   }
 
   private setupFloatingRendererToggle(): void {

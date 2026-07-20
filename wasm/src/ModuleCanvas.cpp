@@ -1089,6 +1089,8 @@ namespace bespoke
          mScaleModule = scaleModule.get();
          mModules[mScaleModule->getId()] = std::move(scaleModule);
 
+         Lock lock(mMutex);
+         publishAudioGraphSnapshotLocked();
          printf("ModuleCanvas: Created with Transport and Scale modules\n");
       }
 
@@ -1107,6 +1109,7 @@ namespace bespoke
          printf("ModuleCanvas: Created module '%s' (id=%d) at (%.1f, %.1f)\n",
                 type.c_str(), id, x, y);
          mModules[id] = std::move(module);
+         publishAudioGraphSnapshotLocked();
          return id;
       }
 
@@ -1130,6 +1133,7 @@ namespace bespoke
 
          mModules.erase(moduleId);
          printf("ModuleCanvas: Deleted module %d\n", moduleId);
+         publishAudioGraphSnapshotLocked();
       }
 
       Module* ModuleCanvas::getModule(int moduleId)
@@ -1159,6 +1163,7 @@ namespace bespoke
          if (it == mModules.end())
             return false;
          it->second->setControlValue(name, value);
+         publishAudioGraphSnapshotLocked();
          return true;
       }
 
@@ -1220,6 +1225,7 @@ namespace bespoke
 
          mConnections.push_back(conn);
          printf("ModuleCanvas: Connected %d:%d -> %d:%d\n", sourceId, sourcePort, destId, destPort);
+         publishAudioGraphSnapshotLocked();
       }
 
       void ModuleCanvas::disconnectModules(int sourceId, int destId)
@@ -1232,6 +1238,89 @@ namespace bespoke
                            return c.sourceModuleId == sourceId && c.destModuleId == destId;
                         }),
          mConnections.end());
+         publishAudioGraphSnapshotLocked();
+      }
+
+      std::shared_ptr<const ModuleCanvas::AudioGraphSnapshot> ModuleCanvas::getAudioGraphSnapshot() const
+      {
+         return std::atomic_load_explicit(&mPublishedAudioGraph, std::memory_order_acquire);
+      }
+
+      void ModuleCanvas::buildAudioGraphSnapshotLocked(AudioGraphSnapshot& snapshot) const
+      {
+         snapshot.transportPlaying = mTransport && mTransport->isPlaying();
+         snapshot.transportBPM = mTransport ? mTransport->getBPM() : 120.0f;
+         snapshot.nodes.clear();
+         snapshot.connections.clear();
+         snapshot.nodes.reserve(mModules.size());
+         snapshot.connections.reserve(mConnections.size());
+
+         for (const auto& [id, module] : mModules)
+         {
+            AudioGraphNode node;
+            node.id = id;
+            node.type = module->getType();
+            node.enabled = module->isEnabled();
+
+            if (node.type == "oscillator")
+            {
+               node.frequency = module->getControlValue("frequency");
+               node.volume = module->getControlValue("volume");
+               node.waveform = static_cast<int>(module->getControlValue("waveform"));
+            }
+            else if (node.type == "gain")
+            {
+               node.gain = module->getControlValue("gain");
+            }
+            else if (node.type == "filter")
+            {
+               node.cutoff = module->getControlValue("cutoff");
+               node.resonance = module->getControlValue("resonance");
+               node.filterType = static_cast<int>(module->getControlValue("type"));
+            }
+            else if (node.type == "lfo")
+            {
+               node.lfoRate = module->getControlValue("rate");
+               node.lfoDepth = module->getControlValue("depth");
+               node.lfoShape = static_cast<int>(module->getControlValue("shape"));
+            }
+
+            snapshot.nodes.push_back(node);
+         }
+
+         for (const auto& conn : mConnections)
+         {
+            auto srcIt = mModules.find(conn.sourceModuleId);
+            auto dstIt = mModules.find(conn.destModuleId);
+            if (srcIt == mModules.end() || dstIt == mModules.end())
+               continue;
+
+            const auto& outputs = srcIt->second->getOutputs();
+            const auto& inputs = dstIt->second->getInputs();
+            if (conn.sourcePortIndex < 0 || conn.destPortIndex < 0 ||
+                conn.sourcePortIndex >= static_cast<int>(outputs.size()) ||
+                conn.destPortIndex >= static_cast<int>(inputs.size()))
+               continue;
+
+            AudioGraphConnection audioConn;
+            audioConn.sourceModuleId = conn.sourceModuleId;
+            audioConn.sourcePortIndex = conn.sourcePortIndex;
+            audioConn.destModuleId = conn.destModuleId;
+            audioConn.destPortIndex = conn.destPortIndex;
+            audioConn.sourcePortType = outputs[conn.sourcePortIndex].type;
+            audioConn.destPortType = inputs[conn.destPortIndex].type;
+            snapshot.connections.push_back(audioConn);
+         }
+      }
+
+      void ModuleCanvas::publishAudioGraphSnapshotLocked()
+      {
+         AudioGraphSnapshot snapshot;
+         buildAudioGraphSnapshotLocked(snapshot);
+         std::atomic_store_explicit(
+            &mPublishedAudioGraph,
+            std::make_shared<const AudioGraphSnapshot>(std::move(snapshot)),
+            std::memory_order_release);
       }
 
       bool ModuleCanvas::portsAreCompatible(int sourceId, int sourcePort, int destId, int destPort) const
@@ -1308,70 +1397,8 @@ namespace bespoke
       ModuleCanvas::AudioGraphSnapshot ModuleCanvas::createAudioGraphSnapshot() const
       {
          Lock lock(mMutex);
-
          AudioGraphSnapshot snapshot;
-         snapshot.transportPlaying = mTransport && mTransport->isPlaying();
-         snapshot.transportBPM = mTransport ? mTransport->getBPM() : 120.0f;
-         snapshot.nodes.reserve(mModules.size());
-         snapshot.connections.reserve(mConnections.size());
-
-         for (const auto& [id, module] : mModules)
-         {
-            AudioGraphNode node;
-            node.id = id;
-            node.type = module->getType();
-            node.enabled = module->isEnabled();
-
-            if (node.type == "oscillator")
-            {
-               node.frequency = module->getControlValue("frequency");
-               node.volume = module->getControlValue("volume");
-               node.waveform = static_cast<int>(module->getControlValue("waveform"));
-            }
-            else if (node.type == "gain")
-            {
-               node.gain = module->getControlValue("gain");
-            }
-            else if (node.type == "filter")
-            {
-               node.cutoff = module->getControlValue("cutoff");
-               node.resonance = module->getControlValue("resonance");
-               node.filterType = static_cast<int>(module->getControlValue("type"));
-            }
-            else if (node.type == "lfo")
-            {
-               node.lfoRate = module->getControlValue("rate");
-               node.lfoDepth = module->getControlValue("depth");
-               node.lfoShape = static_cast<int>(module->getControlValue("shape"));
-            }
-
-            snapshot.nodes.push_back(node);
-         }
-
-         for (const auto& conn : mConnections)
-         {
-            auto srcIt = mModules.find(conn.sourceModuleId);
-            auto dstIt = mModules.find(conn.destModuleId);
-            if (srcIt == mModules.end() || dstIt == mModules.end())
-               continue;
-
-            const auto& outputs = srcIt->second->getOutputs();
-            const auto& inputs = dstIt->second->getInputs();
-            if (conn.sourcePortIndex < 0 || conn.destPortIndex < 0 ||
-                conn.sourcePortIndex >= static_cast<int>(outputs.size()) ||
-                conn.destPortIndex >= static_cast<int>(inputs.size()))
-               continue;
-
-            AudioGraphConnection audioConn;
-            audioConn.sourceModuleId = conn.sourceModuleId;
-            audioConn.sourcePortIndex = conn.sourcePortIndex;
-            audioConn.destModuleId = conn.destModuleId;
-            audioConn.destPortIndex = conn.destPortIndex;
-            audioConn.sourcePortType = outputs[conn.sourcePortIndex].type;
-            audioConn.destPortType = inputs[conn.destPortIndex].type;
-            snapshot.connections.push_back(audioConn);
-         }
-
+         buildAudioGraphSnapshotLocked(snapshot);
          return snapshot;
       }
 
@@ -1473,6 +1500,7 @@ namespace bespoke
             connectModules(srcIt->second, stateConn.sourcePortIndex, dstIt->second, stateConn.destPortIndex);
          }
 
+         publishAudioGraphSnapshotLocked();
          return true;
       }
 
@@ -1836,6 +1864,8 @@ namespace bespoke
             connectModules(gainId, 0, outputId, 0);
          if (lfoId > 0 && filterId > 0)
             connectModules(lfoId, 0, filterId, 1);
+
+         publishAudioGraphSnapshotLocked();
       }
 
       void ModuleCanvas::onMouseDown(float x, float y, int button)
@@ -1914,7 +1944,10 @@ namespace bespoke
          if (button == 2)
          {
             if (removeConnectionAt(x, y))
+            {
+               publishAudioGraphSnapshotLocked();
                return;
+            }
             bool moduleAtCursor = false;
             for (const auto& [id, module] : mModules)
                moduleAtCursor = moduleAtCursor || module->hitTest(worldX, worldY);
@@ -1949,6 +1982,7 @@ namespace bespoke
             if (localX >= 10.0f && localX <= 30.0f && localY >= 15.0f && localY <= 29.0f)
             {
                mTransport->setPlaying(!mTransport->isPlaying());
+               publishAudioGraphSnapshotLocked();
                return;
             }
          }
@@ -2009,6 +2043,7 @@ namespace bespoke
             Module* mod = getModule(mControlModuleId);
             if (mod)
                mod->handleMouseUp();
+            publishAudioGraphSnapshotLocked();
          }
          mControlModuleId = -1;
          mDraggedModuleId = -1;
@@ -2033,6 +2068,7 @@ namespace bespoke
                float dx = (x - prevX) / mScale;
                float dy = (y - prevY) / mScale;
                mod->handleMouseDrag(worldX, worldY, dx, dy);
+               publishAudioGraphSnapshotLocked();
             }
          }
          else if (mDraggedModuleId >= 0)
@@ -2141,6 +2177,7 @@ namespace bespoke
          if (keyCode == kKeySpace && mTransport)
          {
             mTransport->setPlaying(!mTransport->isPlaying());
+            publishAudioGraphSnapshotLocked();
             return;
          }
 
@@ -2183,6 +2220,7 @@ namespace bespoke
          Lock lock(mMutex);
          if (mTransport)
             mTransport->setPlaying(playing);
+         publishAudioGraphSnapshotLocked();
       }
 
       void ModuleCanvas::toggleTransportPlaying()
@@ -2190,6 +2228,7 @@ namespace bespoke
          Lock lock(mMutex);
          if (mTransport)
             mTransport->setPlaying(!mTransport->isPlaying());
+         publishAudioGraphSnapshotLocked();
       }
 
       float ModuleCanvas::getTransportBPM() const
@@ -2203,6 +2242,7 @@ namespace bespoke
          Lock lock(mMutex);
          if (mTransport)
             mTransport->setBPM(bpm);
+         publishAudioGraphSnapshotLocked();
       }
 
    } // namespace wasm

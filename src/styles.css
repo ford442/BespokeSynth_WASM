@@ -58,6 +58,111 @@ body {
     white-space: nowrap;
 }
 
+/* Patch save / auto-save status toast */
+.patch-status-toast {
+    position: fixed;
+    bottom: 42px;
+    left: 50%;
+    transform: translateX(-50%) translateY(12px);
+    padding: 8px 16px;
+    background: rgba(30, 32, 38, 0.96);
+    color: #e8e8ec;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid #4a4a55;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    z-index: 1100;
+    max-width: min(90vw, 420px);
+    text-align: center;
+}
+
+.patch-status-toast.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+#patchSelect option[disabled] {
+    color: #888;
+}
+
+/* MIDI status popover */
+.midi-control {
+    position: relative;
+}
+
+.midi-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 240px;
+    max-width: min(90vw, 320px);
+    padding: 10px 12px;
+    background: rgba(24, 26, 32, 0.98);
+    color: #e8e8ec;
+    border: 1px solid #4a4a55;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    z-index: 1200;
+}
+
+.midi-popover-status {
+    font-size: 13px;
+    line-height: 1.45;
+    padding-left: 10px;
+    border-left: 3px solid #6a6a78;
+}
+
+.midi-popover-status--connected {
+    border-left-color: #4caf50;
+}
+
+.midi-popover-status--no-devices {
+    border-left-color: #ffb74d;
+}
+
+.midi-popover-status--unsupported,
+.midi-popover-status--insecure,
+.midi-popover-status--error {
+    border-left-color: #888;
+}
+
+.midi-popover-status--denied {
+    border-left-color: #f44336;
+}
+
+.midi-popover-status--timeout {
+    border-left-color: #ff9800;
+}
+
+.midi-popover-status--pending {
+    border-left-color: #64b5f6;
+    color: #c8d8e8;
+}
+
+.midi-popover-heading {
+    margin-top: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #9a9aa8;
+}
+
+.midi-popover-inputs {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    font-size: 13px;
+    color: #dcdce4;
+}
+
+.midi-popover-inputs li + li {
+    margin-top: 4px;
+}
+
 /* Buttons */
 .btn {
     padding: 8px 16px;

@@ -9,6 +9,12 @@ const DB_NAME = 'bespokesynth-wasm';
 const STORE_NAME = 'patches';
 const MAX_PATCH_BYTES = 5 * 1024 * 1024;
 
+/** Shown in the saved-patches dropdown when IndexedDB has no entries. */
+export const PATCH_EMPTY_PLACEHOLDER = 'No saved patches yet';
+
+/** Default name for browser auto-save when the user does not choose one. */
+export const PATCH_DEFAULT_AUTOSAVE_NAME = 'Auto-saved patch';
+
 function validatePatchJson(json: string): void {
   if (!json || new Blob([json]).size > MAX_PATCH_BYTES) throw new Error('Patch exceeds the 5 MB limit');
   const data: unknown = JSON.parse(json);
