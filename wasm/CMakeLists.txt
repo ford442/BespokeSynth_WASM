@@ -101,7 +101,21 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/WasmPatchState.cpp
     ${BESPOKE_WASM_DIR}/src/WasmBridge.cpp
     ${BESPOKE_WASM_DIR}/src/Knob.cpp
+    ${BESPOKE_WASM_DIR}/src/Module.cpp
     ${BESPOKE_WASM_DIR}/src/ModuleCanvas.cpp
+    ${BESPOKE_WASM_DIR}/src/ModuleCanvasRender.cpp
+    ${BESPOKE_WASM_DIR}/src/ModuleCanvasInput.cpp
+    ${BESPOKE_WASM_DIR}/src/ModuleCanvasHelpers.cpp
+    ${BESPOKE_WASM_DIR}/src/ModuleFactory.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmModuleAdapterRegistry.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/FilterModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/OscillatorModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/GainModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/OutputModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/FilterModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/LFOModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/TransportModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/ScaleModule.cpp
 
     # --- JUCE module wrappers (implementations) ---
     ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_core/juce_core.cpp
@@ -255,6 +269,17 @@ add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/tests/test_main.cpp
     ${BESPOKE_WASM_DIR}/tests/synth_globals_stub.cpp
     ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmModuleAdapterRegistry.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/FilterModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/Module.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/FilterModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/OscillatorModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/GainModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/OutputModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/LFOModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/TransportModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/ScaleModule.cpp
+    ${BESPOKE_WASM_DIR}/src/ModuleCanvasHelpers.cpp
     ${BESPOKE_WASM_DIR}/src/WasmPatchState.cpp
     ${BESPOKE_WASM_DIR}/src/PixelFont.cpp
     ${BESPOKE_SOURCE_DIR}/BiquadFilter.cpp

@@ -581,7 +581,8 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
    }
    else
    {
-      // Legacy demo panel view
+      // Legacy demo panel view (debug-only; default product surface is ModuleCanvas).
+      // Follow-up: remove Tab toggle and delete renderDemoPanels() once canvas-only UX is confirmed.
       renderDemoPanels();
    }
 

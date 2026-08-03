@@ -89,6 +89,25 @@ Report absolute bytes, delta bytes, and the retained module list in the PR. The 
 - Unknown desktop module types must load as explicit placeholders, not silently map to a different DSP behavior.
 - A new module must include a graph/audio test and a saved-state compatibility fixture before it is marked ported.
 
+## Implementation status (2026-08)
+
+The adapter boundary is implemented in code:
+
+- `WasmModuleAdapter` + `WasmModuleAdapterRegistry` register module metadata, UI factories, and graph snapshot fill.
+- **Filter** is the first adapter with end-to-end `processAudio` using `Source/BiquadFilter` (`FilterModuleAdapter`).
+- Other built-in types still use lightweight adapters for metadata/UI; audio processing remains in `AudioGraphEngine` until migrated.
+
+### How to add a module
+
+1. Add a canvas UI class under `wasm/include/BespokeWasm/modules/` + `wasm/src/modules/`.
+2. Implement `WasmModuleAdapter` (or extend `SimpleWasmModuleAdapter` in `WasmModuleAdapterRegistry.cpp`) with:
+   - `typeId`, `displayName`, `category`, `audioRole`
+   - `controlDescriptors`, `createUiModule`, `fillAudioGraphNode`
+   - `processAudio` when the module owns DSP (preferred for new ports)
+3. Register the adapter once in `WasmModuleAdapterRegistry::registerBuiltInAdapters()` — no other factory switch.
+4. Add graph and/or adapter unit tests in `wasm/tests/test_main.cpp`.
+5. Document controls/ports in the PR and verify save/load via `WasmPatchState`.
+
 ## Issue Comment Summary
 
 Use the following decision summary in the tracking issue: **Accepted A, incremental adapter ports. `Oscillator.cpp` is already WASM-safe DSP, but `SingleOscillator` is a desktop UI module with a large `IDrawableModule` dependency closure. We will port behavior through WASM adapters, measure binary growth per ten modules, and defer shared-interface extraction until adapter duplication demonstrates a stable seam.**
