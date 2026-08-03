@@ -93,8 +93,10 @@ Note: The `shell.html` template includes a default JavaScript handler that will 
 
 ## Bundled resources and demo patches
 
-The build preloads `resource/` into the Emscripten filesystem at `/resource`. This makes the
-desktop-derived layouts, scales, drum maps, and patches available without a second browser fetch.
+The build preloads `wasm/resource-pack/` (not the full desktop `resource/` tree) into the
+Emscripten filesystem at `/resource`. This keeps the transferable `.data` file small while
+still bundling `savestate/wasm-starter.bsk` for `?patch=starter`. See
+[docs/wasm/resources.md](../docs/wasm/resources.md).
 `bespoke_load_layout("savestate/wasm-starter.bsk")` loads the portable starter patch; use
 `?patch=starter` to load it on startup. The matching browser helper is
 `window.__bespoke.loadBundledLayout("savestate/wasm-starter.bsk")`.

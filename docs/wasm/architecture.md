@@ -39,5 +39,6 @@ flowchart LR
 | `wasm/src/modules/*.cpp` | Per-type canvas UI implementations |
 | `wasm/src/WasmModuleAdapterRegistry.cpp` | Built-in adapter registration |
 | `wasm/src/ModuleFactory.cpp` | Thin wrapper over adapter registry |
+| `wasm/resource-pack/` | Minimal Emscripten preload set (see [resources.md](resources.md)) |
 
 For desktop architecture, see [`docs/DEVELOPER_CONTEXT.md`](../DEVELOPER_CONTEXT.md). For WASM-specific decisions, this directory is canonical.

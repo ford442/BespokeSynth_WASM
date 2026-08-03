@@ -45,7 +45,8 @@ module.exports = (env, argv) => {
             noErrorOnMissing: true,
           },
           {
-            from: 'resource',
+            // Browser HTTP assets match the Emscripten preload set (not full desktop resource/).
+            from: 'wasm/resource-pack',
             to: 'resource',
             noErrorOnMissing: true,
           },

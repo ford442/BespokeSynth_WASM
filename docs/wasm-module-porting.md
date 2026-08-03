@@ -95,6 +95,7 @@ The adapter boundary is implemented in code:
 
 - `WasmModuleAdapter` + `WasmModuleAdapterRegistry` register module metadata, UI factories, and graph snapshot fill.
 - **Filter** is the first adapter with end-to-end `processAudio` using `Source/BiquadFilter` (`FilterModuleAdapter`).
+- **ADSR**, **Delay**, and **Noise** are the first-wave adapters (lightweight envelope, local delay ring, local noise). `Source/ADSR.cpp` is not used in the adapter path because it pulls `OpenFrameworksPort`/`TheSynth`; the WASM envelope matches the same A/D/S/R controls.
 - Other built-in types still use lightweight adapters for metadata/UI; audio processing remains in `AudioGraphEngine` until migrated.
 
 ### How to add a module

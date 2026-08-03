@@ -6,7 +6,10 @@
  */
 
 #include "BespokeWasm/AudioGraphEngine.h"
+#include "BespokeWasm/adapters/AdsrModuleAdapter.h"
+#include "BespokeWasm/adapters/DelayModuleAdapter.h"
 #include "BespokeWasm/adapters/FilterModuleAdapter.h"
+#include "BespokeWasm/adapters/NoiseModuleAdapter.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -236,6 +239,16 @@ namespace bespoke
          }
 
          static const FilterModuleAdapter kFilterAdapter;
+         static const AdsrModuleAdapter kAdsrAdapter;
+         static const DelayModuleAdapter kDelayAdapter;
+         static const NoiseModuleAdapter kNoiseAdapter;
+
+         std::vector<WasmNoteEvent> noteEvents;
+         noteEvents.reserve(notes.size());
+         for (const auto& note : notes)
+            noteEvents.push_back({ note.pitch, note.velocity, note.isNoteOn });
+
+         const double blockStart = mAudioTimeSeconds;
 
          for (int id : mProcessOrder)
          {
@@ -246,8 +259,22 @@ namespace bespoke
             auto& buffer = audioBuffers[id];
             const WasmModuleAdapter* adapter = WasmModuleAdapterRegistry::instance().find(node->type);
 
+            WasmAudioProcessContext context;
+            context.sampleRate = sampleRate;
+            context.numSamples = numSamples;
+            context.blockStartTimeSeconds = blockStart;
+            context.notes = noteEvents.empty() ? nullptr : noteEvents.data();
+            context.noteCount = static_cast<int>(noteEvents.size());
+
             if (adapter && adapter->audioRole() == WasmAudioRole::AudioSource)
             {
+               if (node->type == "noise")
+               {
+                  auto& state = stateFor(node->id);
+                  kNoiseAdapter.processAudio(&state.noiseState, *node, buffer.data(), context);
+                  continue;
+               }
+
                auto& state = stateFor(node->id);
                for (const auto& note : notes)
                {
@@ -286,9 +313,6 @@ namespace bespoke
             {
                auto& state = stateFor(node->id);
                const auto modIt = modulationInputsByDest.find(node->id);
-               WasmAudioProcessContext context;
-               context.sampleRate = sampleRate;
-               context.numSamples = numSamples;
                context.modulationAt = [&](int sampleIndex) -> float
                {
                   float modulation = 0.0f;
@@ -304,6 +328,16 @@ namespace bespoke
                   return modulation;
                };
                kFilterAdapter.processAudio(&state.filterState, *node, buffer.data(), context);
+            }
+            else if (adapter && adapter->audioRole() == WasmAudioRole::AudioProcessor && node->type == "adsr")
+            {
+               auto& state = stateFor(node->id);
+               kAdsrAdapter.processAudio(&state.adsrState, *node, buffer.data(), context);
+            }
+            else if (adapter && adapter->audioRole() == WasmAudioRole::AudioProcessor && node->type == "delay")
+            {
+               auto& state = stateFor(node->id);
+               kDelayAdapter.processAudio(&state.delayState, *node, buffer.data(), context);
             }
             else if (adapter && adapter->audioRole() == WasmAudioRole::AudioProcessor && node->type == "gain")
             {

@@ -109,11 +109,17 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/ModuleFactory.cpp
     ${BESPOKE_WASM_DIR}/src/WasmModuleAdapterRegistry.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/FilterModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/AdsrModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/DelayModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/NoiseModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/modules/OscillatorModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/GainModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/OutputModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/FilterModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/LFOModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/AdsrModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/DelayModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/NoiseModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/TransportModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/ScaleModule.cpp
 
@@ -191,7 +197,7 @@ set(EMSCRIPTEN_LINK_FLAGS
     "-sINITIAL_MEMORY=134217728"  # 128MB initial
     "-sSTACK_SIZE=1048576"  # 1MB stack
     "--shell-file=${BESPOKE_WASM_DIR}/shell.html"
-    "--preload-file=${BESPOKE_WASM_DIR}/../resource@/resource"
+    "--preload-file=${BESPOKE_WASM_DIR}/resource-pack@/resource"
     "-sMODULARIZE=1"
     "-sEXPORT_NAME='createBespokeSynth'"
 )
@@ -256,12 +262,13 @@ set_target_properties(BespokeSynthWASM PROPERTIES
     LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS_STR}"
 )
 
-# Copy resources
+# Copy only the minimal WASM resource pack next to the binary (not full desktop resource/).
 add_custom_command(TARGET BespokeSynthWASM POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/resource
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/../resource
+        ${BESPOKE_WASM_DIR}/resource-pack
         ${CMAKE_BINARY_DIR}/resource
-    COMMENT "Copying resources to build directory"
+    COMMENT "Copying minimal WASM resource pack to build directory"
 )
 
 # Create a simple test target
@@ -271,12 +278,18 @@ add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
     ${BESPOKE_WASM_DIR}/src/WasmModuleAdapterRegistry.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/FilterModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/AdsrModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/DelayModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/NoiseModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/Module.cpp
     ${BESPOKE_WASM_DIR}/src/modules/FilterModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/OscillatorModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/GainModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/OutputModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/LFOModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/AdsrModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/DelayModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/NoiseModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/TransportModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/ScaleModule.cpp
     ${BESPOKE_WASM_DIR}/src/ModuleCanvasHelpers.cpp
