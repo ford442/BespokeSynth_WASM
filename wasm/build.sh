@@ -98,7 +98,7 @@ if ! version_ge "$EMCC_VERSION" "$REQUIRED_EMSCRIPTEN_VERSION"; then
     exit 1
 fi
 
-if ! emcc --help 2>&1 | grep -q -- '--use-port=emdawnwebgpu'; then
+if ! emcc --use-port=emdawnwebgpu:help >/dev/null 2>&1; then
     echo -e "${RED}Error: this Emscripten build does not provide the emdawnwebgpu port${NC}"
     echo "Upgrade to Emscripten $REQUIRED_EMSCRIPTEN_VERSION or newer."
     exit 1

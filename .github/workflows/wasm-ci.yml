@@ -50,7 +50,7 @@ jobs:
             echo "::error::Expected Emscripten $EMSCRIPTEN_VERSION but found $EMCC_VERSION after activate"
             exit 1
           fi
-          if ! emcc --help 2>&1 | grep -q -- '--use-port=emdawnwebgpu'; then
+          if ! emcc --use-port=emdawnwebgpu:help >/dev/null 2>&1; then
             echo "::error::Emscripten $EMCC_VERSION does not provide the emdawnwebgpu port required by this repository"
             exit 1
           fi
