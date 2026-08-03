@@ -40,11 +40,21 @@ namespace bespoke
          Sink
       };
 
+      struct WasmNoteEvent
+      {
+         int pitch = 60;
+         float velocity = 0.0f;
+         bool isNoteOn = false;
+      };
+
       struct WasmAudioProcessContext
       {
          float sampleRate = 44100.0f;
          int numSamples = 0;
+         double blockStartTimeSeconds = 0.0;
          std::function<float(int sampleIndex)> modulationAt;
+         const WasmNoteEvent* notes = nullptr;
+         int noteCount = 0;
       };
 
       class WasmModuleAdapter

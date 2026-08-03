@@ -88,6 +88,48 @@ namespace bespoke
          int mShape = 0;
       };
 
+      class AdsrModule : public Module
+      {
+      public:
+         AdsrModule(int id);
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
+         void setControlValue(const std::string& name, float value) override;
+         float getControlValue(const std::string& name) const override;
+
+      private:
+         float mAttack = 10.0f;
+         float mDecay = 120.0f;
+         float mSustain = 0.7f;
+         float mRelease = 200.0f;
+      };
+
+      class DelayModule : public Module
+      {
+      public:
+         DelayModule(int id);
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
+         void setControlValue(const std::string& name, float value) override;
+         float getControlValue(const std::string& name) const override;
+
+      private:
+         float mTime = 0.25f;
+         float mFeedback = 0.35f;
+         float mMix = 0.35f;
+      };
+
+      class NoiseModule : public Module
+      {
+      public:
+         NoiseModule(int id);
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
+         void setControlValue(const std::string& name, float value) override;
+         float getControlValue(const std::string& name) const override;
+
+      private:
+         float mVolume = 0.35f;
+         int mColor = 0;
+      };
+
       class TransportModule : public Module
       {
       public:

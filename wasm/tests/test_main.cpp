@@ -17,6 +17,9 @@
 #include "BespokeWasm/WasmPatchState.h"
 #include "BespokeWasm/WasmModuleAdapter.h"
 #include "BespokeWasm/adapters/FilterModuleAdapter.h"
+#include "BespokeWasm/adapters/AdsrModuleAdapter.h"
+#include "BespokeWasm/adapters/DelayModuleAdapter.h"
+#include "BespokeWasm/adapters/NoiseModuleAdapter.h"
 
 using namespace bespoke::wasm;
 
@@ -381,6 +384,122 @@ void test_filter_module_adapter()
    }
 }
 
+void test_first_wave_module_adapters()
+{
+   printf("\n=== First-Wave Module Adapter Tests ===\n");
+
+   {
+      NoiseModuleAdapter adapter;
+      AudioGraphNode node;
+      node.type = "noise";
+      adapter.fillAudioGraphNode({ { "volume", 0.5f }, { "color", 0.0f } }, node);
+      NoiseAdapterRuntimeState runtime{};
+      adapter.initRuntimeState(&runtime);
+      float buffer[256] = {};
+      WasmAudioProcessContext context;
+      context.sampleRate = 44100.0f;
+      context.numSamples = 256;
+      adapter.processAudio(&runtime, node, buffer, context);
+      TEST("Noise adapter produces non-silent output", buffer_rms(std::vector<float>(buffer, buffer + 256)) > 0.01f);
+      TEST("Noise adapter registered", WasmModuleAdapterRegistry::instance().find("noise") != nullptr);
+   }
+
+   {
+      DelayModuleAdapter adapter;
+      AudioGraphNode node;
+      node.type = "delay";
+      adapter.fillAudioGraphNode({ { "time", 0.01f }, { "feedback", 0.5f }, { "mix", 0.5f } }, node);
+      DelayAdapterRuntimeState runtime{};
+      adapter.initRuntimeState(&runtime);
+
+      float buffer[512] = {};
+      buffer[0] = 1.0f;
+      WasmAudioProcessContext context;
+      context.sampleRate = 44100.0f;
+      context.numSamples = 512;
+      adapter.processAudio(&runtime, node, buffer, context);
+      double tail = 0.0;
+      for (int i = 100; i < 512; ++i)
+         tail += std::fabs(buffer[i]);
+      TEST("Delay adapter leaves echo energy", tail > 0.01);
+      TEST("Delay adapter registered", WasmModuleAdapterRegistry::instance().find("delay") != nullptr);
+   }
+
+   {
+      AdsrModuleAdapter adapter;
+      AudioGraphNode node;
+      node.type = "adsr";
+      adapter.fillAudioGraphNode(
+         { { "attack", 5.0f }, { "decay", 40.0f }, { "sustain", 0.4f }, { "release", 80.0f } }, node);
+      AdsrAdapterRuntimeState runtime{};
+      adapter.initRuntimeState(&runtime);
+
+      float buffer[256];
+      for (int i = 0; i < 256; ++i)
+         buffer[i] = 1.0f;
+
+      WasmNoteEvent noteOn{ 60, 1.0f, true };
+      WasmAudioProcessContext context;
+      context.sampleRate = 44100.0f;
+      context.numSamples = 256;
+      context.blockStartTimeSeconds = 1.0;
+      context.notes = &noteOn;
+      context.noteCount = 1;
+      adapter.processAudio(&runtime, node, buffer, context);
+      TEST("ADSR adapter applies envelope after note-on", buffer_rms(std::vector<float>(buffer, buffer + 256)) > 0.01f);
+      TEST("ADSR adapter registered", WasmModuleAdapterRegistry::instance().find("adsr") != nullptr);
+
+      auto ui = adapter.createUiModule(3);
+      TEST("ADSR UI module created", ui != nullptr);
+      if (ui)
+      {
+         ui->setControlValue("attack", 25.0f);
+         TEST("ADSR UI stores attack", std::fabs(ui->getControlValue("attack") - 25.0f) < 0.01f);
+      }
+   }
+
+   {
+      AudioGraphSnapshot graph;
+      graph.transportPlaying = true;
+
+      AudioGraphNode noise;
+      noise.id = 1;
+      noise.type = "noise";
+      noise.noiseVolume = 0.4f;
+      graph.nodes.push_back(noise);
+
+      AudioGraphNode delay;
+      delay.id = 2;
+      delay.type = "delay";
+      delay.delayTime = 0.05f;
+      delay.delayFeedback = 0.2f;
+      delay.delayMix = 0.4f;
+      graph.nodes.push_back(delay);
+
+      AudioGraphNode out;
+      out.id = 3;
+      out.type = "output";
+      graph.nodes.push_back(out);
+
+      AudioGraphConnection c1;
+      c1.sourceModuleId = 1;
+      c1.destModuleId = 2;
+      c1.sourcePortType = PortType::Audio;
+      c1.destPortType = PortType::Audio;
+      graph.connections.push_back(c1);
+
+      AudioGraphConnection c2;
+      c2.sourceModuleId = 2;
+      c2.destModuleId = 3;
+      c2.sourcePortType = PortType::Audio;
+      c2.destPortType = PortType::Audio;
+      graph.connections.push_back(c2);
+
+      auto rendered = render_graph(graph);
+      TEST("Noise→delay→output graph is non-silent", buffer_rms(rendered) > 0.005f);
+   }
+}
+
 int main()
 {
    printf("BespokeSynth WASM Test Suite\n");
@@ -394,6 +513,7 @@ int main()
    test_audio_buffer();
    test_audio_graph_engine();
    test_filter_module_adapter();
+   test_first_wave_module_adapters();
    test_patch_state_json();
 
    printf("\n============================\n");

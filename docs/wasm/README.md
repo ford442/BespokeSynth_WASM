@@ -6,6 +6,7 @@ Start here for the browser port. The WASM build is a distinct implementation fro
 2. Use [roadmap.md](roadmap.md) to select an in-scope milestone.
 3. Follow [webgl-fallback.md](webgl-fallback.md) for renderer debugging and screenshots.
 4. Read [audio.md](audio.md), [module-porting.md](module-porting.md), or [python.md](python.md) before changing those systems.
+5. Read [resources.md](resources.md) before changing the WASM preload / `.data` packaging.
 
 Build with `npm run build:wasm` (Release) or `npm run build:wasm:debug`; run `npm run dev` for the browser UI.
 

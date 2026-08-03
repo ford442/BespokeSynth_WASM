@@ -9,8 +9,10 @@
 
 #include "BespokeWasm/AudioGraphTypes.h"
 #include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/adapters/AdsrModuleAdapter.h"
+#include "BespokeWasm/adapters/DelayModuleAdapter.h"
 #include "BespokeWasm/adapters/FilterModuleAdapter.h"
-#include "BiquadFilter.h"
+#include "BespokeWasm/adapters/NoiseModuleAdapter.h"
 #include "Oscillator.h"
 #include <unordered_map>
 #include <vector>
@@ -25,7 +27,6 @@ namespace bespoke
       class AudioGraphEngine
       {
       public:
-         // Minimal WASM equivalents of desktop INoteReceiver/IPulseReceiver payloads.
          struct NoteMessage
          {
             int pitch = 60;
@@ -40,7 +41,6 @@ namespace bespoke
             float strength = 1.0f;
          };
 
-         // Block-rate values can be extended to a per-sample buffer by consumers.
          struct ModulationValue
          {
             float value = 0.0f;
@@ -62,6 +62,9 @@ namespace bespoke
             bool noteGate = true;
             bool hasReceivedNote = false;
             FilterAdapterRuntimeState filterState;
+            AdsrAdapterRuntimeState adsrState;
+            DelayAdapterRuntimeState delayState;
+            NoiseAdapterRuntimeState noiseState;
          };
 
          RuntimeState& stateFor(int moduleId);

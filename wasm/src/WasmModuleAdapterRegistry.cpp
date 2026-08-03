@@ -6,7 +6,10 @@
  */
 
 #include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/adapters/AdsrModuleAdapter.h"
+#include "BespokeWasm/adapters/DelayModuleAdapter.h"
 #include "BespokeWasm/adapters/FilterModuleAdapter.h"
+#include "BespokeWasm/adapters/NoiseModuleAdapter.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include <functional>
 
@@ -110,6 +113,10 @@ namespace bespoke
             }));
 
          registerAdapter(std::make_unique<FilterModuleAdapter>());
+
+         registerAdapter(std::make_unique<AdsrModuleAdapter>());
+         registerAdapter(std::make_unique<DelayModuleAdapter>());
+         registerAdapter(std::make_unique<NoiseModuleAdapter>());
 
          registerAdapter(std::make_unique<SimpleWasmModuleAdapter>(
             "gain", "Gain", ModuleCategory::AudioEffect, WasmAudioRole::AudioProcessor, false,

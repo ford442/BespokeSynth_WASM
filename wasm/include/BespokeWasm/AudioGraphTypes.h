@@ -31,6 +31,18 @@ namespace bespoke
          float lfoRate = 1.0f;
          float lfoDepth = 1.0f;
          int lfoShape = 0;
+         // ADSR (times in milliseconds)
+         float attack = 10.0f;
+         float decay = 120.0f;
+         float sustain = 0.7f;
+         float release = 200.0f;
+         // Delay
+         float delayTime = 0.25f;
+         float delayFeedback = 0.35f;
+         float delayMix = 0.35f;
+         // Noise
+         float noiseVolume = 0.35f;
+         int noiseColor = 0;
       };
 
       struct AudioGraphConnection
