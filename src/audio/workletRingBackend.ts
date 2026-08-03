@@ -58,11 +58,28 @@ export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRin
     module._bespoke_set_audio_queue_stats(stats.depth, stats.capacity, stats.underruns);
   };
 
+  const getHeapF32 = (): Float32Array => {
+    const m = module as BespokeSynthModule & {
+      HEAPF32?: Float32Array;
+      HEAP8?: Int8Array;
+      wasmMemory?: WebAssembly.Memory;
+    };
+    if (m.HEAPF32) return m.HEAPF32;
+    if (m.wasmMemory?.buffer) return new Float32Array(m.wasmMemory.buffer);
+    if (m.HEAP8?.buffer) return new Float32Array(m.HEAP8.buffer);
+    throw new Error('WASM heap Float32 view unavailable');
+  };
+
   const ensureHeapBuffer = (frames: number) => {
     if (heapBufferPtr && heapBufferFrames >= frames) return;
-    if (heapBufferPtr) module._free(heapBufferPtr);
+    const alloc = module._malloc ?? (module as unknown as { malloc?: (n: number) => number }).malloc;
+    const freeFn = module._free ?? (module as unknown as { free?: (p: number) => void }).free;
+    if (typeof alloc !== 'function') {
+      throw new Error('WASM malloc is not exported; rebuild with _malloc/_free in EXPORTED_FUNCTIONS');
+    }
+    if (heapBufferPtr && typeof freeFn === 'function') freeFn(heapBufferPtr);
     heapBufferFrames = frames;
-    heapBufferPtr = module._malloc(frames * 2 * 4);
+    heapBufferPtr = alloc(frames * 2 * 4);
   };
 
   const produce = () => {
@@ -71,13 +88,9 @@ export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRin
     while (ringFramesFree(ring.header) >= blockFrames) {
       ensureHeapBuffer(blockFrames);
       module._bespoke_process_audio_block(heapBufferPtr, blockFrames);
-      const interleaved = new Float32Array(
-        module.HEAPF32.buffer,
-        heapBufferPtr,
-        blockFrames * 2,
-      );
-      // Copy out — HEAPF32 view may detach on growth; slice to be safe.
-      const copy = interleaved.slice();
+      const heap = getHeapF32();
+      const start = heapBufferPtr >> 2;
+      const copy = heap.slice(start, start + blockFrames * 2);
       const written = ringWriteInterleaved(ring, copy, blockFrames);
       if (written < blockFrames) break;
     }
