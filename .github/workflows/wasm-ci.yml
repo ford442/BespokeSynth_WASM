@@ -31,17 +31,30 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/emsdk
-          key: emsdk-${{ runner.os }}-${{ hashFiles('.emscripten-version') }}-v1
+          key: emsdk-${{ runner.os }}-${{ hashFiles('.emscripten-version') }}-v2
 
       - name: Install Emscripten
         shell: bash
         run: |
-          EMSCRIPTEN_VERSION="$(cat .emscripten-version)"
+          set -euo pipefail
+          EMSCRIPTEN_VERSION="$(tr -d '[:space:]' < .emscripten-version)"
           if [ ! -d "$EMSDK/.git" ]; then
             git clone https://github.com/emscripten-core/emsdk.git "$EMSDK"
           fi
           "$EMSDK/emsdk" install "$EMSCRIPTEN_VERSION"
           "$EMSDK/emsdk" activate "$EMSCRIPTEN_VERSION"
+          # shellcheck disable=SC1091
+          source "$EMSDK/emsdk_env.sh"
+          EMCC_VERSION="$(emcc --version | head -n 1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
+          if [ "$EMCC_VERSION" != "$EMSCRIPTEN_VERSION" ]; then
+            echo "::error::Expected Emscripten $EMSCRIPTEN_VERSION but found $EMCC_VERSION after activate"
+            exit 1
+          fi
+          if ! emcc --use-port=emdawnwebgpu:help >/dev/null 2>&1; then
+            echo "::error::Emscripten $EMCC_VERSION does not provide the emdawnwebgpu port required by this repository"
+            exit 1
+          fi
+          echo "Emscripten $EMCC_VERSION is ready"
 
       - name: Install JavaScript dependencies
         run: npm ci

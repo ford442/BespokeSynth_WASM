@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # BespokeSynth WASM Build Script
-# This script builds the WASM version of BespokeSynth using Emscripten
-# CI uses Emscripten 3.1.50; keep local builds on a compatible 3.1+ release.
+# This script builds the WASM version of BespokeSynth using Emscripten.
+# The required SDK version is pinned in ../.emscripten-version (used by CI).
 
 set -euo pipefail
 
@@ -18,6 +18,7 @@ esac
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$SCRIPT_DIR/build/${BUILD_FLAVOR,,}"
+EMSCRIPTEN_VERSION_FILE="$PROJECT_ROOT/.emscripten-version"
 
 # Colors for output
 RED='\033[0;31m'
@@ -27,15 +28,44 @@ NC='\033[0m' # No Color
 
 echo -e "${GREEN}=== BespokeSynth WASM ${BUILD_FLAVOR} Build ===${NC}"
 
-# Source emsdk environment if available (support multiple layouts)
+read_required_emscripten_version() {
+    if [ -f "$EMSCRIPTEN_VERSION_FILE" ]; then
+        tr -d '[:space:]' < "$EMSCRIPTEN_VERSION_FILE"
+    else
+        echo "4.0.0"
+    fi
+}
+
+version_ge() {
+    # True when $1 >= $2 (semantic version).
+    [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]
+}
+
+source_emsdk_env() {
+    local candidate
+    for candidate in \
+        "${EMSDK:+$EMSDK/emsdk_env.sh}" \
+        "$PROJECT_ROOT/emsdk/emsdk_env.sh" \
+        "$HOME/emsdk/emsdk_env.sh" \
+        "$SCRIPT_DIR/../../emsdk/emsdk_env.sh"
+    do
+        if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+            # shellcheck disable=SC1090
+            source "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Source emsdk environment if available (support multiple layouts).
 # emsdk_env.sh clears EM_CACHE, so restore an explicit caller override afterwards.
 REQUESTED_EM_CACHE="${EM_CACHE:-}"
-if [ -f "$PROJECT_ROOT/emsdk/emsdk_env.sh" ]; then
-    source "$PROJECT_ROOT/emsdk/emsdk_env.sh"
-elif [ -f "$SCRIPT_DIR/../../emsdk/emsdk_env.sh" ]; then
-    source "$SCRIPT_DIR/../../emsdk/emsdk_env.sh"
+if source_emsdk_env; then
+    :
 else
     echo -e "${YELLOW}Warning: emsdk_env.sh not found; assume Emscripten is already on PATH${NC}"
+    echo "Set EMSDK, install emsdk under the repo, \$HOME/emsdk, or source emsdk_env.sh manually."
 fi
 if [ -n "$REQUESTED_EM_CACHE" ]; then
     export EM_CACHE="$REQUESTED_EM_CACHE"
@@ -44,12 +74,35 @@ fi
 # Check for Emscripten
 if ! command -v emcc &> /dev/null; then
     echo -e "${RED}Error: Emscripten (emcc) not found${NC}"
-    echo "Please install Emscripten and source emsdk_env.sh"
+    echo "Install and activate the version in .emscripten-version, then source emsdk_env.sh:"
+    echo "  git clone https://github.com/emscripten-core/emsdk.git"
+    echo "  cd emsdk"
+    echo "  ./emsdk install \$(cat .emscripten-version)"
+    echo "  ./emsdk activate \$(cat .emscripten-version)"
+    echo "  source ./emsdk_env.sh"
     echo "See: https://emscripten.org/docs/getting_started/downloads.html"
     exit 1
 fi
 
+EMCC_VERSION="$(emcc --version | head -n 1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
+REQUIRED_EMSCRIPTEN_VERSION="$(read_required_emscripten_version)"
 echo -e "${GREEN}Using Emscripten:${NC} $(emcc --version | head -n 1)"
+
+if ! version_ge "$EMCC_VERSION" "$REQUIRED_EMSCRIPTEN_VERSION"; then
+    echo -e "${RED}Error: Emscripten $EMCC_VERSION is too old for this repository${NC}"
+    echo "Required: Emscripten $REQUIRED_EMSCRIPTEN_VERSION or newer (emdawnwebgpu / modern WebGPU API)."
+    echo "Install and activate the pinned SDK:"
+    echo "  ./emsdk install $REQUIRED_EMSCRIPTEN_VERSION"
+    echo "  ./emsdk activate $REQUIRED_EMSCRIPTEN_VERSION"
+    echo "  source ./emsdk_env.sh"
+    exit 1
+fi
+
+if ! emcc --use-port=emdawnwebgpu:help >/dev/null 2>&1; then
+    echo -e "${RED}Error: this Emscripten build does not provide the emdawnwebgpu port${NC}"
+    echo "Upgrade to Emscripten $REQUIRED_EMSCRIPTEN_VERSION or newer."
+    exit 1
+fi
 
 echo -e "${YELLOW}Syncing pixel font shader data...${NC}"
 python3 "$SCRIPT_DIR/../scripts/sync_pixel_font_shader.py"

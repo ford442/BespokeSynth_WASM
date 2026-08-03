@@ -96,18 +96,19 @@ This project maintains **two separate implementations**:
 
 ### Prerequisites
 
-1. Install Emscripten SDK:
+1. Install the pinned Emscripten SDK (see `.emscripten-version`, currently **6.0.3**):
    ```bash
    git clone https://github.com/emscripten-core/emsdk.git
    cd emsdk
-   ./emsdk install latest
-   ./emsdk activate latest
+   EMSCRIPTEN_VERSION="$(tr -d '[:space:]' < /path/to/BespokeSynth_WASM/.emscripten-version)"
+   ./emsdk install "$EMSCRIPTEN_VERSION"
+   ./emsdk activate "$EMSCRIPTEN_VERSION"
    source ./emsdk_env.sh  # Required before every build
    ```
 
 2. Verify installation:
    ```bash
-   emcc --version  # Should show version 3.0+
+   emcc --version  # Should show 6.0.3 or newer (emdawnwebgpu required)
    ```
 
 ### Building Steps

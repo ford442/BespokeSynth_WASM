@@ -421,7 +421,6 @@ wasm/dist/
 node_modules/
 dist/
 *.tsbuildinfo
-package-lock.json
 yarn.lock
 
 # CodeQL artifacts

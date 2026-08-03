@@ -7,6 +7,10 @@ Start here for the browser port. The WASM build is a distinct implementation fro
 3. Follow [webgl-fallback.md](webgl-fallback.md) for renderer debugging and screenshots.
 4. Read [audio.md](audio.md), [module-porting.md](module-porting.md), or [python.md](python.md) before changing those systems.
 
-Build with `npm run build:wasm` (Release) or `npm run build:wasm:debug`; run `npm run dev` for the browser UI. Historical reports are summarized in [changelog.md](changelog.md), not used as current implementation guidance.
+Build with `npm run build:wasm` (Release) or `npm run build:wasm:debug`; run `npm run dev` for the browser UI.
+
+**Emscripten:** install and activate the version in [`.emscripten-version`](../../.emscripten-version) (currently **6.0.3**). The WASM target requires the `emdawnwebgpu` port; older 3.1.x SDKs fail at compile time. See [`wasm/README.md`](../../wasm/README.md) for install steps.
+
+Historical reports are summarized in [changelog.md](changelog.md), not used as current implementation guidance.
 
 Current system details and commands live in [`wasm/README.md`](../../wasm/README.md).
