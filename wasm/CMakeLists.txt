@@ -96,6 +96,7 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/AudioAnalysis.cpp
     ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
     ${BESPOKE_WASM_DIR}/src/WasmAudioEngine.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioHealth.cpp
     ${BESPOKE_WASM_DIR}/src/WasmInputRouter.cpp
     ${BESPOKE_WASM_DIR}/src/WasmRuntimeState.cpp
     ${BESPOKE_WASM_DIR}/src/WasmPatchState.cpp
@@ -226,7 +227,7 @@ string(REPLACE "'_bespoke_process_audio'," "'_bespoke_process_audio','_bespoke_p
     EMSCRIPTEN_LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS}")
 string(REPLACE "'_bespoke_reset_theme'" "'_bespoke_reset_theme','_bespoke_midi_note_on','_bespoke_midi_note_off','_bespoke_midi_cc'"
     EMSCRIPTEN_LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS}")
-string(REPLACE "'_bespoke_midi_cc'" "'_bespoke_midi_cc','_bespoke_load_layout'"
+string(REPLACE "'_bespoke_load_layout'" "'_bespoke_load_layout','_bespoke_set_external_audio','_bespoke_get_external_audio','_bespoke_set_external_sample_rate','_bespoke_set_audio_backend_id','_bespoke_get_audio_health_json','_bespoke_reset_audio_health','_bespoke_set_audio_queue_stats'"
     EMSCRIPTEN_LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS}")
 
 # Add WebGPU support
@@ -278,6 +279,7 @@ add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/tests/test_main.cpp
     ${BESPOKE_WASM_DIR}/tests/synth_globals_stub.cpp
     ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioHealth.cpp
     ${BESPOKE_WASM_DIR}/src/WasmModuleAdapterRegistry.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/FilterModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/AdsrModuleAdapter.cpp

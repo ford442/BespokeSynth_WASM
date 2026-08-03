@@ -32,6 +32,20 @@ import {
   type StoredPatch,
 } from './patchStorage';
 import { connectWebMidi, type MidiConnectResult } from './midi';
+import {
+  resolveAudioBackend,
+  switchAudioPreference,
+  isAudioWorkletPocRequested,
+  isDebugRequested,
+  type AudioBackendId,
+} from './audio/audioMode';
+import { readAudioHealth, backendName } from './audio/audioHealth';
+import { runAudioWorkletPoc } from './audio/workletPoc';
+import {
+  canUseWorkletRingBackend,
+  createWorkletRingBackend,
+  type WorkletRingBackend,
+} from './audio/workletRingBackend';
 
 interface BespokeSynthFactoryConfig {
   canvas: HTMLCanvasElement | HTMLElement | null;
@@ -166,11 +180,22 @@ class BespokeSynthApp {
   private labelElements: Map<number, HTMLElement> = new Map();
   private rendererBackend: RendererBackend = resolveRendererBackend();
   private rendererFallbackReason: string | null = null;
+  private audioBackendId: AudioBackendId = resolveAudioBackend();
+  private workletRing: WorkletRingBackend | null = null;
+  private audioHealthHudTimer: number | null = null;
   private initSteps: InitStep[] =
     resolveRendererBackend() === 'webgl' ? WEBGL2_INIT_STEPS : WEBGPU_INIT_STEPS;
 
   getModule(): BespokeSynthModule | null {
     return this.module;
+  }
+
+  async play(): Promise<void> {
+    await this.startPlayback();
+  }
+
+  stop(): void {
+    this.stopPlayback();
   }
 
   async init(): Promise<void> {
@@ -399,6 +424,19 @@ class BespokeSynthApp {
       switchRendererPreference(rendererSelect.value as RendererBackend);
     });
 
+    const audioSelect = document.createElement('select');
+    audioSelect.id = 'audioSelect';
+    audioSelect.className = 'renderer-select';
+    audioSelect.innerHTML = `
+      <option value="sdl">Audio: SDL2</option>
+      <option value="worklet">Audio: Worklet</option>
+    `;
+    audioSelect.value = this.audioBackendId;
+    audioSelect.title = 'Audio backend (reloads page). Worklet requires COOP/COEP.';
+    audioSelect.addEventListener('change', () => {
+      switchAudioPreference(audioSelect.value as AudioBackendId);
+    });
+
     const debugSelect = document.createElement('select');
     debugSelect.id = 'webglDebugSelect';
     debugSelect.className = 'renderer-select';
@@ -443,13 +481,15 @@ class BespokeSynthApp {
     });
 
     headerControls.appendChild(rendererSelect);
+    headerControls.appendChild(audioSelect);
     headerControls.appendChild(debugSelect);
     headerControls.appendChild(screenshotBtn);
     headerControls.appendChild(saveBtn);
     headerControls.appendChild(loadBtn);
 
-    if (new URLSearchParams(window.location.search).has('debug')) {
+    if (isDebugRequested()) {
       this.setupFloatingRendererToggle();
+      this.setupAudioHealthHud();
     }
   }
 
@@ -717,6 +757,59 @@ class BespokeSynthApp {
     document.body.appendChild(btn);
   }
 
+  private setupAudioHealthHud(): void {
+    let hud = document.getElementById('audioHealthHud');
+    if (!hud) {
+      hud = document.createElement('div');
+      hud.id = 'audioHealthHud';
+      hud.className = 'audio-health-hud';
+      document.body.appendChild(hud);
+    }
+    if (this.audioHealthHudTimer !== null) clearInterval(this.audioHealthHudTimer);
+    this.audioHealthHudTimer = window.setInterval(() => {
+      const health = readAudioHealth(this.module);
+      if (!health || !hud) return;
+      hud.textContent =
+        `audio:${backendName(health.backend)} cpu:${(health.cpuLoad * 100).toFixed(0)}% ` +
+        `cb:${health.callbackCount} xrun:${health.underrunCount} ` +
+        `q:${health.queueDepthFrames}/${health.capacityFrames} ` +
+        `maxP:${health.maxProcessTimeMs.toFixed(2)}ms`;
+    }, 250);
+  }
+
+  private async startPlayback(): Promise<void> {
+    if (!this.module) return;
+
+    if (this.audioBackendId === 'worklet') {
+      const gate = canUseWorkletRingBackend();
+      if (!gate.ok) {
+        console.warn('Worklet audio unavailable, falling back to SDL2:', gate.reason);
+        this.module._bespoke_set_external_audio?.(0);
+        this.module._bespoke_set_audio_backend_id?.(0);
+        this.module._bespoke_play?.();
+        return;
+      }
+      if (!this.workletRing) {
+        this.workletRing = createWorkletRingBackend(this.module);
+      }
+      if (!this.workletRing.isRunning()) {
+        await this.workletRing.start();
+      }
+      this.module._bespoke_play?.();
+      return;
+    }
+
+    this.module._bespoke_set_external_audio?.(0);
+    this.module._bespoke_set_audio_backend_id?.(0);
+    this.module._bespoke_play?.();
+  }
+
+  private stopPlayback(): void {
+    if (!this.module) return;
+    this.module._bespoke_stop?.();
+    this.workletRing?.stop();
+  }
+
   private setupKeyboardShortcuts(): void {
     window.addEventListener('keydown', (event) => {
       if (!event.ctrlKey || !event.shiftKey) return;
@@ -754,6 +847,26 @@ class BespokeSynthApp {
 
     const rendererSelect = document.getElementById('rendererSelect') as HTMLSelectElement | null;
     if (rendererSelect) rendererSelect.value = activeBackend;
+
+    this.module._bespoke_set_audio_backend_id?.(this.audioBackendId === 'worklet' ? 1 : 0);
+    if (this.audioBackendId === 'worklet') {
+      const gate = canUseWorkletRingBackend();
+      console.log(
+        gate.ok
+          ? 'Audio backend: worklet (SAB ring) — starts on Play'
+          : `Audio backend: worklet requested but unavailable (${gate.reason}); Play will fall back to SDL2`,
+      );
+    } else {
+      console.log('Audio backend: SDL2 (default)');
+    }
+
+    if (isAudioWorkletPocRequested()) {
+      void runAudioWorkletPoc().then((result) => {
+        console.log('AudioWorklet POC result:', result);
+        (window as unknown as Record<string, unknown>).__bespokeAudioWorkletPoc = result;
+        this.module?._bespoke_set_audio_backend_id?.(2);
+      });
+    }
   }
 
   async captureScreenshot(options: CaptureScreenshotOptions = {}): Promise<string | null> {
@@ -1175,17 +1288,13 @@ class BespokeSynthApp {
 
     if (playBtn) {
       playBtn.addEventListener('click', () => {
-        if (module._bespoke_play) {
-          module._bespoke_play();
-        }
+        void this.startPlayback();
       });
     }
 
     if (stopBtn) {
       stopBtn.addEventListener('click', () => {
-        if (module._bespoke_stop) {
-          module._bespoke_stop();
-        }
+        this.stopPlayback();
       });
     }
   }
@@ -1391,6 +1500,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     downloadPatch: (filename?: string) => downloadPatchState(app.getModule(), filename),
     loadPatchFile: () => promptForPatchStateFile(app.getModule()),
     loadBundledLayout: (path: string) => loadBundledLayout(app.getModule(), path),
+    getAudioHealth: () => readAudioHealth(app.getModule()),
+    getAudioBackend: () => resolveAudioBackend(),
+    setAudioBackend: (backend: AudioBackendId) => switchAudioPreference(backend),
+    play: () => app.play(),
+    stop: () => app.stop(),
+    runAudioWorkletPoc: (opts?: { stallMs?: number; settleMs?: number }) => runAudioWorkletPoc(opts),
     setRendererBackend: (backend: RendererBackend) => switchRendererPreference(backend),
     getRendererBackend: () => {
       const mod = app.getModule();
