@@ -10,6 +10,7 @@
 #include "BespokeWasm/adapters/DelayModuleAdapter.h"
 #include "BespokeWasm/adapters/FilterModuleAdapter.h"
 #include "BespokeWasm/adapters/NoiseModuleAdapter.h"
+#include "BespokeWasm/adapters/StepSequencerModuleAdapter.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -142,26 +143,35 @@ namespace bespoke
          if (!graph.transportPlaying || sampleRate <= 0.0f)
          {
             if (!graph.transportPlaying)
+            {
                mBeatPosition = 0.0;
+               for (auto& [id, state] : mStates)
+               {
+                  (void)id;
+                  state.sequencerState = StepSequencerRuntimeState{};
+               }
+            }
             return;
          }
 
-         std::deque<NoteMessage> notes;
+         std::deque<NoteMessage> midiNotes;
          {
             std::lock_guard<std::mutex> lock(mEventMutex);
-            notes.swap(mNoteQueue);
+            midiNotes.swap(mNoteQueue);
          }
 
          mPulseEvents.clear();
+         const double beatStart = mBeatPosition;
          const double beatsPerBlock = static_cast<double>(numSamples) * graph.transportBPM /
             (static_cast<double>(sampleRate) * 60.0);
-         const double nextBeatPosition = mBeatPosition + beatsPerBlock;
-         for (double beat = std::floor(mBeatPosition) + 1.0; beat <= std::floor(nextBeatPosition); beat += 1.0)
+         const double beatEnd = beatStart + beatsPerBlock;
+         for (double beat = std::floor(beatStart) + 1.0; beat <= std::floor(beatEnd); beat += 1.0)
             mPulseEvents.push_back({ beat, 1.0f });
-         mBeatPosition = nextBeatPosition;
+         mBeatPosition = beatEnd;
 
          std::unordered_map<int, std::vector<int>> audioInputsByDest;
          std::unordered_map<int, std::vector<int>> modulationInputsByDest;
+         std::unordered_map<int, std::vector<int>> noteInputsByDest;
          std::unordered_map<int, std::vector<int>> audioChildrenBySource;
          std::unordered_map<int, int> indegree;
          std::unordered_set<int> audioNodeIds;
@@ -188,6 +198,10 @@ namespace bespoke
                      conn.destPortType == PortType::Modulation)
             {
                modulationInputsByDest[conn.destModuleId].push_back(conn.sourceModuleId);
+            }
+            else if (conn.sourcePortType == PortType::Note && conn.destPortType == PortType::Note)
+            {
+               noteInputsByDest[conn.destModuleId].push_back(conn.sourceModuleId);
             }
          }
 
@@ -218,13 +232,27 @@ namespace bespoke
 
          std::unordered_map<int, std::vector<float>> audioBuffers;
          std::unordered_map<int, std::vector<ModulationValue>> modulationBuffers;
+         std::unordered_map<int, std::vector<WasmNoteEvent>> notesBySource;
+
+         static const FilterModuleAdapter kFilterAdapter;
+         static const AdsrModuleAdapter kAdsrAdapter;
+         static const DelayModuleAdapter kDelayAdapter;
+         static const NoiseModuleAdapter kNoiseAdapter;
+         static const StepSequencerModuleAdapter kSequencerAdapter;
 
          for (const auto& node : graph.nodes)
          {
             if (!node.enabled)
                continue;
 
-            if (isModulationSourceType(node.type))
+            if (node.type == "stepsequencer")
+            {
+               auto& state = stateFor(node.id);
+               auto& emitted = notesBySource[node.id];
+               kSequencerAdapter.emitNotesForBeatRange(
+                  &state.sequencerState, node, beatStart, beatEnd, emitted);
+            }
+            else if (isModulationSourceType(node.type))
             {
                auto& state = stateFor(node.id);
                auto& buffer = modulationBuffers[node.id];
@@ -238,15 +266,23 @@ namespace bespoke
             }
          }
 
-         static const FilterModuleAdapter kFilterAdapter;
-         static const AdsrModuleAdapter kAdsrAdapter;
-         static const DelayModuleAdapter kDelayAdapter;
-         static const NoiseModuleAdapter kNoiseAdapter;
+         std::unordered_map<int, std::vector<WasmNoteEvent>> notesForModule;
+         for (const auto& [destId, sources] : noteInputsByDest)
+         {
+            auto& destNotes = notesForModule[destId];
+            for (int sourceId : sources)
+            {
+               auto srcIt = notesBySource.find(sourceId);
+               if (srcIt == notesBySource.end())
+                  continue;
+               destNotes.insert(destNotes.end(), srcIt->second.begin(), srcIt->second.end());
+            }
+         }
 
-         std::vector<WasmNoteEvent> noteEvents;
-         noteEvents.reserve(notes.size());
-         for (const auto& note : notes)
-            noteEvents.push_back({ note.pitch, note.velocity, note.isNoteOn });
+         std::vector<WasmNoteEvent> globalMidiNotes;
+         globalMidiNotes.reserve(midiNotes.size());
+         for (const auto& note : midiNotes)
+            globalMidiNotes.push_back({ note.pitch, note.velocity, note.isNoteOn });
 
          const double blockStart = mAudioTimeSeconds;
 
@@ -259,12 +295,28 @@ namespace bespoke
             auto& buffer = audioBuffers[id];
             const WasmModuleAdapter* adapter = WasmModuleAdapterRegistry::instance().find(node->type);
 
+            const bool hasNoteCable = noteInputsByDest.count(id) > 0;
+            const std::vector<WasmNoteEvent>* moduleNotes = nullptr;
+            if (hasNoteCable)
+            {
+               auto it = notesForModule.find(id);
+               if (it != notesForModule.end())
+                  moduleNotes = &it->second;
+            }
+            else if (!globalMidiNotes.empty())
+            {
+               moduleNotes = &globalMidiNotes;
+            }
+
             WasmAudioProcessContext context;
             context.sampleRate = sampleRate;
             context.numSamples = numSamples;
             context.blockStartTimeSeconds = blockStart;
-            context.notes = noteEvents.empty() ? nullptr : noteEvents.data();
-            context.noteCount = static_cast<int>(noteEvents.size());
+            if (moduleNotes && !moduleNotes->empty())
+            {
+               context.notes = moduleNotes->data();
+               context.noteCount = static_cast<int>(moduleNotes->size());
+            }
 
             if (adapter && adapter->audioRole() == WasmAudioRole::AudioSource)
             {
@@ -276,24 +328,38 @@ namespace bespoke
                }
 
                auto& state = stateFor(node->id);
-               for (const auto& note : notes)
+               if (moduleNotes)
                {
-                  if (note.isNoteOn)
+                  for (const auto& note : *moduleNotes)
                   {
-                     state.noteFrequency = 440.0f * std::pow(2.0f, (note.pitch - 69) / 12.0f);
-                     state.noteVelocity = clampFloat(note.velocity, 0.0f, 1.0f);
-                     state.noteGate = true;
-                     state.hasReceivedNote = true;
-                  }
-                  else
-                  {
-                     state.noteGate = false;
-                     state.hasReceivedNote = true;
+                     if (note.isNoteOn)
+                     {
+                        state.noteFrequency = 440.0f * std::pow(2.0f, (note.pitch - 69) / 12.0f);
+                        state.noteVelocity = clampFloat(note.velocity, 0.0f, 1.0f);
+                        state.noteGate = true;
+                        state.hasReceivedNote = true;
+                     }
+                     else
+                     {
+                        state.noteGate = false;
+                        state.hasReceivedNote = true;
+                     }
                   }
                }
+
                const float frequency = state.hasReceivedNote ? state.noteFrequency : node->frequency;
-               const float level = state.hasReceivedNote && !state.noteGate ? 0.0f :
-                  (state.hasReceivedNote ? state.noteVelocity : 1.0f);
+               float level = 1.0f;
+               if (hasNoteCable)
+               {
+                  if (!state.hasReceivedNote || !state.noteGate)
+                     level = 0.0f;
+                  else
+                     level = state.noteVelocity;
+               }
+               else if (state.hasReceivedNote)
+               {
+                  level = state.noteGate ? state.noteVelocity : 0.0f;
+               }
                for (int i = 0; i < numSamples; ++i)
                   buffer[i] = renderOscillatorSample(state, node->waveform, frequency, sampleRate) *
                               clampFloat(node->volume, 0.0f, 1.0f) * level;

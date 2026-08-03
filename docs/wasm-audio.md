@@ -37,3 +37,16 @@ The POC validates scheduling isolation only; it is not evidence that the full gr
 - The graph block API produces non-silent output for the canonical patch.
 - CPU load remains finite and reflects a positive processing ratio while transport is playing.
 - A future worklet implementation records underrun count and maximum queue depth.
+
+## Note / pulse routing (canvas graph)
+
+`AudioGraphEngine` builds separate edge maps for Audio, Modulation, and Note cables. Pulse edges are reserved for clock consumers; the transport already advances `mBeatPosition` and fills `mPulseEvents` on whole beats.
+
+**Note semantics (current):**
+
+- `NoteSource` modules (e.g. `stepsequencer`) emit `WasmNoteEvent`s for the beat range covered by each audio block.
+- Events route only along Note→Note connections to destination modules.
+- Oscillators with a note cable gate amplitude from those events (silent until note-on).
+- Web MIDI notes apply globally only to modules **without** an incoming note cable.
+
+Canonical module/port documentation: [wasm/audio.md](wasm/audio.md).

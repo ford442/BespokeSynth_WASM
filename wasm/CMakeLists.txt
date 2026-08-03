@@ -112,6 +112,7 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/adapters/AdsrModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/DelayModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/NoiseModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/StepSequencerModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/modules/OscillatorModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/GainModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/OutputModule.cpp
@@ -120,6 +121,7 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/modules/AdsrModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/DelayModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/NoiseModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/StepSequencerModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/TransportModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/ScaleModule.cpp
 
@@ -281,6 +283,7 @@ add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/src/adapters/AdsrModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/DelayModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/NoiseModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/StepSequencerModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/Module.cpp
     ${BESPOKE_WASM_DIR}/src/modules/FilterModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/OscillatorModule.cpp
@@ -290,6 +293,7 @@ add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/src/modules/AdsrModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/DelayModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/NoiseModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/StepSequencerModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/TransportModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/ScaleModule.cpp
     ${BESPOKE_WASM_DIR}/src/ModuleCanvasHelpers.cpp

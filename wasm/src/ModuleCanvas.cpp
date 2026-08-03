@@ -520,12 +520,19 @@ namespace bespoke
             mScaleModule->setControlValue("type", 0.0f);
          }
 
-         const int oscId = createModule("oscillator", 80.0f, 160.0f);
-         const int filterId = createModule("filter", 280.0f, 170.0f);
-         const int gainId = createModule("gain", 470.0f, 180.0f);
-         const int lfoId = createModule("lfo", 80.0f, 310.0f);
-         const int outputId = createModule("output", 650.0f, 190.0f);
+         const int seqId = createModule("stepsequencer", 80.0f, 310.0f);
+         const int oscId = createModule("oscillator", 280.0f, 160.0f);
+         const int filterId = createModule("filter", 470.0f, 170.0f);
+         const int gainId = createModule("gain", 650.0f, 180.0f);
+         const int lfoId = createModule("lfo", 280.0f, 310.0f);
+         const int outputId = createModule("output", 820.0f, 190.0f);
 
+         if (auto* seq = getModule(seqId))
+         {
+            seq->setControlValue("pattern", static_cast<float>(0x1111));
+            seq->setControlValue("pitch", 60.0f);
+            seq->setControlValue("gate", 0.8f);
+         }
          if (auto* osc = getModule(oscId))
          {
             osc->setControlValue("frequency", 440.0f);
@@ -547,6 +554,8 @@ namespace bespoke
             lfo->setControlValue("shape", 0.0f);
          }
 
+         if (seqId > 0 && oscId > 0)
+            connectModules(seqId, 0, oscId, 0);
          if (oscId > 0 && filterId > 0)
             connectModules(oscId, 0, filterId, 0);
          if (filterId > 0 && gainId > 0)

@@ -50,7 +50,7 @@ namespace bespoke
 
          if (mSpawnMenuOpen)
          {
-            constexpr float kMenuWidth = 260.0f;
+            constexpr float kMenuWidth = 280.0f;
             constexpr float kSearchHeight = 29.0f;
             constexpr float kCategoryHeight = 25.0f;
             constexpr float kRowHeight = 24.0f;
@@ -62,13 +62,19 @@ namespace bespoke
 
             if (x >= menuX && x <= menuX + kMenuWidth && y >= menuY && y <= menuY + menuHeight)
             {
-               const int categoryValues[] = { -1, static_cast<int>(ModuleCategory::Synth), static_cast<int>(ModuleCategory::AudioEffect),
-                                              static_cast<int>(ModuleCategory::Modulator), static_cast<int>(ModuleCategory::Other) };
+               const int categoryValues[] = {
+                  -1,
+                  static_cast<int>(ModuleCategory::Synth),
+                  static_cast<int>(ModuleCategory::AudioEffect),
+                  static_cast<int>(ModuleCategory::Modulator),
+                  static_cast<int>(ModuleCategory::Pulse),
+                  static_cast<int>(ModuleCategory::Other)
+               };
                const float categoryY = menuY + kSearchHeight + 3.0f;
                if (y >= categoryY && y <= categoryY + 18.0f)
                {
-                  const int chip = static_cast<int>((x - menuX - 8.0f) / 48.5f);
-                  if (chip >= 0 && chip < 5)
+                  const int chip = static_cast<int>((x - menuX - 6.0f) / 44.5f);
+                  if (chip >= 0 && chip < 6)
                   {
                      mSpawnMenuCategory = categoryValues[chip];
                      mSpawnMenuSelectedIndex = 0;
