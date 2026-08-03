@@ -13,6 +13,7 @@
 #include "BespokeWasm/adapters/DelayModuleAdapter.h"
 #include "BespokeWasm/adapters/FilterModuleAdapter.h"
 #include "BespokeWasm/adapters/NoiseModuleAdapter.h"
+#include "BespokeWasm/adapters/StepSequencerModuleAdapter.h"
 #include "Oscillator.h"
 #include <unordered_map>
 #include <vector>
@@ -65,6 +66,7 @@ namespace bespoke
             AdsrAdapterRuntimeState adsrState;
             DelayAdapterRuntimeState delayState;
             NoiseAdapterRuntimeState noiseState;
+            StepSequencerRuntimeState sequencerState;
          };
 
          RuntimeState& stateFor(int moduleId);

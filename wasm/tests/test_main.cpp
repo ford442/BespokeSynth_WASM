@@ -20,6 +20,8 @@
 #include "BespokeWasm/adapters/AdsrModuleAdapter.h"
 #include "BespokeWasm/adapters/DelayModuleAdapter.h"
 #include "BespokeWasm/adapters/NoiseModuleAdapter.h"
+#include "BespokeWasm/adapters/StepSequencerModuleAdapter.h"
+#include "BespokeWasm/modules/WasmModules.h"
 
 using namespace bespoke::wasm;
 
@@ -319,6 +321,17 @@ void test_patch_state_json()
    gain.controls["gain"] = 0.25f;
    snapshot.modules.push_back(gain);
 
+   ModuleCanvas::StateModule seq;
+   seq.id = 30;
+   seq.type = "stepsequencer";
+   seq.x = 80.0f;
+   seq.y = 300.0f;
+   seq.controls["pattern"] = static_cast<float>(0xA5A5);
+   seq.controls["pitch"] = 67.0f;
+   seq.controls["gate"] = 0.6f;
+   seq.controls["steps"] = 16.0f;
+   snapshot.modules.push_back(seq);
+
    ModuleCanvas::StateConnection conn;
    conn.sourceModuleId = 10;
    conn.destModuleId = 20;
@@ -326,20 +339,43 @@ void test_patch_state_json()
    conn.destPortIndex = 0;
    snapshot.connections.push_back(conn);
 
+   ModuleCanvas::StateConnection noteConn;
+   noteConn.sourceModuleId = 30;
+   noteConn.destModuleId = 10;
+   noteConn.sourcePortIndex = 0;
+   noteConn.destPortIndex = 0;
+   snapshot.connections.push_back(noteConn);
+
    const std::string json = serializePatchState(snapshot, 0);
    TEST("State JSON contains modules", json.find("\"modules\"") != std::string::npos);
    TEST("State JSON contains connections", json.find("\"connections\"") != std::string::npos);
    TEST("State JSON uses .bsk-compatible filetype", json.find("\"filetype\": \"bespokesynth\"") != std::string::npos);
+   TEST("State JSON contains stepsequencer", json.find("\"stepsequencer\"") != std::string::npos);
 
    ModuleCanvas::StateSnapshot loaded;
    int viewMode = 1;
    std::string error;
    TEST("State JSON deserializes", deserializePatchState(json, loaded, viewMode, error));
    TEST("State JSON preserves view mode", viewMode == 0);
-   TEST("State JSON preserves module count", loaded.modules.size() == 2);
-   TEST("State JSON preserves connection count", loaded.connections.size() == 1);
+   TEST("State JSON preserves module count", loaded.modules.size() == 3);
+   TEST("State JSON preserves connection count", loaded.connections.size() == 2);
    TEST("State JSON preserves transport BPM", std::fabs(loaded.transportBPM - 128.0f) < 0.01f);
    TEST("State JSON preserves control value", std::fabs(loaded.modules[0].controls["frequency"] - 330.0f) < 0.01f);
+
+   const ModuleCanvas::StateModule* loadedSeq = nullptr;
+   for (const auto& module : loaded.modules)
+   {
+      if (module.type == "stepsequencer")
+         loadedSeq = &module;
+   }
+   TEST("State JSON restores sequencer module", loadedSeq != nullptr);
+   if (loadedSeq)
+   {
+      TEST("State JSON restores sequencer pattern",
+           std::fabs(loadedSeq->controls.at("pattern") - static_cast<float>(0xA5A5)) < 0.01f);
+      TEST("State JSON restores sequencer pitch",
+           std::fabs(loadedSeq->controls.at("pitch") - 67.0f) < 0.01f);
+   }
 }
 
 void test_filter_module_adapter()
@@ -500,6 +536,120 @@ void test_first_wave_module_adapters()
    }
 }
 
+void test_step_sequencer_note_graph()
+{
+   printf("\n=== Step Sequencer Note Graph Tests ===\n");
+
+   TEST("Step sequencer registered",
+        WasmModuleAdapterRegistry::instance().find("stepsequencer") != nullptr);
+   TEST("Step sequencer is NoteSource",
+        WasmModuleAdapterRegistry::instance().find("stepsequencer")->audioRole() ==
+           WasmAudioRole::NoteSource);
+
+   StepSequencerModuleAdapter adapter;
+   AudioGraphNode seqNode;
+   seqNode.id = 1;
+   seqNode.type = "stepsequencer";
+   adapter.fillAudioGraphNode(
+      { { "pattern", 1.0f }, { "pitch", 72.0f }, { "gate", 0.5f }, { "steps", 16.0f } }, seqNode);
+   TEST("Sequencer fills pattern mask", seqNode.patternMask == 1);
+   TEST("Sequencer fills pitch", seqNode.seqPitch == 72);
+
+   auto ui = adapter.createUiModule(9);
+   TEST("Sequencer UI created", ui != nullptr);
+   if (ui)
+   {
+      ui->setControlValue("pattern", static_cast<float>(0x00FF));
+      TEST("Sequencer UI stores pattern", std::fabs(ui->getControlValue("pattern") - 255.0f) < 0.01f);
+      auto* seqUi = dynamic_cast<StepSequencerModule*>(ui.get());
+      TEST("Sequencer UI toggles steps", seqUi != nullptr);
+      if (seqUi)
+      {
+         TEST("Step 0 initially on in 0xFF", seqUi->isStepActive(0));
+         seqUi->setStepActive(0, false);
+         TEST("Step 0 toggled off", !seqUi->isStepActive(0));
+      }
+   }
+
+   AudioGraphSnapshot graph;
+   graph.transportPlaying = true;
+   graph.transportBPM = 120.0f;
+
+   AudioGraphNode seq;
+   seq.id = 1;
+   seq.type = "stepsequencer";
+   seq.patternMask = 0x1; // only step 0
+   seq.seqPitch = 60;
+   seq.gateLength = 0.5f;
+   seq.steps = 16;
+   graph.nodes.push_back(seq);
+
+   AudioGraphNode osc;
+   osc.id = 2;
+   osc.type = "oscillator";
+   osc.volume = 1.0f;
+   osc.frequency = 440.0f;
+   graph.nodes.push_back(osc);
+
+   AudioGraphNode out;
+   out.id = 3;
+   out.type = "output";
+   graph.nodes.push_back(out);
+
+   AudioGraphConnection noteConn;
+   noteConn.sourceModuleId = 1;
+   noteConn.destModuleId = 2;
+   noteConn.sourcePortType = PortType::Note;
+   noteConn.destPortType = PortType::Note;
+   graph.connections.push_back(noteConn);
+
+   AudioGraphConnection audioConn;
+   audioConn.sourceModuleId = 2;
+   audioConn.destModuleId = 3;
+   audioConn.sourcePortType = PortType::Audio;
+   audioConn.destPortType = PortType::Audio;
+   graph.connections.push_back(audioConn);
+
+   // At 120 BPM, one 16th note = 0.125s = 5512.5 samples @ 44100.
+   // Render ~1 beat (4 sixteenths) in 512-sample blocks and track energy.
+   AudioGraphEngine engine;
+   constexpr int bufferSize = 512;
+   constexpr int blocks = 180; // ~2 seconds
+   double energyOn = 0.0;
+   double energyOff = 0.0;
+   int onBlocks = 0;
+   int offBlocks = 0;
+   for (int b = 0; b < blocks; ++b)
+   {
+      std::vector<float> left(bufferSize, 0.0f);
+      std::vector<float> right(bufferSize, 0.0f);
+      float* outputs[2] = { left.data(), right.data() };
+      engine.processBlock(graph, outputs, 2, bufferSize, 44100.0f);
+      const float rms = buffer_rms(left);
+      // Roughly first half of each quarter-note window is gated on for step 0 only pattern
+      // across a bar: active near beat starts.
+      if (rms > 0.01f)
+      {
+         energyOn += rms;
+         ++onBlocks;
+      }
+      else
+      {
+         energyOff += 1.0;
+         ++offBlocks;
+      }
+   }
+
+   TEST("Sequencer→osc graph produces gated notes", onBlocks > 5);
+   TEST("Sequencer→osc graph has silent gaps between steps", offBlocks > 5);
+   TEST("Sequencer gated energy is positive", energyOn > 0.05);
+
+   // Empty pattern with note cable should stay silent (no free-run).
+   graph.nodes[0].patternMask = 0;
+   auto silent = render_graph(graph);
+   TEST("Empty pattern with note cable stays silent", buffer_rms(silent) == 0.0f);
+}
+
 int main()
 {
    printf("BespokeSynth WASM Test Suite\n");
@@ -514,6 +664,7 @@ int main()
    test_audio_graph_engine();
    test_filter_module_adapter();
    test_first_wave_module_adapters();
+   test_step_sequencer_note_graph();
    test_patch_state_json();
 
    printf("\n============================\n");

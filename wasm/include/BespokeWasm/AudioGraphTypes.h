@@ -43,6 +43,11 @@ namespace bespoke
          // Noise
          float noiseVolume = 0.35f;
          int noiseColor = 0;
+         // Step sequencer (16th-note grid; pattern bit i = step i active)
+         int patternMask = 0x1111; // steps 0,4,8,12
+         int seqPitch = 60;
+         float gateLength = 0.75f; // fraction of step
+         int steps = 16;
       };
 
       struct AudioGraphConnection

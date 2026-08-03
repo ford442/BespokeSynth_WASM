@@ -37,6 +37,7 @@ namespace bespoke
          AudioSource,
          AudioProcessor,
          ModulationSource,
+         NoteSource,
          Sink
       };
 

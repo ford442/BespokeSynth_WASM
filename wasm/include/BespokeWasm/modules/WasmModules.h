@@ -130,6 +130,27 @@ namespace bespoke
          int mColor = 0;
       };
 
+      class StepSequencerModule : public Module
+      {
+      public:
+         static constexpr int kStepCount = 16;
+
+         StepSequencerModule(int id);
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
+         void setControlValue(const std::string& name, float value) override;
+         float getControlValue(const std::string& name) const override;
+         bool handleMouseDown(float worldX, float worldY) override;
+
+         bool isStepActive(int step) const;
+         void setStepActive(int step, bool active);
+
+      private:
+         int mPatternMask = 0x1111;
+         int mPitch = 60;
+         float mGate = 0.75f;
+         int mSteps = kStepCount;
+      };
+
       class TransportModule : public Module
       {
       public:
