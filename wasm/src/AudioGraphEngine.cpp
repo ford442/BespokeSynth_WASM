@@ -6,6 +6,7 @@
  */
 
 #include "BespokeWasm/AudioGraphEngine.h"
+#include "BespokeWasm/adapters/FilterModuleAdapter.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -25,7 +26,7 @@ namespace bespoke
             return std::max(minValue, std::min(maxValue, value));
          }
 
-         const ModuleCanvas::AudioGraphNode* findNode(const ModuleCanvas::AudioGraphSnapshot& graph, int id)
+         const AudioGraphNode* findNode(const AudioGraphSnapshot& graph, int id)
          {
             for (const auto& node : graph.nodes)
             {
@@ -35,7 +36,7 @@ namespace bespoke
             return nullptr;
          }
 
-         int findOutputModuleId(const ModuleCanvas::AudioGraphSnapshot& graph)
+         int findOutputModuleId(const AudioGraphSnapshot& graph)
          {
             for (const auto& node : graph.nodes)
             {
@@ -43,6 +44,28 @@ namespace bespoke
                   return node.id;
             }
             return -1;
+         }
+
+         bool participatesInAudioTopology(const std::string& type)
+         {
+            const WasmModuleAdapter* adapter = WasmModuleAdapterRegistry::instance().find(type);
+            if (!adapter)
+               return false;
+            switch (adapter->audioRole())
+            {
+               case WasmAudioRole::AudioSource:
+               case WasmAudioRole::AudioProcessor:
+               case WasmAudioRole::Sink:
+                  return true;
+               default:
+                  return false;
+            }
+         }
+
+         bool isModulationSourceType(const std::string& type)
+         {
+            const WasmModuleAdapter* adapter = WasmModuleAdapterRegistry::instance().find(type);
+            return adapter && adapter->audioRole() == WasmAudioRole::ModulationSource;
          }
       }
 
@@ -54,7 +77,6 @@ namespace bespoke
       void AudioGraphEngine::queueNote(const NoteMessage& note)
       {
          std::lock_guard<std::mutex> lock(mEventMutex);
-         // Keep main-thread MIDI bursts bounded; the newest events are most useful.
          if (mNoteQueue.size() >= 256)
             mNoteQueue.pop_front();
          mNoteQueue.push_back(note);
@@ -72,19 +94,6 @@ namespace bespoke
                return kOsc_Tri;
             default:
                return kOsc_Sin;
-         }
-      }
-
-      FilterType AudioGraphEngine::filterTypeFor(int filterType) const
-      {
-         switch (filterType % 3)
-         {
-            case 1:
-               return kFilterType_Highpass;
-            case 2:
-               return kFilterType_Bandpass;
-            default:
-               return kFilterType_Lowpass;
          }
       }
 
@@ -111,7 +120,7 @@ namespace bespoke
          return bipolar * clampFloat(depth, 0.0f, 1.0f);
       }
 
-      void AudioGraphEngine::processBlock(const ModuleCanvas::AudioGraphSnapshot& graph,
+      void AudioGraphEngine::processBlock(const AudioGraphSnapshot& graph,
                                           float* const* output,
                                           int numOutputChannels,
                                           int numSamples,
@@ -140,8 +149,6 @@ namespace bespoke
             notes.swap(mNoteQueue);
          }
 
-         // The transport is the canonical pulse clock. Future pulse receivers consume
-         // mPulseEvents without coupling the scheduler to a specific module class.
          mPulseEvents.clear();
          const double beatsPerBlock = static_cast<double>(numSamples) * graph.transportBPM /
             (static_cast<double>(sampleRate) * 60.0);
@@ -158,8 +165,7 @@ namespace bespoke
 
          for (const auto& node : graph.nodes)
          {
-            if (node.enabled && (node.type == "oscillator" || node.type == "filter" ||
-                                 node.type == "gain" || node.type == "output"))
+            if (node.enabled && participatesInAudioTopology(node.type))
             {
                audioNodeIds.insert(node.id);
                indegree[node.id] = 0;
@@ -215,7 +221,7 @@ namespace bespoke
             if (!node.enabled)
                continue;
 
-            if (node.type == "lfo")
+            if (isModulationSourceType(node.type))
             {
                auto& state = stateFor(node.id);
                auto& buffer = modulationBuffers[node.id];
@@ -229,6 +235,8 @@ namespace bespoke
             }
          }
 
+         static const FilterModuleAdapter kFilterAdapter;
+
          for (int id : mProcessOrder)
          {
             const auto* node = findNode(graph, id);
@@ -236,7 +244,9 @@ namespace bespoke
                continue;
 
             auto& buffer = audioBuffers[id];
-            if (node->type == "oscillator")
+            const WasmModuleAdapter* adapter = WasmModuleAdapterRegistry::instance().find(node->type);
+
+            if (adapter && adapter->audioRole() == WasmAudioRole::AudioSource)
             {
                auto& state = stateFor(node->id);
                for (const auto& note : notes)
@@ -272,25 +282,14 @@ namespace bespoke
                   buffer[i] += srcIt->second[i];
             }
 
-            if (node->type == "filter")
+            if (adapter && adapter->audioRole() == WasmAudioRole::AudioProcessor && node->type == "filter")
             {
                auto& state = stateFor(node->id);
-               if (state.lastSampleRate != sampleRate)
-               {
-                  state.filter.SetSampleRate(sampleRate);
-                  state.filter.Clear();
-                  state.lastSampleRate = sampleRate;
-               }
-
-               const FilterType filterType = filterTypeFor(node->filterType);
-               if (state.lastFilterType != static_cast<int>(filterType))
-               {
-                  state.filter.SetFilterType(filterType);
-                  state.lastFilterType = static_cast<int>(filterType);
-               }
-
                const auto modIt = modulationInputsByDest.find(node->id);
-               for (int i = 0; i < numSamples; ++i)
+               WasmAudioProcessContext context;
+               context.sampleRate = sampleRate;
+               context.numSamples = numSamples;
+               context.modulationAt = [&](int sampleIndex) -> float
                {
                   float modulation = 0.0f;
                   if (modIt != modulationInputsByDest.end())
@@ -299,18 +298,14 @@ namespace bespoke
                      {
                         auto modBufferIt = modulationBuffers.find(modSourceId);
                         if (modBufferIt != modulationBuffers.end())
-                           modulation += modBufferIt->second[i].value;
+                           modulation += modBufferIt->second[sampleIndex].value;
                      }
                   }
-
-                  const float cutoff = clampFloat(node->cutoff * std::pow(2.0f, modulation * 2.0f),
-                                                  20.0f, sampleRate * 0.45f);
-                  const float q = clampFloat(0.2f + node->resonance * 9.8f, 0.2f, 10.0f);
-                  state.filter.SetFilterParams(cutoff, q);
-                  buffer[i] = state.filter.Filter(buffer[i]);
-               }
+                  return modulation;
+               };
+               kFilterAdapter.processAudio(&state.filterState, *node, buffer.data(), context);
             }
-            else if (node->type == "gain")
+            else if (adapter && adapter->audioRole() == WasmAudioRole::AudioProcessor && node->type == "gain")
             {
                const float gain = clampFloat(node->gain, 0.0f, 1.0f);
                for (int i = 0; i < numSamples; ++i)

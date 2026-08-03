@@ -9,10 +9,14 @@
 #include <emscripten.h>
 #include <cstdio>
 #include <cmath>
+#include <map>
 #include <string>
 #include "BespokeWasm/PixelFont.h"
+#include "BespokeWasm/AudioGraphTypes.h"
 #include "BespokeWasm/AudioGraphEngine.h"
 #include "BespokeWasm/WasmPatchState.h"
+#include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/adapters/FilterModuleAdapter.h"
 
 using namespace bespoke::wasm;
 
@@ -184,12 +188,12 @@ static float buffer_rms(const std::vector<float>& buffer)
    return std::sqrt(sum / static_cast<double>(buffer.size()));
 }
 
-static ModuleCanvas::AudioGraphSnapshot make_test_graph(float gain, float cutoff, float lfoDepth)
+static AudioGraphSnapshot make_test_graph(float gain, float cutoff, float lfoDepth)
 {
-   ModuleCanvas::AudioGraphSnapshot graph;
+   AudioGraphSnapshot graph;
    graph.transportPlaying = true;
 
-   ModuleCanvas::AudioGraphNode osc;
+   AudioGraphNode osc;
    osc.id = 1;
    osc.type = "oscillator";
    osc.frequency = 440.0f;
@@ -197,7 +201,7 @@ static ModuleCanvas::AudioGraphSnapshot make_test_graph(float gain, float cutoff
    osc.waveform = 1;
    graph.nodes.push_back(osc);
 
-   ModuleCanvas::AudioGraphNode filter;
+   AudioGraphNode filter;
    filter.id = 2;
    filter.type = "filter";
    filter.cutoff = cutoff;
@@ -205,13 +209,13 @@ static ModuleCanvas::AudioGraphSnapshot make_test_graph(float gain, float cutoff
    filter.filterType = 0;
    graph.nodes.push_back(filter);
 
-   ModuleCanvas::AudioGraphNode gainNode;
+   AudioGraphNode gainNode;
    gainNode.id = 3;
    gainNode.type = "gain";
    gainNode.gain = gain;
    graph.nodes.push_back(gainNode);
 
-   ModuleCanvas::AudioGraphNode lfo;
+   AudioGraphNode lfo;
    lfo.id = 4;
    lfo.type = "lfo";
    lfo.lfoRate = 6.0f;
@@ -219,14 +223,14 @@ static ModuleCanvas::AudioGraphSnapshot make_test_graph(float gain, float cutoff
    lfo.lfoShape = 0;
    graph.nodes.push_back(lfo);
 
-   ModuleCanvas::AudioGraphNode out;
+   AudioGraphNode out;
    out.id = 5;
    out.type = "output";
    graph.nodes.push_back(out);
 
    auto audioConnection = [](int src, int dst)
    {
-      ModuleCanvas::AudioGraphConnection conn;
+      AudioGraphConnection conn;
       conn.sourceModuleId = src;
       conn.destModuleId = dst;
       conn.sourcePortType = PortType::Audio;
@@ -237,7 +241,7 @@ static ModuleCanvas::AudioGraphSnapshot make_test_graph(float gain, float cutoff
    graph.connections.push_back(audioConnection(2, 3));
    graph.connections.push_back(audioConnection(3, 5));
 
-   ModuleCanvas::AudioGraphConnection cv;
+   AudioGraphConnection cv;
    cv.sourceModuleId = 4;
    cv.destModuleId = 2;
    cv.sourcePortType = PortType::Modulation;
@@ -248,7 +252,7 @@ static ModuleCanvas::AudioGraphSnapshot make_test_graph(float gain, float cutoff
    return graph;
 }
 
-static std::vector<float> render_graph(ModuleCanvas::AudioGraphSnapshot graph)
+static std::vector<float> render_graph(AudioGraphSnapshot graph)
 {
    constexpr int bufferSize = 1024;
    AudioGraphEngine engine;
@@ -335,6 +339,48 @@ void test_patch_state_json()
    TEST("State JSON preserves control value", std::fabs(loaded.modules[0].controls["frequency"] - 330.0f) < 0.01f);
 }
 
+void test_filter_module_adapter()
+{
+   printf("\n=== Filter Module Adapter Tests ===\n");
+
+   const FilterModuleAdapter adapter;
+   TEST("Filter adapter type id", std::string(adapter.typeId()) == "filter");
+   TEST("Filter adapter audio role", adapter.audioRole() == WasmAudioRole::AudioProcessor);
+
+   std::map<std::string, float> controls = { { "cutoff", 800.0f }, { "resonance", 0.4f }, { "type", 1.0f } };
+   AudioGraphNode node;
+   node.id = 42;
+   node.type = "filter";
+   adapter.fillAudioGraphNode(controls, node);
+   TEST("Filter adapter fills cutoff", std::fabs(node.cutoff - 800.0f) < 0.01f);
+   TEST("Filter adapter fills resonance", std::fabs(node.resonance - 0.4f) < 0.01f);
+   TEST("Filter adapter fills filter type", node.filterType == 1);
+
+   FilterAdapterRuntimeState runtime{};
+   adapter.initRuntimeState(&runtime);
+
+   float buffer[64] = {};
+   for (int i = 0; i < 64; ++i)
+      buffer[i] = std::sinf(static_cast<float>(i) * 0.2f);
+
+   WasmAudioProcessContext context;
+   context.sampleRate = 44100.0f;
+   context.numSamples = 64;
+   adapter.processAudio(&runtime, node, buffer, context);
+   double energy = 0.0;
+   for (float sample : buffer)
+      energy += sample * sample;
+   TEST("Filter adapter processes audio block", energy > 0.0);
+
+   auto ui = adapter.createUiModule(7);
+   TEST("Filter adapter creates UI module", ui != nullptr);
+   if (ui)
+   {
+      ui->setControlValue("cutoff", 500.0f);
+      TEST("Filter UI module stores cutoff", std::fabs(ui->getControlValue("cutoff") - 500.0f) < 0.01f);
+   }
+}
+
 int main()
 {
    printf("BespokeSynth WASM Test Suite\n");
@@ -347,6 +393,7 @@ int main()
    test_pixel_font();
    test_audio_buffer();
    test_audio_graph_engine();
+   test_filter_module_adapter();
    test_patch_state_json();
 
    printf("\n============================\n");

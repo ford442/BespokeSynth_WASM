@@ -7,7 +7,9 @@
 
 #pragma once
 
-#include "BespokeWasm/ModuleCanvas.h"
+#include "BespokeWasm/AudioGraphTypes.h"
+#include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/adapters/FilterModuleAdapter.h"
 #include "BiquadFilter.h"
 #include "Oscillator.h"
 #include <unordered_map>
@@ -45,7 +47,7 @@ namespace bespoke
          };
 
          void queueNote(const NoteMessage& note);
-         void processBlock(const ModuleCanvas::AudioGraphSnapshot& graph,
+         void processBlock(const AudioGraphSnapshot& graph,
                            float* const* output,
                            int numOutputChannels,
                            int numSamples,
@@ -59,14 +61,11 @@ namespace bespoke
             float noteVelocity = 1.0f;
             bool noteGate = true;
             bool hasReceivedNote = false;
-            BiquadFilter filter;
-            float lastSampleRate = 0.0f;
-            int lastFilterType = -1;
+            FilterAdapterRuntimeState filterState;
          };
 
          RuntimeState& stateFor(int moduleId);
          OscillatorType oscillatorTypeFor(int waveform) const;
-         FilterType filterTypeFor(int filterType) const;
          float renderOscillatorSample(RuntimeState& state,
                                       int waveform,
                                       float frequency,
