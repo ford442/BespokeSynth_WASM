@@ -26,7 +26,7 @@ This project maintains TWO distinct build targets:
 ### Core Technologies
 - **Language**: C++17
 - **Build System**: CMake 3.16+
-- **WASM Toolchain**: Emscripten SDK 3.1+ with `emdawnwebgpu` port
+- **WASM Toolchain**: Emscripten SDK 6.0.3+ (pinned in `.emscripten-version`) with `emdawnwebgpu` port
 - **Graphics API**: WebGPU (via WGSL shaders)
 - **Audio**: SDL2
 - **Frontend**: TypeScript 5.3+, Webpack 5
@@ -104,7 +104,7 @@ BespokeSynth_WASM/
 ### Prerequisites
 
 **For WASM Build:**
-- Emscripten SDK 3.1+ with `emdawnwebgpu` port
+- Emscripten SDK 6.0.3+ (pinned in `.emscripten-version`) with `emdawnwebgpu` port
 - CMake 3.16+
 - Node.js 18+ and npm 9+
 
@@ -422,7 +422,7 @@ BespokeSynth WASM: Initialization complete
 ### Build Errors
 - **Missing Emscripten**: Install/activate emsdk
 - **CMake version**: Requires 3.16+
-- **emdawnwebgpu port**: Use Emscripten 3.1.50+
+- **emdawnwebgpu port**: Use Emscripten 6.0.3+ (see `.emscripten-version`)
 
 ### Callback Signature Warning
 The `emdawnwebgpu` implementation requires **5-argument callbacks** for `WGPURequestAdapterCallback` and `WGPURequestDeviceCallback`. Do not revert to 4-argument versions.
@@ -496,13 +496,12 @@ GNU General Public License v3.0 - See `LICENSE` file.
 These notes cover non-obvious gotchas discovered while setting up this environment. Standard commands live in `package.json` scripts and section 4 above.
 
 ### Emscripten toolchain (important)
-- The pinned `.emscripten-version` (`3.1.50`) is **stale and does not build this repo**: the WASM sources call `--use-port=emdawnwebgpu` and the modern Dawn WebGPU API (`WGPUStringView`, `WGPURequest*CallbackInfo`, `userdata1/2`), none of which exist in 3.1.50. Building with it fails at compile with `clang++: error: unknown argument: '--use-port=emdawnwebgpu'`. The upstream WASM CI is red for this same reason.
-- A newer Emscripten is required and is already installed in this VM at `$HOME/emsdk` (`emsdk activate latest`, currently `emcc 6.0.3`), which provides the `emdawnwebgpu` port. The build succeeds with it.
-- `wasm/build.sh` only auto-sources `emsdk_env.sh` from `<repo>/emsdk` or `../../emsdk`, so it will NOT find `$HOME/emsdk`. `emcc` must already be on `PATH`. This is handled here by `source "$HOME/emsdk/emsdk_env.sh"` in `~/.bashrc`; if `emcc` is missing in a shell, source that file first.
+- The pinned `.emscripten-version` is **6.0.3**. WASM sources require `--use-port=emdawnwebgpu` and the modern Dawn WebGPU API (`WGPUStringView`, `WGPURequest*CallbackInfo`, `userdata1/2`). Emscripten 3.1.50 and older fail at compile with `clang++: error: unknown argument: '--use-port=emdawnwebgpu'`.
+- `wasm/build.sh` discovers emsdk via `EMSDK`, repo-local `emsdk/`, `$HOME/emsdk`, or an activated `emcc` on `PATH`. If `emcc` is missing, install/activate the pinned version and `source emsdk_env.sh`.
 - `npm run build:wasm` writes `wasm/dist/{BespokeSynthWASM.js,.wasm,.data}` (+ `resource/`). It is required before the web app can initialize (no WASM artifacts are committed). The `.data` preload bundle (~32 MB) is large but expected.
 
 ### npm install
-- There is **no `package-lock.json`**, so `npm ci` fails. Use `npm install`.
+- CI uses `npm ci` with the committed `package-lock.json`. Locally, `npm install` is fine when the lockfile is unchanged.
 
 ### Running / rendering (headless & browsers)
 - Dev server: `npm run dev` serves on `http://localhost:8080` (webpack, with COOP/COEP headers). It starts even without WASM artifacts, but the synth will not initialize until `wasm/dist` exists.

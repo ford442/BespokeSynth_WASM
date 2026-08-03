@@ -26,11 +26,11 @@ See [INITIALIZATION_FIXES.md](INITIALIZATION_FIXES.md) for detailed information 
 
 ### For Building
 
-- [Emscripten SDK](https://emscripten.org/docs/getting_started/downloads.html) 3.1.50 (pinned in [`.emscripten-version`](../.emscripten-version) and used by CI)
+- [Emscripten SDK](https://emscripten.org/docs/getting_started/downloads.html) **6.0.3** (pinned in [`.emscripten-version`](../.emscripten-version) and used by CI)
 - CMake 3.16 or later
 - A modern C++ compiler (for host tools)
 
-> **Note:** Recent Emscripten releases deprecated the `-sUSE_WEBGPU=1` flag. This project now uses the `emdawnwebgpu` port (enabled with `--use-port=emdawnwebgpu`); please use a current Emscripten SDK (3.1+ recommended) when building the WASM target.
+> **Note:** This project uses the `emdawnwebgpu` port (`--use-port=emdawnwebgpu`) and the modern Dawn WebGPU API. Emscripten **3.1.50 and older do not build** this tree. Install the pinned SDK version (or newer) from `.emscripten-version`.
 
 ### For Running
 
@@ -41,10 +41,17 @@ See [docs/webgl-fallback.md](../docs/webgl-fallback.md) for renderer selection, 
 
 ## Building
 
-1. Install and activate Emscripten:
+1. Install and activate the pinned Emscripten SDK:
    ```bash
-   source /path/to/emsdk/emsdk_env.sh
+   git clone https://github.com/emscripten-core/emsdk.git
+   cd emsdk
+   EMSCRIPTEN_VERSION="$(tr -d '[:space:]' < /path/to/BespokeSynth_WASM/.emscripten-version)"
+   ./emsdk install "$EMSCRIPTEN_VERSION"
+   ./emsdk activate "$EMSCRIPTEN_VERSION"
+   source ./emsdk_env.sh
    ```
+
+   `wasm/build.sh` also discovers emsdk via `EMSDK`, a repo-local `emsdk/`, `$HOME/emsdk`, or an already-activated `emcc` on `PATH`.
 
 2. Run the build script. Release is the default; Debug and Profile use separate CMake build directories:
    ```bash
