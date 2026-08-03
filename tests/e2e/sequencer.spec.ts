@@ -6,48 +6,41 @@ test.describe('Step sequencer', () => {
     await gotoApp(page, 'renderTest=1');
     await waitForBespokeReady(page);
 
-    const result = await page.evaluate(async () => {
+    const snapshot = await page.evaluate(() => {
       const w = window as Window & {
         __bespoke?: {
           getModuleCount?: () => number;
           getStateJson?: () => string | null;
-          getModule?: () => {
-            _bespoke_play: () => void;
-            _bespoke_get_cpu_load: () => number;
-          } | null;
         };
       };
-
       const api = w.__bespoke;
-      if (!api?.getModule) return { ok: false, reason: 'no api' };
-
-      const mod = api.getModule();
-      if (!mod) return { ok: false, reason: 'no module' };
-
-      const countBefore = api.getModuleCount?.() ?? 0;
-      const stateJson = api.getStateJson?.() ?? '';
+      const count = api?.getModuleCount?.() ?? 0;
+      const stateJson = api?.getStateJson?.() ?? '';
       const hasSequencer = stateJson.includes('stepsequencer');
-      const patternMatch = stateJson.match(/"pattern"\s*:\s*([0-9.]+)/);
+      const patternMatch = stateJson.match(/"pattern"\s*:\s*([0-9.eE+-]+)/);
       const pattern = patternMatch ? Number(patternMatch[1]) : 0;
-
-      mod._bespoke_play();
-      await new Promise((r) => setTimeout(r, 500));
-      const load = mod._bespoke_get_cpu_load();
-
-      return {
-        ok: true,
-        countBefore,
-        hasSequencer,
-        pattern,
-        load,
-      };
+      return { count, hasSequencer, pattern, stateLen: stateJson.length };
     });
 
-    expect(result.ok).toBe(true);
-    expect(result.hasSequencer).toBe(true);
-    expect(result.pattern).toBeGreaterThan(0);
+    expect(snapshot.hasSequencer).toBe(true);
+    expect(snapshot.pattern).toBeGreaterThan(0);
     // transport + scale + seq + osc + filter + gain + lfo + out
-    expect(result.countBefore).toBeGreaterThanOrEqual(6);
-    expect(result.load).toBeGreaterThanOrEqual(0);
+    expect(snapshot.count).toBeGreaterThanOrEqual(6);
+
+    await page.locator('#playBtn').click();
+    await page.waitForTimeout(400);
+
+    // Transport play should keep the canvas ready without throwing.
+    const stillReady = await page.evaluate(() => {
+      const w = window as Window & {
+        __bespoke?: { getRendererBackend?: () => string; getModuleCount?: () => number };
+      };
+      return {
+        backend: w.__bespoke?.getRendererBackend?.(),
+        count: w.__bespoke?.getModuleCount?.() ?? 0,
+      };
+    });
+    expect(stillReady.backend).toBeTruthy();
+    expect(stillReady.count).toBeGreaterThanOrEqual(6);
   });
 });
