@@ -10,6 +10,7 @@
 #include "BespokeWasm/WebGPUContext.h"
 #include "BespokeWasm/WebGL2Context.h"
 #include "BespokeWasm/SDL2AudioBackend.h"
+#include "BespokeWasm/AudioHealth.h"
 #include "BespokeWasm/ModuleCanvas.h"
 #include "BespokeWasm/AudioGraphEngine.h"
 #include "BespokeWasm/WasmPatchState.h"
@@ -27,6 +28,7 @@
 #include <vector>
 #include <atomic>
 #include <algorithm>
+#include <cstdint>
 #include <fstream>
 #include <sstream>
 #include <emscripten.h> // Required for emscripten_run_script
@@ -1336,7 +1338,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_load_layout(const char* path)
 
 EMSCRIPTEN_KEEPALIVE void bespoke_play(void)
 {
-   if (gAudioBackend)
+   if (gAudioBackend && !gRuntime.externalAudioActive)
    {
       gAudioBackend->start();
    }
@@ -1346,7 +1348,7 @@ EMSCRIPTEN_KEEPALIVE void bespoke_play(void)
 
 EMSCRIPTEN_KEEPALIVE void bespoke_stop(void)
 {
-   if (gAudioBackend)
+   if (gAudioBackend && !gRuntime.externalAudioActive)
    {
       gAudioBackend->stop();
    }
@@ -1376,6 +1378,47 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_version(void)
 EMSCRIPTEN_KEEPALIVE float bespoke_get_cpu_load(void)
 {
    return wasmAudioCpuLoad();
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_external_audio(int enabled)
+{
+   gRuntime.externalAudioActive = enabled != 0;
+   if (gRuntime.externalAudioActive && gAudioBackend && gAudioBackend->isRunning())
+      gAudioBackend->stop();
+   printf("BespokeSynth WASM: external audio %s\n",
+          gRuntime.externalAudioActive ? "enabled" : "disabled");
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_external_audio(void)
+{
+   return gRuntime.externalAudioActive ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_external_sample_rate(float sampleRate)
+{
+   if (sampleRate > 0.0f)
+      gRuntime.externalSampleRate = sampleRate;
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_audio_backend_id(int backend)
+{
+   audioHealthSetBackend(backend);
+}
+
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_audio_health_json(void)
+{
+   return audioHealthJson();
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_reset_audio_health(void)
+{
+   audioHealthReset();
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_audio_queue_stats(int depthFrames, int capacityFrames, double externalUnderruns)
+{
+   audioHealthSetQueueStats(depthFrames, capacityFrames,
+                            static_cast<uint64_t>(externalUnderruns < 0.0 ? 0.0 : externalUnderruns));
 }
 
 EMSCRIPTEN_KEEPALIVE int bespoke_get_module_count(void)

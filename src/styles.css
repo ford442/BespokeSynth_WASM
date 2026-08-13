@@ -497,6 +497,25 @@ body {
     color: #888;
 }
 
+.audio-health-hud {
+    position: fixed;
+    right: 12px;
+    bottom: 40px;
+    z-index: 1200;
+    padding: 6px 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: #d8d8de;
+    background: rgba(20, 22, 28, 0.92);
+    border: 1px solid #3a3a48;
+    border-radius: 4px;
+    pointer-events: none;
+    max-width: min(92vw, 520px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* Loading Animation */
 @keyframes pulse {
     0%, 100% {

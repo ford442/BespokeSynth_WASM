@@ -96,6 +96,7 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/AudioAnalysis.cpp
     ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
     ${BESPOKE_WASM_DIR}/src/WasmAudioEngine.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioHealth.cpp
     ${BESPOKE_WASM_DIR}/src/WasmInputRouter.cpp
     ${BESPOKE_WASM_DIR}/src/WasmRuntimeState.cpp
     ${BESPOKE_WASM_DIR}/src/WasmPatchState.cpp
@@ -193,7 +194,7 @@ endif()
 # Emscripten linker flags
 set(EMSCRIPTEN_LINK_FLAGS
     "-sWASM=1"
-    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','allocateUTF8','stringToUTF8','lengthBytesUTF8']"
+    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','allocateUTF8','stringToUTF8','lengthBytesUTF8','HEAPF32','HEAPU8','HEAP8','wasmMemory']"
     "-sEXPORTED_FUNCTIONS=['_main','_bespoke_init','_bespoke_shutdown','_bespoke_process_audio','_bespoke_render','_bespoke_resize','_bespoke_process_events','_bespoke_play','_bespoke_stop','_bespoke_set_tempo','_bespoke_get_tempo','_bespoke_set_sample_rate','_bespoke_set_buffer_size','_bespoke_get_sample_rate','_bespoke_get_buffer_size','_bespoke_get_cpu_load','_bespoke_mouse_move','_bespoke_mouse_down','_bespoke_mouse_up','_bespoke_mouse_wheel','_bespoke_key_down','_bespoke_key_up','_bespoke_create_module','_bespoke_delete_module','_bespoke_connect_modules','_bespoke_get_view_mode','_bespoke_set_view_mode','_bespoke_set_control_value','_bespoke_get_control_value','_bespoke_save_state','_bespoke_load_state','_bespoke_get_state_json','_bespoke_load_state_json','_bespoke_get_module_count','_bespoke_set_panel','_bespoke_get_panel','_bespoke_get_panel_count','_bespoke_get_panel_name','_bespoke_is_panel_loaded','_bespoke_is_panel_running','_bespoke_get_panel_frame_count','_bespoke_log_all_panels_status','_bespoke_get_init_state','_bespoke_get_init_error','_bespoke_is_fully_initialized','_bespoke_get_version','_bespoke_set_renderer_backend','_bespoke_get_renderer_backend','_bespoke_is_webgl2_supported','_bespoke_get_webgl2_error','_bespoke_set_webgl_debug_mode','_bespoke_get_webgl_debug_mode','_bespoke_capture_screenshot','_bespoke_get_screenshot_pixels','_bespoke_set_render_test_mode','_bespoke_get_render_test_mode','_bespoke_set_font_test_visible','_bespoke_get_font_test_visible','_bespoke_get_control_count','_bespoke_get_control_info','_bespoke_set_theme_color','_bespoke_reset_theme']"
     "-sALLOW_MEMORY_GROWTH=1"
     "-sINITIAL_MEMORY=134217728"  # 128MB initial
@@ -221,12 +222,11 @@ else()
     list(APPEND EMSCRIPTEN_LINK_FLAGS "-O3" "-sASSERTIONS=0")
 endif()
 
-# Keep the worklet block processor in the explicit JavaScript export surface.
+# Keep additional C APIs in the explicit JavaScript export surface.
+# NOTE: string(REPLACE) runs on the joined list; chain carefully.
 string(REPLACE "'_bespoke_process_audio'," "'_bespoke_process_audio','_bespoke_process_audio_block',"
     EMSCRIPTEN_LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS}")
-string(REPLACE "'_bespoke_reset_theme'" "'_bespoke_reset_theme','_bespoke_midi_note_on','_bespoke_midi_note_off','_bespoke_midi_cc'"
-    EMSCRIPTEN_LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS}")
-string(REPLACE "'_bespoke_midi_cc'" "'_bespoke_midi_cc','_bespoke_load_layout'"
+string(REPLACE "'_bespoke_reset_theme'" "'_bespoke_reset_theme','_bespoke_midi_note_on','_bespoke_midi_note_off','_bespoke_midi_cc','_bespoke_load_layout','_bespoke_set_external_audio','_bespoke_get_external_audio','_bespoke_set_external_sample_rate','_bespoke_set_audio_backend_id','_bespoke_get_audio_health_json','_bespoke_reset_audio_health','_bespoke_set_audio_queue_stats','_malloc','_free'"
     EMSCRIPTEN_LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS}")
 
 # Add WebGPU support
@@ -278,6 +278,7 @@ add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/tests/test_main.cpp
     ${BESPOKE_WASM_DIR}/tests/synth_globals_stub.cpp
     ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioHealth.cpp
     ${BESPOKE_WASM_DIR}/src/WasmModuleAdapterRegistry.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/FilterModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/AdsrModuleAdapter.cpp

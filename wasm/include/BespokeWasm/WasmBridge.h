@@ -74,6 +74,16 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_version(void);
 EMSCRIPTEN_KEEPALIVE float bespoke_get_cpu_load(void);
 EMSCRIPTEN_KEEPALIVE int bespoke_get_module_count(void);
 
+// Audio backend / health (SDL default; external = AudioWorklet host)
+// backend: 0 = SDL2, 1 = worklet (SAB ring), 2 = POC tone
+EMSCRIPTEN_KEEPALIVE void bespoke_set_external_audio(int enabled);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_external_audio(void);
+EMSCRIPTEN_KEEPALIVE void bespoke_set_external_sample_rate(float sampleRate);
+EMSCRIPTEN_KEEPALIVE void bespoke_set_audio_backend_id(int backend);
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_audio_health_json(void);
+EMSCRIPTEN_KEEPALIVE void bespoke_reset_audio_health(void);
+EMSCRIPTEN_KEEPALIVE void bespoke_set_audio_queue_stats(int depthFrames, int capacityFrames, double externalUnderruns);
+
 // Panel management
 EMSCRIPTEN_KEEPALIVE void bespoke_set_panel(int panelIndex);
 EMSCRIPTEN_KEEPALIVE int bespoke_get_panel(void);

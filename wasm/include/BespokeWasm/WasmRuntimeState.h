@@ -79,6 +79,9 @@ namespace bespoke::wasm
       std::string initErrorMessage;
       PanelStatus panelStatus[kPanelCount];
       std::atomic<bool> audioCallbackActive{ false };
+      /** When true, play/stop only toggles transport; JS owns the audio device (worklet). */
+      bool externalAudioActive = false;
+      float externalSampleRate = 44100.0f;
       int oscillatorModuleId = -1;
       int gainModuleId = -1;
       int viewMode = 0;

@@ -9,6 +9,7 @@
 #include <emscripten.h>
 #include <cstdio>
 #include <cmath>
+#include <cstring>
 #include <map>
 #include <string>
 #include "BespokeWasm/PixelFont.h"
@@ -22,6 +23,7 @@
 #include "BespokeWasm/adapters/NoiseModuleAdapter.h"
 #include "BespokeWasm/adapters/StepSequencerModuleAdapter.h"
 #include "BespokeWasm/modules/WasmModules.h"
+#include "BespokeWasm/AudioHealth.h"
 
 using namespace bespoke::wasm;
 
@@ -650,6 +652,29 @@ void test_step_sequencer_note_graph()
    TEST("Empty pattern with note cable stays silent", buffer_rms(silent) == 0.0f);
 }
 
+void test_audio_health_metrics()
+{
+   printf("\n=== Audio Health Metrics Tests ===\n");
+
+   audioHealthReset();
+   audioHealthSetBackend(0);
+   audioHealthOnCallback(0.001, 0.01, 0.011); // under budget
+   audioHealthOnCallback(0.02, 0.01, 0.012);  // overrun → underrun
+   audioHealthSetQueueStats(512, 4096, 3);
+
+   const AudioHealthSnapshot snap = audioHealthSnapshot();
+   TEST("Health callback count advances", snap.callbackCount == 2);
+   TEST("Health records budget overrun as underrun", snap.underrunCount >= 1);
+   TEST("Health stores queue depth", snap.queueDepthFrames == 512);
+   TEST("Health stores capacity", snap.capacityFrames == 4096);
+   TEST("Health stores external underruns", snap.externalUnderrunCount == 3);
+   TEST("Health max process time positive", snap.maxProcessTimeMs > 0.0);
+
+   const char* json = audioHealthJson();
+   TEST("Health JSON non-empty", json && std::strlen(json) > 10);
+   TEST("Health JSON mentions cpuLoad", std::strstr(json, "cpuLoad") != nullptr);
+}
+
 int main()
 {
    printf("BespokeSynth WASM Test Suite\n");
@@ -666,6 +691,7 @@ int main()
    test_first_wave_module_adapters();
    test_step_sequencer_note_graph();
    test_patch_state_json();
+   test_audio_health_metrics();
 
    printf("\n============================\n");
    printf("Results: %d passed, %d failed\n", gTestsPassed, gTestsFailed);

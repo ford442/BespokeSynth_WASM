@@ -42,6 +42,16 @@ Timing syncs to `AudioGraphSnapshot` transport BPM / beat position (16th notes).
 
 Canonical demo: `?renderTest=1` (sequencer → oscillator Pitch → filter → gain → output, plus LFO CV).
 
+## Audio backends (playback)
+
+| Backend | How to select | Notes |
+| --- | --- | --- |
+| SDL2 (default) | `?audio=sdl` or omit | Compatibility path |
+| Worklet + SAB ring | `?audio=worklet` | Needs COOP/COEP; real graph via `bespoke_process_audio_block` |
+| Tone POC | `?audioWorkletPoc=1` | Isolation demo only |
+
+Health: `window.__bespoke.getAudioHealth()` / `?debug=1` HUD. Full design: [../wasm-audio.md](../wasm-audio.md).
+
 ## Adding note-driven modules
 
 Prefer a new `WasmModuleAdapter` with `WasmAudioRole::NoteSource` (or consume notes in `processAudio` via `WasmAudioProcessContext::notes`). Do not special-case types inside `ModuleCanvas`. See [module-porting.md](module-porting.md).

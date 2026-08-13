@@ -45,9 +45,13 @@ module.exports = (env, argv) => {
             noErrorOnMissing: true,
           },
           {
-            // Browser HTTP assets match the Emscripten preload set (not full desktop resource/).
             from: 'wasm/resource-pack',
             to: 'resource',
+            noErrorOnMissing: true,
+          },
+          {
+            from: 'src/audio/processors',
+            to: 'audio',
             noErrorOnMissing: true,
           },
         ],
@@ -63,11 +67,16 @@ module.exports = (env, argv) => {
       hot: true,
       open: true,
       headers: {
-        // Keep development cross-origin isolated so the experimental pthread build
-        // can be tested. This does not enable threads: BESPOKE_WASM_THREADS is OFF
-        // in the default WASM preset and production hosting must opt in separately.
+        // Cross-origin isolation enables SharedArrayBuffer for the opt-in
+        // AudioWorklet SAB ring backend (?audio=worklet). SDL2 remains default
+        // and does not require these headers. Production hosts that enable the
+        // worklet path must send the same COOP/COEP pair (or equivalent).
+        // BESPOKE_WASM_THREADS stays OFF — these headers are not an enablement
+        // of pthreads.
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'require-corp',
+        // Worklet scripts loaded via addModule need CORP when COEP is require-corp.
+        'Cross-Origin-Resource-Policy': 'same-origin',
       },
     },
 

@@ -66,6 +66,15 @@ export interface BespokeSynthModule extends EmscriptenModule {
     _bespoke_get_cpu_load(): number;
     _bespoke_get_module_count(): number;
 
+    // Audio backend / health
+    _bespoke_set_external_audio(enabled: number): void;
+    _bespoke_get_external_audio(): number;
+    _bespoke_set_external_sample_rate(sampleRate: number): void;
+    _bespoke_set_audio_backend_id(backend: number): void;
+    _bespoke_get_audio_health_json(): number;
+    _bespoke_reset_audio_health(): void;
+    _bespoke_set_audio_queue_stats(depthFrames: number, capacityFrames: number, externalUnderruns: number): void;
+
     // Panel management
     _bespoke_process_events(): void;
     _bespoke_set_panel(panelIndex: number): void;

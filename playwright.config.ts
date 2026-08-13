@@ -36,7 +36,7 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_SKIP_WEBSERVER
     ? undefined
     : {
-        command: 'npx --yes http-server dist -p 9876 -c-1 --cors',
+        command: 'node scripts/e2e-static-server.js 9876',
         url: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:9876',
         reuseExistingServer: true,
       },
