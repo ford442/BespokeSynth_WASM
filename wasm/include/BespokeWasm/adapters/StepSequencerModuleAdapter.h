@@ -43,7 +43,9 @@ namespace bespoke
                                     const AudioGraphNode& node,
                                     double beatStart,
                                     double beatEnd,
-                                    std::vector<WasmNoteEvent>& outNotes) const;
+                                    WasmNoteEvent* outNotes,
+                                    int maxNotes,
+                                    int& outCount) const;
       };
 
    } // namespace wasm

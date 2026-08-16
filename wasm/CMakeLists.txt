@@ -94,9 +94,11 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/PixelFont.cpp
     ${BESPOKE_WASM_DIR}/src/SDL2AudioBackend.cpp
     ${BESPOKE_WASM_DIR}/src/AudioAnalysis.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioProcessPlan.cpp
     ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
     ${BESPOKE_WASM_DIR}/src/WasmAudioEngine.cpp
     ${BESPOKE_WASM_DIR}/src/AudioHealth.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioRtGuard.cpp
     ${BESPOKE_WASM_DIR}/src/WasmInputRouter.cpp
     ${BESPOKE_WASM_DIR}/src/WasmRuntimeState.cpp
     ${BESPOKE_WASM_DIR}/src/WasmPatchState.cpp
@@ -277,6 +279,7 @@ add_custom_command(TARGET BespokeSynthWASM POST_BUILD
 add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/tests/test_main.cpp
     ${BESPOKE_WASM_DIR}/tests/synth_globals_stub.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioProcessPlan.cpp
     ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
     ${BESPOKE_WASM_DIR}/src/AudioHealth.cpp
     ${BESPOKE_WASM_DIR}/src/WasmModuleAdapterRegistry.cpp
@@ -308,6 +311,13 @@ target_include_directories(BespokeSynthWASM_test PRIVATE
     ${BESPOKE_WASM_DIR}/include
     ${BESPOKE_WASM_DIR}/src
     ${BESPOKE_SOURCE_DIR}
+)
+
+target_compile_definitions(BespokeSynthWASM_test PRIVATE BESPOKE_WASM_RT_ASSERT=1)
+
+target_sources(BespokeSynthWASM_test PRIVATE
+    ${BESPOKE_WASM_DIR}/src/RtAllocGuard.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioRtGuard.cpp
 )
 
 set_target_properties(BespokeSynthWASM_test PROPERTIES

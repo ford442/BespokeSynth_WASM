@@ -23,7 +23,8 @@ namespace bespoke::wasm
       std::atomic<int> gMaxQueueDepthFrames{ 0 };
       std::atomic<int> gCapacityFrames{ 0 };
       std::atomic<int> gBackend{ 0 };
-      char gHealthJson[512];
+      std::atomic<uint64_t> gNoteDropCount{ 0 };
+      char gHealthJson[576];
    }
 
    void audioHealthReset()
@@ -38,6 +39,7 @@ namespace bespoke::wasm
       gQueueDepthFrames.store(0);
       gMaxQueueDepthFrames.store(0);
       gCapacityFrames.store(0);
+      gNoteDropCount.store(0);
    }
 
    void audioHealthOnCallback(double processSeconds, double bufferDurationSeconds, double intervalSeconds)
@@ -83,6 +85,11 @@ namespace bespoke::wasm
       }
    }
 
+   void audioHealthSetNoteDropCount(uint64_t noteDropCount)
+   {
+      gNoteDropCount.store(noteDropCount);
+   }
+
    void audioHealthRecordExternalUnderrun(uint64_t countDelta)
    {
       gExternalUnderrunCount.fetch_add(countDelta);
@@ -103,6 +110,7 @@ namespace bespoke::wasm
       snap.maxQueueDepthFrames = gMaxQueueDepthFrames.load();
       snap.capacityFrames = gCapacityFrames.load();
       snap.backend = gBackend.load();
+      snap.noteDropCount = gNoteDropCount.load();
       return snap;
    }
 
@@ -112,13 +120,14 @@ namespace bespoke::wasm
       std::snprintf(
          gHealthJson, sizeof(gHealthJson),
          "{\"backend\":%d,\"callbackCount\":%llu,\"underrunCount\":%llu,"
-         "\"externalUnderrunCount\":%llu,\"lastCallbackIntervalMs\":%.3f,"
+         "\"externalUnderrunCount\":%llu,\"noteDropCount\":%llu,\"lastCallbackIntervalMs\":%.3f,"
          "\"lastProcessTimeMs\":%.3f,\"maxProcessTimeMs\":%.3f,\"cpuLoad\":%.4f,"
          "\"queueDepthFrames\":%d,\"maxQueueDepthFrames\":%d,\"capacityFrames\":%d}",
          snap.backend,
          static_cast<unsigned long long>(snap.callbackCount),
          static_cast<unsigned long long>(snap.underrunCount),
          static_cast<unsigned long long>(snap.externalUnderrunCount),
+         static_cast<unsigned long long>(snap.noteDropCount),
          snap.lastCallbackIntervalMs,
          snap.lastProcessTimeMs,
          snap.maxProcessTimeMs,

@@ -22,12 +22,14 @@ namespace bespoke::wasm
       int maxQueueDepthFrames = 0;
       int capacityFrames = 0;
       int backend = 0; // 0=sdl, 1=worklet, 2=poc
+      uint64_t noteDropCount = 0;
    };
 
    void audioHealthReset();
    void audioHealthOnCallback(double processSeconds, double bufferDurationSeconds, double intervalSeconds);
    void audioHealthSetBackend(int backend);
    void audioHealthSetQueueStats(int depthFrames, int capacityFrames, uint64_t externalUnderruns);
+   void audioHealthSetNoteDropCount(uint64_t noteDropCount);
    void audioHealthRecordExternalUnderrun(uint64_t countDelta);
    AudioHealthSnapshot audioHealthSnapshot();
    /** JSON into a static buffer (valid until next call). */

@@ -63,20 +63,32 @@ namespace bespoke
                                                              const AudioGraphNode& node,
                                                              double beatStart,
                                                              double beatEnd,
-                                                             std::vector<WasmNoteEvent>& outNotes) const
+                                                             WasmNoteEvent* outNotes,
+                                                             int maxNotes,
+                                                             int& outCount) const
       {
+         outCount = 0;
+         if (!outNotes || maxNotes <= 0)
+            return;
+
          auto& state = *static_cast<StepSequencerRuntimeState*>(runtimeState);
          const int stepCount = std::max(1, std::min(16, node.steps));
          const int pitch = std::max(0, std::min(127, node.seqPitch));
          const float gate = clampFloat(node.gateLength, 0.05f, 1.0f);
          const double stepBeats = 1.0 / kStepsPerBeat;
 
+         auto pushNote = [&](const WasmNoteEvent& event)
+         {
+            if (outCount < maxNotes)
+               outNotes[outCount++] = event;
+         };
+
          auto maybeNoteOff = [&](double limitBeat)
          {
             if (state.noteIsOn && state.noteOffBeat >= 0.0 &&
                 state.noteOffBeat > beatStart && state.noteOffBeat <= limitBeat)
             {
-               outNotes.push_back({ state.activePitch, 0.0f, false });
+               pushNote({ state.activePitch, 0.0f, false });
                state.noteIsOn = false;
                state.noteOffBeat = -1.0;
             }
@@ -104,11 +116,11 @@ namespace bespoke
 
             if (state.noteIsOn)
             {
-               outNotes.push_back({ state.activePitch, 0.0f, false });
+               pushNote({ state.activePitch, 0.0f, false });
                state.noteIsOn = false;
             }
 
-            outNotes.push_back({ pitch, 1.0f, true });
+            pushNote({ pitch, 1.0f, true });
             state.noteIsOn = true;
             state.activePitch = pitch;
             state.noteOffBeat = stepBeat + gate * stepBeats;

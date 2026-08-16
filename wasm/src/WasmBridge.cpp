@@ -13,6 +13,7 @@
 #include "BespokeWasm/AudioHealth.h"
 #include "BespokeWasm/ModuleCanvas.h"
 #include "BespokeWasm/AudioGraphEngine.h"
+#include "BespokeWasm/WasmAudioEngine.h"
 #include "BespokeWasm/WasmPatchState.h"
 #include "BespokeWasm/WasmAudioEngine.h"
 #include "BespokeWasm/WasmInputRouter.h"
@@ -276,6 +277,8 @@ static bool initializeAudioAndControls(int sampleRate, int bufferSize)
    printf("WasmBridge: Creating modular canvas...\n");
    gCanvas = std::make_unique<bespoke::wasm::ModuleCanvas>();
    gAudioGraphEngine = std::make_unique<AudioGraphEngine>();
+   gAudioGraphEngine->prepareForBlock(std::max(bufferSize, 2048), 128, 32);
+   prepareWasmAudioScratch(std::max(bufferSize, 2048));
 
    const int oscId = gCanvas->createModule("oscillator", 100, 150);
    const int filterId = gCanvas->createModule("filter", 300, 155);
@@ -525,6 +528,9 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_sample_rate(int sampleRate)
 EMSCRIPTEN_KEEPALIVE void bespoke_set_buffer_size(int bufferSize)
 {
    printf("BespokeSynth WASM: Buffer size change requested: %d\n", bufferSize);
+   if (gAudioGraphEngine)
+      gAudioGraphEngine->prepareForBlock(std::max(bufferSize, 2048), 128, 32);
+   prepareWasmAudioScratch(std::max(bufferSize, 2048));
 }
 
 EMSCRIPTEN_KEEPALIVE int bespoke_get_sample_rate(void)

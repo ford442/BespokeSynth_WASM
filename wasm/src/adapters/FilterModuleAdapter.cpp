@@ -91,8 +91,8 @@ namespace bespoke
          for (int i = 0; i < context.numSamples; ++i)
          {
             float modulation = 0.0f;
-            if (context.modulationAt)
-               modulation = context.modulationAt(i);
+            if (context.modulationBuffer)
+               modulation = context.modulationBuffer[i];
 
             const float cutoff = clampFloat(node.cutoff * std::pow(2.0f, modulation * 2.0f),
                                             20.0f, context.sampleRate * 0.45f);
