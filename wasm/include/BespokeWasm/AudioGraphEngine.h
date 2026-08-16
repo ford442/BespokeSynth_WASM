@@ -15,10 +15,11 @@
 #include "BespokeWasm/adapters/NoiseModuleAdapter.h"
 #include "BespokeWasm/adapters/StepSequencerModuleAdapter.h"
 #include "Oscillator.h"
+#include <array>
+#include <atomic>
+#include <cstdint>
 #include <unordered_map>
 #include <vector>
-#include <deque>
-#include <mutex>
 
 namespace bespoke
 {
@@ -36,18 +37,16 @@ namespace bespoke
             double timestamp = 0.0;
          };
 
-         struct PulseEvent
-         {
-            double beatPosition = 0.0;
-            float strength = 1.0f;
-         };
-
-         struct ModulationValue
-         {
-            float value = 0.0f;
-         };
+         static constexpr int kMaxNoteRingCapacity = 256;
+         static constexpr int kMaxNoteEventsPerBlock = 64;
+         static constexpr int kMaxBlockSize = 2048;
 
          void queueNote(const NoteMessage& note);
+         uint64_t noteDropCount() const { return mNoteDropCount.load(std::memory_order_relaxed); }
+
+         /** Grow buffer arenas on the UI thread (init / buffer-size changes). */
+         void prepareForBlock(int maxBlockSize, int maxAudioSlots, int maxModulationSlots);
+
          void processBlock(const AudioGraphSnapshot& graph,
                            float* const* output,
                            int numOutputChannels,
@@ -62,6 +61,8 @@ namespace bespoke
             float noteVelocity = 1.0f;
             bool noteGate = true;
             bool hasReceivedNote = false;
+            OscillatorType oscillatorType = kOsc_Sin;
+            Oscillator oscillator{kOsc_Sin};
             FilterAdapterRuntimeState filterState;
             AdsrAdapterRuntimeState adsrState;
             DelayAdapterRuntimeState delayState;
@@ -70,9 +71,8 @@ namespace bespoke
          };
 
          RuntimeState& stateFor(int moduleId);
-         OscillatorType oscillatorTypeFor(int waveform) const;
+         void updateOscillatorType(RuntimeState& state, int waveform);
          float renderOscillatorSample(RuntimeState& state,
-                                      int waveform,
                                       float frequency,
                                       float sampleRate);
          float renderLfoSample(RuntimeState& state,
@@ -80,12 +80,28 @@ namespace bespoke
                                float rate,
                                float depth,
                                float sampleRate);
+         void drainNoteRing();
+         float* audioSlotBuffer(int slot, int numSamples);
+         float* modulationSlotBuffer(int slot, int numSamples);
 
          std::unordered_map<int, RuntimeState> mStates;
-         std::vector<int> mProcessOrder;
-         std::deque<NoteMessage> mNoteQueue;
-         std::mutex mEventMutex;
-         std::vector<PulseEvent> mPulseEvents;
+         std::vector<float> mAudioArena;
+         std::vector<float> mModulationArena;
+         std::vector<float> mSummedModulation;
+         int mPreparedBlockSize = 0;
+         int mPreparedAudioSlots = 0;
+         int mPreparedModulationSlots = 0;
+
+         std::array<NoteMessage, kMaxNoteRingCapacity> mNoteRing{};
+         std::atomic<uint32_t> mNoteWriteIndex{ 0 };
+         std::atomic<uint32_t> mNoteReadIndex{ 0 };
+         std::atomic<uint64_t> mNoteDropCount{ 0 };
+
+         std::array<WasmNoteEvent, kMaxNoteEventsPerBlock> mMidiNoteScratch{};
+         int mMidiNoteCount = 0;
+         std::array<std::array<WasmNoteEvent, kMaxNoteEventsPerBlock>, 16> mNoteSourceScratch{};
+         std::array<int, 16> mNoteSourceCounts{};
+
          double mAudioTimeSeconds = 0.0;
          double mBeatPosition = 0.0;
       };

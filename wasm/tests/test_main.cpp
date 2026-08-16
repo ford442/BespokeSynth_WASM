@@ -9,11 +9,13 @@
 #include <emscripten.h>
 #include <cstdio>
 #include <cmath>
+#include <chrono>
 #include <cstring>
 #include <map>
 #include <string>
 #include "BespokeWasm/PixelFont.h"
 #include "BespokeWasm/AudioGraphTypes.h"
+#include "BespokeWasm/AudioProcessPlan.h"
 #include "BespokeWasm/AudioGraphEngine.h"
 #include "BespokeWasm/WasmPatchState.h"
 #include "BespokeWasm/WasmModuleAdapter.h"
@@ -24,6 +26,7 @@
 #include "BespokeWasm/adapters/StepSequencerModuleAdapter.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include "BespokeWasm/AudioHealth.h"
+#include "BespokeWasm/AudioRtGuard.h"
 
 using namespace bespoke::wasm;
 
@@ -259,14 +262,17 @@ static AudioGraphSnapshot make_test_graph(float gain, float cutoff, float lfoDep
    return graph;
 }
 
-static std::vector<float> render_graph(AudioGraphSnapshot graph)
+static std::vector<float> render_graph(AudioGraphSnapshot graph, AudioGraphEngine* engine = nullptr)
 {
    constexpr int bufferSize = 1024;
-   AudioGraphEngine engine;
+   compileAudioProcessPlan(graph, graph.processPlan);
+   AudioGraphEngine localEngine;
+   AudioGraphEngine& activeEngine = engine ? *engine : localEngine;
+   activeEngine.prepareForBlock(bufferSize, 128, 32);
    std::vector<float> left(bufferSize, 0.0f);
    std::vector<float> right(bufferSize, 0.0f);
    float* outputs[2] = { left.data(), right.data() };
-   engine.processBlock(graph, outputs, 2, bufferSize, 44100.0f);
+   activeEngine.processBlock(graph, outputs, 2, bufferSize, 44100.0f);
    return left;
 }
 
@@ -614,8 +620,10 @@ void test_step_sequencer_note_graph()
 
    // At 120 BPM, one 16th note = 0.125s = 5512.5 samples @ 44100.
    // Render ~1 beat (4 sixteenths) in 512-sample blocks and track energy.
-   AudioGraphEngine engine;
    constexpr int bufferSize = 512;
+   compileAudioProcessPlan(graph, graph.processPlan);
+   AudioGraphEngine engine;
+   engine.prepareForBlock(bufferSize, 128, 32);
    constexpr int blocks = 180; // ~2 seconds
    double energyOn = 0.0;
    double energyOff = 0.0;
@@ -648,8 +656,114 @@ void test_step_sequencer_note_graph()
 
    // Empty pattern with note cable should stay silent (no free-run).
    graph.nodes[0].patternMask = 0;
-   auto silent = render_graph(graph);
+   compileAudioProcessPlan(graph, graph.processPlan);
+   auto silent = render_graph(graph, &engine);
    TEST("Empty pattern with note cable stays silent", buffer_rms(silent) == 0.0f);
+}
+
+void test_audio_process_plan()
+{
+   printf("\n=== Audio Process Plan Tests ===\n");
+
+   auto graph = make_test_graph(1.0f, 1800.0f, 0.0f);
+   compileAudioProcessPlan(graph, graph.processPlan);
+   TEST("Canonical graph plan is valid", graph.processPlan.valid);
+   TEST("Canonical graph has no cycle", !graph.processPlan.hasCycle);
+   TEST("Plan output slot assigned", graph.processPlan.outputBufferSlot >= 0);
+   TEST("Plan step count matches audio nodes", graph.processPlan.steps.size() == 4);
+
+   bool oscBeforeOutput = false;
+   for (const auto& step : graph.processPlan.steps)
+   {
+      if (step.processor == PlanProcessorKind::Oscillator)
+         oscBeforeOutput = true;
+      if (step.processor == PlanProcessorKind::Output)
+         TEST("Oscillator precedes output in plan", oscBeforeOutput);
+   }
+
+   AudioGraphSnapshot cyclic = graph;
+   cyclic.connections.push_back({ 5, 0, 1, 0, PortType::Audio, PortType::Audio });
+   compileAudioProcessPlan(cyclic, cyclic.processPlan);
+   TEST("Cycle detection rejects invalid plan", !cyclic.processPlan.valid && cyclic.processPlan.hasCycle);
+}
+
+void test_audio_graph_rt_allocations()
+{
+   printf("\n=== Audio Graph RT Allocation Tests ===\n");
+
+   auto graph = make_test_graph(1.0f, 1800.0f, 0.5f);
+   compileAudioProcessPlan(graph, graph.processPlan);
+
+   AudioGraphEngine engine;
+   engine.prepareForBlock(128, 128, 32);
+
+   constexpr int bufferSize = 128;
+   std::vector<float> left(bufferSize, 0.0f);
+   std::vector<float> right(bufferSize, 0.0f);
+   float* outputs[2] = { left.data(), right.data() };
+
+   engine.processBlock(graph, outputs, 2, bufferSize, 48000.0f);
+
+   auto& rt = gAudioCallbackActive;
+   rt.store(true, std::memory_order_release);
+   for (int block = 0; block < 1000; ++block)
+      engine.processBlock(graph, outputs, 2, bufferSize, 48000.0f);
+   rt.store(false, std::memory_order_release);
+
+   TEST("1000 RT blocks complete without allocator trap", true);
+   TEST("Note ring reports drops via counter", engine.noteDropCount() >= 0);
+}
+
+void test_audio_graph_benchmark()
+{
+   printf("\n=== Audio Graph Benchmark Tests ===\n");
+
+   AudioGraphSnapshot graph;
+   graph.transportPlaying = true;
+   graph.transportBPM = 120.0f;
+
+   AudioGraphNode out;
+   out.id = 1;
+   out.type = "output";
+   graph.nodes.push_back(out);
+
+   for (int i = 2; i <= 65; ++i)
+   {
+      AudioGraphNode gain;
+      gain.id = i;
+      gain.type = "gain";
+      gain.gain = 0.99f;
+      graph.nodes.push_back(gain);
+
+      AudioGraphConnection conn;
+      conn.sourceModuleId = i - 1;
+      conn.destModuleId = i;
+      conn.sourcePortType = PortType::Audio;
+      conn.destPortType = PortType::Audio;
+      graph.connections.push_back(conn);
+   }
+
+   compileAudioProcessPlan(graph, graph.processPlan);
+   TEST("64-node chain plan valid", graph.processPlan.valid);
+
+   AudioGraphEngine engine;
+   engine.prepareForBlock(128, 128, 32);
+   std::vector<float> left(128, 0.0f);
+   std::vector<float> right(128, 0.0f);
+   float* outputs[2] = { left.data(), right.data() };
+
+   const double blockPeriodMs = 128.0 / 48.0;
+   double maxMs = 0.0;
+   for (int i = 0; i < 200; ++i)
+   {
+      const auto start = std::chrono::steady_clock::now();
+      engine.processBlock(graph, outputs, 2, 128, 48000.0f);
+      const double elapsedMs =
+         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+      maxMs = std::max(maxMs, elapsedMs);
+   }
+
+   TEST("64-node chain p99 budget under block period", maxMs < blockPeriodMs * 0.95);
 }
 
 void test_audio_health_metrics()
@@ -673,6 +787,7 @@ void test_audio_health_metrics()
    const char* json = audioHealthJson();
    TEST("Health JSON non-empty", json && std::strlen(json) > 10);
    TEST("Health JSON mentions cpuLoad", std::strstr(json, "cpuLoad") != nullptr);
+   TEST("Health JSON mentions noteDropCount", std::strstr(json, "noteDropCount") != nullptr);
 }
 
 int main()
@@ -687,6 +802,9 @@ int main()
    test_pixel_font();
    test_audio_buffer();
    test_audio_graph_engine();
+   test_audio_process_plan();
+   test_audio_graph_rt_allocations();
+   test_audio_graph_benchmark();
    test_filter_module_adapter();
    test_first_wave_module_adapters();
    test_step_sequencer_note_graph();

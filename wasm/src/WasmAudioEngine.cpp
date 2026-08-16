@@ -1,6 +1,7 @@
 #include "BespokeWasm/WasmAudioEngine.h"
 
 #include "BespokeWasm/AudioHealth.h"
+#include "BespokeWasm/AudioRtGuard.h"
 #include "BespokeWasm/WasmRuntimeState.h"
 #include "BespokeWasm/AudioAnalysis.h"
 
@@ -16,6 +17,28 @@ namespace bespoke::wasm
       std::atomic<float> gAudioCpuLoad{ 0.0f };
       std::chrono::steady_clock::time_point gLastCallbackTime{};
       bool gHasLastCallbackTime = false;
+
+      struct InterleavedScratch
+      {
+         std::vector<float> left;
+         std::vector<float> right;
+
+         void prepare(int frames)
+         {
+            if (static_cast<int>(left.size()) < frames)
+            {
+               left.resize(static_cast<size_t>(frames));
+               right.resize(static_cast<size_t>(frames));
+            }
+         }
+      };
+
+      InterleavedScratch gInterleavedScratch;
+   }
+
+   void prepareWasmAudioScratch(int maxFrames)
+   {
+      gInterleavedScratch.prepare(maxFrames);
    }
 
    void processWasmAudio(const float* const* input, float* const* output,
@@ -26,6 +49,7 @@ namespace bespoke::wasm
       auto& state = runtimeState();
       const auto started = std::chrono::steady_clock::now();
       state.audioCallbackActive.store(true);
+      gAudioCallbackActive.store(true, std::memory_order_release);
 
       double intervalSeconds = 0.0;
       if (gHasLastCallbackTime)
@@ -42,7 +66,10 @@ namespace bespoke::wasm
          const float instantaneous = bufferDuration > 0.0f ? elapsed / bufferDuration : 0.0f;
          gAudioCpuLoad.store(gAudioCpuLoad.load() * 0.9f + instantaneous * 0.1f);
          audioHealthOnCallback(elapsed, bufferDuration, intervalSeconds);
+         if (state.audioGraphEngine)
+            audioHealthSetNoteDropCount(state.audioGraphEngine->noteDropCount());
          state.audioCallbackActive.store(false);
+         gAudioCallbackActive.store(false, std::memory_order_release);
       };
 
       if (numOutputChannels <= 0 || numSamples <= 0 || !output)
@@ -77,7 +104,6 @@ namespace bespoke::wasm
          sampleRate = static_cast<float>(state.audioBackend->getSampleRate());
 
       state.audioGraphEngine->processBlock(*graph, output, numOutputChannels, numSamples, sampleRate);
-      // Analysis is a single-producer ring write; never allocate or wait in the callback.
       AudioAnalysis::pushSamples(output[0], numSamples);
       finishMetrics(numSamples, sampleRate);
    }
@@ -86,14 +112,16 @@ namespace bespoke::wasm
    {
       if (!output || frames <= 0)
          return;
-      std::vector<float> left(frames, 0.0f);
-      std::vector<float> right(frames, 0.0f);
-      float* channels[] = { left.data(), right.data() };
+
+      if (static_cast<int>(gInterleavedScratch.left.size()) < frames)
+         return;
+
+      float* channels[] = { gInterleavedScratch.left.data(), gInterleavedScratch.right.data() };
       processWasmAudio(nullptr, channels, 0, 2, frames);
       for (int frame = 0; frame < frames; ++frame)
       {
-         output[frame * 2] = left[frame];
-         output[frame * 2 + 1] = right[frame];
+         output[frame * 2] = gInterleavedScratch.left[static_cast<size_t>(frame)];
+         output[frame * 2 + 1] = gInterleavedScratch.right[static_cast<size_t>(frame)];
       }
    }
 

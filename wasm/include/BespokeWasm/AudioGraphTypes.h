@@ -8,6 +8,7 @@
 #pragma once
 
 #include "BespokeWasm/ModuleTypes.h"
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -60,12 +61,74 @@ namespace bespoke
          PortType destPortType = PortType::Audio;
       };
 
+      template <typename T, int Capacity>
+      struct SmallVec
+      {
+         T data[Capacity]{};
+         int count = 0;
+
+         void clear() { count = 0; }
+
+         void push_back(T value)
+         {
+            if (count < Capacity)
+               data[count++] = value;
+         }
+
+         const T* begin() const { return data; }
+         const T* end() const { return data + count; }
+         int size() const { return count; }
+      };
+
+      enum class PlanProcessorKind : uint8_t
+      {
+         None = 0,
+         Oscillator,
+         Noise,
+         Filter,
+         Gain,
+         Adsr,
+         Delay,
+         Output,
+         Lfo,
+         StepSequencer,
+      };
+
+      struct PlanStep
+      {
+         int nodeIndex = -1;
+         int moduleId = -1;
+         PlanProcessorKind processor = PlanProcessorKind::None;
+         WasmAudioRole audioRole = WasmAudioRole::None;
+         int outBufferSlot = -1;
+         SmallVec<int, 4> inputBufferSlots;
+         SmallVec<int, 4> modulationSourceSlots;
+         SmallVec<int, 4> noteSourceSlots;
+         SmallVec<int, 4> noteSourceScratchSlots;
+         bool hasNoteCable = false;
+      };
+
+      struct AudioProcessPlan
+      {
+         bool valid = false;
+         bool hasCycle = false;
+         int outputNodeIndex = -1;
+         int outputBufferSlot = -1;
+         int bufferSlotCount = 0;
+         int modulationSlotCount = 0;
+         std::vector<PlanStep> steps;
+         std::vector<int> lfoNodeIndices;
+         std::vector<int> sequencerNodeIndices;
+         std::vector<int> nodeIndexByModuleId;
+      };
+
       struct AudioGraphSnapshot
       {
          bool transportPlaying = false;
          float transportBPM = 120.0f;
          std::vector<AudioGraphNode> nodes;
          std::vector<AudioGraphConnection> connections;
+         AudioProcessPlan processPlan;
       };
 
    } // namespace wasm

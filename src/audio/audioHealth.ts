@@ -12,6 +12,7 @@ export interface AudioHealth {
   queueDepthFrames: number;
   maxQueueDepthFrames: number;
   capacityFrames: number;
+  noteDropCount: number;
 }
 
 export function readAudioHealth(module: BespokeSynthModule | null): AudioHealth | null {

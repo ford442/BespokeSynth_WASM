@@ -35,6 +35,16 @@ namespace bespoke
          Modulation
       };
 
+      enum class WasmAudioRole
+      {
+         None,
+         AudioSource,
+         AudioProcessor,
+         ModulationSource,
+         NoteSource,
+         Sink
+      };
+
       struct Port
       {
          std::string name;

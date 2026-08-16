@@ -2,6 +2,7 @@
 
 namespace bespoke::wasm
 {
+   void prepareWasmAudioScratch(int maxFrames);
    void processWasmAudio(const float* const* input, float* const* output,
                          int numInputChannels, int numOutputChannels, int numSamples);
    void processWasmAudioInterleaved(float* output, int frames);

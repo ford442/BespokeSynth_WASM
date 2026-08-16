@@ -9,6 +9,7 @@
 #include "BespokeWasm/ModuleCanvasHelpers.h"
 #include "BespokeWasm/ModuleFactory.h"
 #include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/AudioProcessPlan.h"
 #include "BespokeWasm/AudioAnalysis.h"
 #include "BespokeWasm/Theme.h"
 #include "BespokeWasm/PixelFont.h"
@@ -252,6 +253,7 @@ namespace bespoke
       {
          AudioGraphSnapshot snapshot;
          buildAudioGraphSnapshotLocked(snapshot);
+         compileAudioProcessPlan(snapshot, snapshot.processPlan);
          std::atomic_store_explicit(
             &mPublishedAudioGraph,
             std::make_shared<const AudioGraphSnapshot>(std::move(snapshot)),
@@ -334,6 +336,7 @@ namespace bespoke
          Lock lock(mMutex);
          AudioGraphSnapshot snapshot;
          buildAudioGraphSnapshotLocked(snapshot);
+         compileAudioProcessPlan(snapshot, snapshot.processPlan);
          return snapshot;
       }
 

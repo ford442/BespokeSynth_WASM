@@ -12,7 +12,6 @@
 #include "BespokeWasm/AudioGraphTypes.h"
 #include "BespokeWasm/Module.h"
 #include "BespokeWasm/ModuleTypes.h"
-#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -31,16 +30,6 @@ namespace bespoke
          float defaultValue = 0.0f;
       };
 
-      enum class WasmAudioRole
-      {
-         None,
-         AudioSource,
-         AudioProcessor,
-         ModulationSource,
-         NoteSource,
-         Sink
-      };
-
       struct WasmNoteEvent
       {
          int pitch = 60;
@@ -53,7 +42,7 @@ namespace bespoke
          float sampleRate = 44100.0f;
          int numSamples = 0;
          double blockStartTimeSeconds = 0.0;
-         std::function<float(int sampleIndex)> modulationAt;
+         const float* modulationBuffer = nullptr;
          const WasmNoteEvent* notes = nullptr;
          int noteCount = 0;
       };
