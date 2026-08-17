@@ -1,9 +1,0 @@
-[  3%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/src/WasmMain.cpp.o
-/content/BespokeSynth_WASM/wasm/src/WasmMain.cpp:81:5: error: use of undeclared identifier 'bespoke_render'
-   81 |     bespoke_render();
-      |     ^~~~~~~~~~~~~~
-1 error generated.
-gmake[3]: *** [CMakeFiles/BespokeSynthWASM.dir/build.make:79: CMakeFiles/BespokeSynthWASM.dir/src/WasmMain.cpp.o] Error 1
-gmake[2]: *** [CMakeFiles/Makefile2:90: CMakeFiles/BespokeSynthWASM.dir/all] Error 2
-gmake[1]: *** [CMakeFiles/Makefile2:97: CMakeFiles/BespokeSynthWASM.dir/rule] Error 2
-gmake: *** [Makefile:124: BespokeSynthWASM] Error 2

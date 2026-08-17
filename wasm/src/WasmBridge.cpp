@@ -104,6 +104,13 @@ static constexpr int PANEL_COUNT = kPanelCount;
 // Version string
 static const char* kVersion = "1.0.0-wasm";
 
+// Host-layer frame timing (seconds); set by TypeScript before each bespoke_render().
+static float gFrameDeltaSeconds = 1.0f / 60.0f;
+
+// Debug counters for verifying a single input/render path (e2e / diagnostics).
+static std::atomic<uint32_t> gHostRenderCallCount{0};
+static std::atomic<uint32_t> gHostMouseDownCallCount{0};
+
 // Updated each frame by renderDemoPanels() so that bespoke_get_control_info()
 // always reflects current screen positions.
 static auto& gControlInfoCache = gRuntime.controlInfoCache;
@@ -547,6 +554,28 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_buffer_size(void)
 static void renderDemoPanels();
 static void renderFontTestPanel();
 
+EMSCRIPTEN_KEEPALIVE void bespoke_set_frame_delta(float deltaSeconds)
+{
+   if (deltaSeconds > 0.0f && deltaSeconds < 1.0f)
+      gFrameDeltaSeconds = deltaSeconds;
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_reset_host_counters(void)
+{
+   gHostRenderCallCount.store(0, std::memory_order_relaxed);
+   gHostMouseDownCallCount.store(0, std::memory_order_relaxed);
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_host_render_count(void)
+{
+   return static_cast<int>(gHostRenderCallCount.load(std::memory_order_relaxed));
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_host_mouse_down_count(void)
+{
+   return static_cast<int>(gHostMouseDownCallCount.load(std::memory_order_relaxed));
+}
+
 EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
 {
    // During initialization, process events to allow WebGPU callbacks
@@ -562,7 +591,8 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
    if (!gRenderer)
       return;
 
-   gRenderTime += 0.016f;
+   gHostRenderCallCount.fetch_add(1, std::memory_order_relaxed);
+   gRenderTime += gFrameDeltaSeconds;
    gRenderer->beginFrame(gWidth, gHeight, 1.0f, gRenderTime);
 
    // Clear background
@@ -1107,6 +1137,7 @@ EMSCRIPTEN_KEEPALIVE void bespoke_mouse_move(int x, int y)
 
 EMSCRIPTEN_KEEPALIVE void bespoke_mouse_down(int x, int y, int button)
 {
+   gHostMouseDownCallCount.fetch_add(1, std::memory_order_relaxed);
    routeMouseDown(x, y, button);
 }
 

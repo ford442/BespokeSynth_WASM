@@ -28,8 +28,14 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_sample_rate(void);
 EMSCRIPTEN_KEEPALIVE int bespoke_get_buffer_size(void);
 
 // Rendering
+EMSCRIPTEN_KEEPALIVE void bespoke_set_frame_delta(float deltaSeconds);
 EMSCRIPTEN_KEEPALIVE void bespoke_render(void);
 EMSCRIPTEN_KEEPALIVE void bespoke_resize(int width, int height);
+
+// Host-layer diagnostics (single input/render path verification)
+EMSCRIPTEN_KEEPALIVE void bespoke_reset_host_counters(void);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_host_render_count(void);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_host_mouse_down_count(void);
 
 // Input handling
 EMSCRIPTEN_KEEPALIVE void bespoke_mouse_move(int x, int y);

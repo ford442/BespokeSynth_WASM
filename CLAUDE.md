@@ -338,10 +338,10 @@ Edit `wasm/shaders/render2d.wgsl` directly. Shaders are compiled at runtime.
 
 ### 3. Audio Threading Model
 
-- WebAssembly runs on a **single thread**
-- Audio callbacks are synchronous (no Worker threads currently)
-- Avoid blocking operations in audio processing
-- The render loop and audio callback are strictly serialized
+- The WASM synth core runs on the **main thread**; rendering and module graph updates are driven by the TypeScript `requestAnimationFrame` loop in `src/app/renderLoop.ts`.
+- **SDL2 audio** (default backend) uses Emscripten's synchronous audio callback on the main thread.
+- **AudioWorklet** (`src/audio/workletRingBackend.ts`) runs the host-side ring buffer in a dedicated worklet thread with a SharedArrayBuffer when COOP/COEP are enabled; the WASM graph is still processed on the main thread when the worklet pulls samples.
+- Avoid blocking operations in audio processing paths.
 
 ### 4. WASM Module Instantiation
 
@@ -359,9 +359,9 @@ The WASM runtime has a virtual file system, not direct filesystem access:
 - Use IndexedDB for persistent storage
 - Use Fetch API for remote assets
 
-### 6. MIDI Not Yet Implemented
+### 6. Web MIDI
 
-WebMIDI support is planned but not currently in the codebase. Input is mouse/keyboard only.
+Browser MIDI is implemented in `src/midi.ts` (device enumeration, permission handling) and wired through the header **MIDI** control (`src/ui/midiPanel.ts`). Note/CC events are forwarded to `_bespoke_midi_note_on`, `_bespoke_midi_note_off`, and `_bespoke_midi_cc` in the WASM bridge.
 
 ### 7. VST Plugin Hosting Unavailable
 
