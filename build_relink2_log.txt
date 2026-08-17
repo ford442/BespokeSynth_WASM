@@ -1,6 +1,0 @@
-[  3%] Building CXX object CMakeFiles/BespokeSynthWASM.dir/src/WebGPUContext.cpp.o
-[  6%] Linking CXX executable BespokeSynthWASM.html
-warning: JS library symbol '$allocateUTF8' is deprecated. Please open a bug if you have a continuing need for this symbol [-Wdeprecated]
-em++: warning: warnings in JS library compilation [-Wjs-compiler]
-Copying resources to build directory
-[100%] Built target BespokeSynthWASM

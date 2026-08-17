@@ -22,6 +22,9 @@
     "lint": "eslint src --ext .ts,.tsx",
     "type-check": "tsc --noEmit",
     "test:e2e": "playwright test",
+    "test:unit": "node wasm/build/release/BespokeSynthWASM_test.js",
+    "test:exports": "bash scripts/check-wasm-exports.sh",
+    "test:clang-format": "bash scripts/check-clang-format.sh",
     "test:e2e:text": "bash scripts/run-text-e2e.sh",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug"

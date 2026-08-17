@@ -23,8 +23,12 @@ export interface BespokeSynthModule extends EmscriptenModule {
     _bespoke_get_buffer_size(): number;
 
     // Rendering
+    _bespoke_set_frame_delta(deltaSeconds: number): void;
     _bespoke_render(): void;
     _bespoke_resize(width: number, height: number): void;
+    _bespoke_reset_host_counters(): void;
+    _bespoke_get_host_render_count(): number;
+    _bespoke_get_host_mouse_down_count(): number;
 
     // Input handling
     _bespoke_mouse_move(x: number, y: number): void;

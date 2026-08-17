@@ -59,11 +59,26 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
 
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+
       - name: Build WASM
         shell: bash
         run: |
           source "$EMSDK/emsdk_env.sh"
           npm run build:wasm
+
+      - name: Verify WASM export manifest
+        run: npm run test:exports
+
+      - name: Run WASM unit tests
+        shell: bash
+        run: |
+          source "$EMSDK/emsdk_env.sh"
+          npm run test:unit
+
+      - name: Check C/C++ formatting
+        run: npm run test:clang-format
 
       - name: Build web bundle
         run: npm run build:web-only

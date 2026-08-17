@@ -14,7 +14,7 @@ module.exports = {
     node: true,
   },
   rules: {
-    '@typescript-eslint/no-explicit-any': 'warn',
+    '@typescript-eslint/no-explicit-any': 'error',
     '@typescript-eslint/explicit-module-boundary-types': 'off',
     'no-console': 'off',
   },
