@@ -19,9 +19,6 @@ namespace bespoke
       : Module(id, "oscillator", "Oscillator", ModuleCategory::Synth)
       {
          setSize(160, 120);
-         addInput("Pitch", PortType::Note);
-         addInput("Mod", PortType::Modulation);
-         addOutput("Out", PortType::Audio);
       }
 
       void OscillatorModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)

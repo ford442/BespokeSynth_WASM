@@ -15,6 +15,13 @@ namespace bespoke
    namespace wasm
    {
 
+      struct FilterParams
+      {
+         float cutoff = 1000.0f;
+         float resonance = 0.5f;
+         int type = 0;
+      };
+
       struct FilterAdapterRuntimeState
       {
          BiquadFilter filter;
@@ -31,14 +38,18 @@ namespace bespoke
          WasmAudioRole audioRole() const override { return WasmAudioRole::AudioProcessor; }
 
          std::vector<WasmControlDescriptor> controlDescriptors() const override;
+         std::vector<PortDescriptor> inputPorts() const override;
+         std::vector<PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
-         void fillAudioGraphNode(const std::map<std::string, float>& controls,
-                                 AudioGraphNode& node) const override;
+
+         size_t paramsSize() const override { return sizeof(FilterParams); }
+         void fillParams(const WasmControlMap& controls, void* dst) const override;
 
          size_t runtimeStateSize() const override { return sizeof(FilterAdapterRuntimeState); }
          void initRuntimeState(void* runtimeState) const override;
+         void destroyRuntimeState(void* runtimeState) const override;
          void processAudio(void* runtimeState,
-                           const AudioGraphNode& node,
+                           const void* params,
                            float* buffer,
                            const WasmAudioProcessContext& context) const override;
 

@@ -6,13 +6,7 @@
  */
 
 #include "BespokeWasm/AudioGraphEngine.h"
-#include "BespokeWasm/adapters/AdsrModuleAdapter.h"
-#include "BespokeWasm/adapters/DelayModuleAdapter.h"
-#include "BespokeWasm/adapters/FilterModuleAdapter.h"
-#include "BespokeWasm/adapters/NoiseModuleAdapter.h"
-#include "BespokeWasm/adapters/StepSequencerModuleAdapter.h"
 #include <algorithm>
-#include <cmath>
 #include <cstring>
 
 namespace bespoke
@@ -21,12 +15,16 @@ namespace bespoke
    {
       namespace
       {
-         constexpr float kTwoPi = 6.28318530717958647692f;
-
          float clampFloat(float value, float minValue, float maxValue)
          {
             return std::max(minValue, std::min(maxValue, value));
          }
+      }
+
+      AudioGraphEngine::~AudioGraphEngine()
+      {
+         for (auto& slot : mRuntimeSlots)
+            destroySlot(slot);
       }
 
       void AudioGraphEngine::prepareForBlock(int maxBlockSize, int maxAudioSlots, int maxModulationSlots)
@@ -51,9 +49,68 @@ namespace bespoke
             mSummedModulation.resize(static_cast<size_t>(maxBlockSize));
       }
 
-      AudioGraphEngine::RuntimeState& AudioGraphEngine::stateFor(int moduleId)
+      void AudioGraphEngine::destroySlot(RuntimeSlot& slot)
       {
-         return mStates[moduleId];
+         if (slot.size == 0)
+            return;
+         const WasmModuleAdapter* adapter = WasmModuleAdapterRegistry::instance().adapterAt(slot.typeIndex);
+         if (adapter && slot.offset + slot.size <= mRuntimeArena.size())
+            adapter->destroyRuntimeState(mRuntimeArena.data() + slot.offset);
+         slot.size = 0;
+      }
+
+      void* AudioGraphEngine::stateFor(const AudioGraphNode& node)
+      {
+         const WasmModuleAdapter* adapter = WasmModuleAdapterRegistry::instance().adapterAt(node.typeIndex);
+         if (!adapter)
+            return nullptr;
+
+         const size_t needed = adapter->runtimeStateSize();
+         if (needed == 0)
+            return nullptr;
+
+         auto it = mSlotIndexByModuleId.find(node.id);
+         if (it != mSlotIndexByModuleId.end())
+         {
+            RuntimeSlot& slot = mRuntimeSlots[static_cast<size_t>(it->second)];
+            if (slot.typeIndex == node.typeIndex && slot.size == needed)
+               return mRuntimeArena.data() + slot.offset;
+            destroySlot(slot);
+         }
+
+         const uint32_t offset = alignAudioGraphOffset(static_cast<uint32_t>(mRuntimeArena.size()), 16);
+         mRuntimeArena.resize(static_cast<size_t>(offset) + needed, 0);
+
+         RuntimeSlot slot;
+         slot.moduleId = node.id;
+         slot.typeIndex = node.typeIndex;
+         slot.offset = offset;
+         slot.size = static_cast<uint32_t>(needed);
+         adapter->initRuntimeState(mRuntimeArena.data() + offset);
+
+         if (it != mSlotIndexByModuleId.end())
+         {
+            mRuntimeSlots[static_cast<size_t>(it->second)] = slot;
+         }
+         else
+         {
+            mSlotIndexByModuleId[node.id] = static_cast<int>(mRuntimeSlots.size());
+            mRuntimeSlots.push_back(slot);
+         }
+         return mRuntimeArena.data() + offset;
+      }
+
+      void AudioGraphEngine::resetNoteSourceState()
+      {
+         auto& registry = WasmModuleAdapterRegistry::instance();
+         for (auto& slot : mRuntimeSlots)
+         {
+            const WasmModuleAdapter* adapter = registry.adapterAt(slot.typeIndex);
+            if (!adapter || adapter->audioRole() != WasmAudioRole::NoteSource || slot.size == 0)
+               continue;
+            adapter->destroyRuntimeState(mRuntimeArena.data() + slot.offset);
+            adapter->initRuntimeState(mRuntimeArena.data() + slot.offset);
+         }
       }
 
       void AudioGraphEngine::queueNote(const NoteMessage& note)
@@ -102,48 +159,6 @@ namespace bespoke
          return mModulationArena.data() + static_cast<size_t>(slot) * static_cast<size_t>(mPreparedBlockSize);
       }
 
-      void AudioGraphEngine::updateOscillatorType(RuntimeState& state, int waveform)
-      {
-         switch (waveform % 4)
-         {
-            case 1:
-               state.oscillatorType = kOsc_Saw;
-               break;
-            case 2:
-               state.oscillatorType = kOsc_Square;
-               break;
-            case 3:
-               state.oscillatorType = kOsc_Tri;
-               break;
-            default:
-               state.oscillatorType = kOsc_Sin;
-               break;
-         }
-         state.oscillator.SetType(state.oscillatorType);
-      }
-
-      float AudioGraphEngine::renderOscillatorSample(RuntimeState& state,
-                                                     float frequency,
-                                                     float sampleRate)
-      {
-         const float sample = state.oscillator.Value(state.phase);
-         state.phase += kTwoPi * clampFloat(frequency, 0.0f, sampleRate * 0.45f) / sampleRate;
-         if (state.phase >= kTwoPi)
-            state.phase = std::fmod(state.phase, kTwoPi);
-         return sample;
-      }
-
-      float AudioGraphEngine::renderLfoSample(RuntimeState& state,
-                                              int shape,
-                                              float rate,
-                                              float depth,
-                                              float sampleRate)
-      {
-         updateOscillatorType(state, shape);
-         const float bipolar = renderOscillatorSample(state, rate, sampleRate);
-         return bipolar * clampFloat(depth, 0.0f, 1.0f);
-      }
-
       void AudioGraphEngine::processBlock(const AudioGraphSnapshot& graph,
                                           float* const* output,
                                           int numOutputChannels,
@@ -165,11 +180,7 @@ namespace bespoke
             if (!graph.transportPlaying)
             {
                mBeatPosition = 0.0;
-               for (auto& [id, state] : mStates)
-               {
-                  (void)id;
-                  state.sequencerState = StepSequencerRuntimeState{};
-               }
+               resetNoteSourceState();
             }
             return;
          }
@@ -191,23 +202,21 @@ namespace bespoke
          const double beatEnd = beatStart + beatsPerBlock;
          mBeatPosition = beatEnd;
 
-         static const FilterModuleAdapter kFilterAdapter;
-         static const AdsrModuleAdapter kAdsrAdapter;
-         static const DelayModuleAdapter kDelayAdapter;
-         static const NoiseModuleAdapter kNoiseAdapter;
-         static const StepSequencerModuleAdapter kSequencerAdapter;
+         auto& registry = WasmModuleAdapterRegistry::instance();
 
          mNoteSourceCounts.fill(0);
-         for (int seqSlot = 0; seqSlot < static_cast<int>(plan.sequencerNodeIndices.size()); ++seqSlot)
+         for (int seqSlot = 0; seqSlot < static_cast<int>(plan.noteSourceNodeIndices.size()); ++seqSlot)
          {
-            const int seqNodeIndex = plan.sequencerNodeIndices[static_cast<size_t>(seqSlot)];
+            const int seqNodeIndex = plan.noteSourceNodeIndices[static_cast<size_t>(seqSlot)];
             const auto& node = graph.nodes[static_cast<size_t>(seqNodeIndex)];
+            const WasmModuleAdapter* adapter = registry.adapterAt(node.typeIndex);
+            if (!adapter)
+               continue;
             int& noteCount = mNoteSourceCounts[static_cast<size_t>(seqSlot)];
             noteCount = 0;
-            auto& state = stateFor(node.id);
-            kSequencerAdapter.emitNotesForBeatRange(
-               &state.sequencerState,
-               node,
+            adapter->emitNotesForBeatRange(
+               stateFor(node),
+               graph.paramsFor(node),
                beatStart,
                beatEnd,
                mNoteSourceScratch[static_cast<size_t>(seqSlot)].data(),
@@ -215,18 +224,22 @@ namespace bespoke
                noteCount);
          }
 
-         for (int lfoSlot = 0; lfoSlot < static_cast<int>(plan.lfoNodeIndices.size()); ++lfoSlot)
+         WasmAudioProcessContext modulationContext;
+         modulationContext.sampleRate = sampleRate;
+         modulationContext.numSamples = numSamples;
+         modulationContext.blockStartTimeSeconds = mAudioTimeSeconds;
+
+         for (int lfoSlot = 0; lfoSlot < static_cast<int>(plan.modulationSourceNodeIndices.size()); ++lfoSlot)
          {
-            const int lfoNodeIndex = plan.lfoNodeIndices[static_cast<size_t>(lfoSlot)];
+            const int lfoNodeIndex = plan.modulationSourceNodeIndices[static_cast<size_t>(lfoSlot)];
             const auto& node = graph.nodes[static_cast<size_t>(lfoNodeIndex)];
             float* buffer = modulationSlotBuffer(lfoSlot, numSamples);
             if (!buffer)
                continue;
-
-            auto& state = stateFor(node.id);
-            updateOscillatorType(state, node.lfoShape);
-            for (int i = 0; i < numSamples; ++i)
-               buffer[i] = renderLfoSample(state, node.lfoShape, node.lfoRate, node.lfoDepth, sampleRate);
+            const WasmModuleAdapter* adapter = registry.adapterAt(node.typeIndex);
+            if (!adapter)
+               continue;
+            adapter->processAudio(stateFor(node), graph.paramsFor(node), buffer, modulationContext);
          }
 
          const double blockStart = mAudioTimeSeconds;
@@ -283,105 +296,29 @@ namespace bespoke
             context.sampleRate = sampleRate;
             context.numSamples = numSamples;
             context.blockStartTimeSeconds = blockStart;
+            context.hasNoteCable = step.hasNoteCable;
             if (moduleNotes && moduleNoteCount > 0)
             {
                context.notes = moduleNotes;
                context.noteCount = moduleNoteCount;
             }
 
-            switch (step.processor)
+            if (step.modulationSourceSlots.count > 0)
             {
-               case PlanProcessorKind::Noise:
+               std::memset(mSummedModulation.data(), 0, static_cast<size_t>(numSamples) * sizeof(float));
+               for (int modSlot : step.modulationSourceSlots)
                {
-                  auto& state = stateFor(step.moduleId);
-                  kNoiseAdapter.processAudio(&state.noiseState, node, buffer, context);
-                  break;
-               }
-               case PlanProcessorKind::Oscillator:
-               {
-                  auto& state = stateFor(step.moduleId);
-                  updateOscillatorType(state, node.waveform);
-                  if (moduleNotes && moduleNoteCount > 0)
-                  {
-                     for (int noteIndex = 0; noteIndex < moduleNoteCount; ++noteIndex)
-                     {
-                        const auto& note = moduleNotes[noteIndex];
-                        if (note.isNoteOn)
-                        {
-                           state.noteFrequency = 440.0f * std::pow(2.0f, (note.pitch - 69) / 12.0f);
-                           state.noteVelocity = clampFloat(note.velocity, 0.0f, 1.0f);
-                           state.noteGate = true;
-                           state.hasReceivedNote = true;
-                        }
-                        else
-                        {
-                           state.noteGate = false;
-                           state.hasReceivedNote = true;
-                        }
-                     }
-                  }
-
-                  const float frequency = state.hasReceivedNote ? state.noteFrequency : node.frequency;
-                  float level = 1.0f;
-                  if (step.hasNoteCable)
-                  {
-                     if (!state.hasReceivedNote || !state.noteGate)
-                        level = 0.0f;
-                     else
-                        level = state.noteVelocity;
-                  }
-                  else if (state.hasReceivedNote)
-                  {
-                     level = state.noteGate ? state.noteVelocity : 0.0f;
-                  }
-
-                  const float volume = clampFloat(node.volume, 0.0f, 1.0f);
+                  const float* modSource = modulationSlotBuffer(modSlot, numSamples);
+                  if (!modSource)
+                     continue;
                   for (int i = 0; i < numSamples; ++i)
-                     buffer[i] = renderOscillatorSample(state, frequency, sampleRate) * volume * level;
-                  break;
+                     mSummedModulation[static_cast<size_t>(i)] += modSource[i];
                }
-               case PlanProcessorKind::Filter:
-               {
-                  auto& state = stateFor(step.moduleId);
-                  if (step.modulationSourceSlots.count > 0)
-                  {
-                     std::memset(mSummedModulation.data(), 0, static_cast<size_t>(numSamples) * sizeof(float));
-                     for (int modSlot : step.modulationSourceSlots)
-                     {
-                        const float* modSource = modulationSlotBuffer(modSlot, numSamples);
-                        if (!modSource)
-                           continue;
-                        for (int i = 0; i < numSamples; ++i)
-                           mSummedModulation[static_cast<size_t>(i)] += modSource[i];
-                     }
-                     context.modulationBuffer = mSummedModulation.data();
-                  }
-                  kFilterAdapter.processAudio(&state.filterState, node, buffer, context);
-                  break;
-               }
-               case PlanProcessorKind::Adsr:
-               {
-                  auto& state = stateFor(step.moduleId);
-                  kAdsrAdapter.processAudio(&state.adsrState, node, buffer, context);
-                  break;
-               }
-               case PlanProcessorKind::Delay:
-               {
-                  auto& state = stateFor(step.moduleId);
-                  kDelayAdapter.processAudio(&state.delayState, node, buffer, context);
-                  break;
-               }
-               case PlanProcessorKind::Gain:
-               {
-                  const float gain = clampFloat(node.gain, 0.0f, 1.0f);
-                  for (int i = 0; i < numSamples; ++i)
-                     buffer[i] *= gain;
-                  break;
-               }
-               case PlanProcessorKind::Output:
-               default:
-                  break;
+               context.modulationBuffer = mSummedModulation.data();
             }
+
+            if (const WasmModuleAdapter* adapter = registry.adapterAt(step.typeIndex))
+               adapter->processAudio(stateFor(node), graph.paramsFor(node), buffer, context);
          }
 
          const float* outBuffer = audioSlotBuffer(plan.outputBufferSlot, numSamples);

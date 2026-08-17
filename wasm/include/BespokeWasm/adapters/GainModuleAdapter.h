@@ -1,5 +1,5 @@
 /**
- * BespokeSynth WASM - Delay effect adapter
+ * BespokeSynth WASM - Gain adapter
  *
  * Copyright (C) 2024
  * Licensed under GNU GPL v3
@@ -14,26 +14,16 @@ namespace bespoke
    namespace wasm
    {
 
-      struct DelayParams
+      struct GainParams
       {
-         float time = 0.25f;
-         float feedback = 0.35f;
-         float mix = 0.35f;
+         float gain = 0.7f;
       };
 
-      struct DelayAdapterRuntimeState
-      {
-         size_t writeIndex = 0;
-         size_t usedCapacity = 0;
-         float lastSampleRate = 0.0f;
-         float* buffer = nullptr;
-      };
-
-      class DelayModuleAdapter : public WasmModuleAdapter
+      class GainModuleAdapter : public WasmModuleAdapter
       {
       public:
-         const char* typeId() const override { return "delay"; }
-         const char* displayName() const override { return "Delay"; }
+         const char* typeId() const override { return "gain"; }
+         const char* displayName() const override { return "Gain"; }
          ModuleCategory category() const override { return ModuleCategory::AudioEffect; }
          WasmAudioRole audioRole() const override { return WasmAudioRole::AudioProcessor; }
 
@@ -42,19 +32,13 @@ namespace bespoke
          std::vector<PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
 
-         size_t paramsSize() const override { return sizeof(DelayParams); }
+         size_t paramsSize() const override { return sizeof(GainParams); }
          void fillParams(const WasmControlMap& controls, void* dst) const override;
 
-         size_t runtimeStateSize() const override;
-         void initRuntimeState(void* runtimeState) const override;
-         void destroyRuntimeState(void* runtimeState) const override;
          void processAudio(void* runtimeState,
                            const void* params,
                            float* buffer,
                            const WasmAudioProcessContext& context) const override;
-
-         static constexpr float kMaxDelaySeconds = 2.0f;
-         static constexpr size_t kMaxDelaySamples = 96000;
       };
 
    } // namespace wasm

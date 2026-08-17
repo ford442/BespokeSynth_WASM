@@ -8,6 +8,7 @@
 #include "BespokeWasm/Module.h"
 #include "BespokeWasm/ModuleCanvasHelpers.h"
 #include "BespokeWasm/Theme.h"
+#include "BespokeWasm/WasmModuleAdapter.h"
 
 namespace bespoke
 {
@@ -25,6 +26,13 @@ namespace bespoke
       , mEnabled(true)
       , mMinimized(false)
       {
+         if (const WasmModuleAdapter* adapter = WasmModuleAdapterRegistry::instance().find(type))
+         {
+            for (const auto& port : adapter->inputPorts())
+               addInput(port.name, port.type);
+            for (const auto& port : adapter->outputPorts())
+               addOutput(port.name, port.type);
+         }
       }
 
       void Module::addInput(const std::string& name, PortType type)

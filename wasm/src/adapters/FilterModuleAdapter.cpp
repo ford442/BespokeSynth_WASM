@@ -9,7 +9,7 @@
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
 #include <cmath>
-#include <cstring>
+#include <new>
 
 namespace bespoke
 {
@@ -32,27 +32,37 @@ namespace bespoke
          };
       }
 
+      std::vector<PortDescriptor> FilterModuleAdapter::inputPorts() const
+      {
+         return { { PortType::Audio, "In" }, { PortType::Modulation, "CV" } };
+      }
+
+      std::vector<PortDescriptor> FilterModuleAdapter::outputPorts() const
+      {
+         return { { PortType::Audio, "Out" } };
+      }
+
       std::unique_ptr<Module> FilterModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<FilterModule>(id);
       }
 
-      void FilterModuleAdapter::fillAudioGraphNode(const std::map<std::string, float>& controls,
-                                                   AudioGraphNode& node) const
+      void FilterModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
       {
-         auto get = [&](const char* name, float fallback) -> float
-         {
-            auto it = controls.find(name);
-            return it != controls.end() ? it->second : fallback;
-         };
-         node.cutoff = get("cutoff", 1000.0f);
-         node.resonance = get("resonance", 0.5f);
-         node.filterType = static_cast<int>(get("type", 0.0f));
+         auto* params = new (dst) FilterParams();
+         params->cutoff = wasmControlValue(controls, "cutoff", 1000.0f);
+         params->resonance = wasmControlValue(controls, "resonance", 0.5f);
+         params->type = static_cast<int>(wasmControlValue(controls, "type", 0.0f));
       }
 
       void FilterModuleAdapter::initRuntimeState(void* runtimeState) const
       {
-         std::memset(runtimeState, 0, sizeof(FilterAdapterRuntimeState));
+         new (runtimeState) FilterAdapterRuntimeState();
+      }
+
+      void FilterModuleAdapter::destroyRuntimeState(void* runtimeState) const
+      {
+         static_cast<FilterAdapterRuntimeState*>(runtimeState)->~FilterAdapterRuntimeState();
       }
 
       FilterType FilterModuleAdapter::filterTypeFor(int filterType)
@@ -69,11 +79,15 @@ namespace bespoke
       }
 
       void FilterModuleAdapter::processAudio(void* runtimeState,
-                                             const AudioGraphNode& node,
+                                             const void* paramsPtr,
                                              float* buffer,
                                              const WasmAudioProcessContext& context) const
       {
+         if (!runtimeState || !paramsPtr || !buffer)
+            return;
+
          auto& state = *static_cast<FilterAdapterRuntimeState*>(runtimeState);
+         const auto& params = *static_cast<const FilterParams*>(paramsPtr);
          if (state.lastSampleRate != context.sampleRate)
          {
             state.filter.SetSampleRate(context.sampleRate);
@@ -81,7 +95,7 @@ namespace bespoke
             state.lastSampleRate = context.sampleRate;
          }
 
-         const FilterType filterType = filterTypeFor(node.filterType);
+         const FilterType filterType = filterTypeFor(params.type);
          if (state.lastFilterType != static_cast<int>(filterType))
          {
             state.filter.SetFilterType(filterType);
@@ -94,13 +108,15 @@ namespace bespoke
             if (context.modulationBuffer)
                modulation = context.modulationBuffer[i];
 
-            const float cutoff = clampFloat(node.cutoff * std::pow(2.0f, modulation * 2.0f),
+            const float cutoff = clampFloat(params.cutoff * std::pow(2.0f, modulation * 2.0f),
                                             20.0f, context.sampleRate * 0.45f);
-            const float q = clampFloat(0.2f + node.resonance * 9.8f, 0.2f, 10.0f);
+            const float q = clampFloat(0.2f + params.resonance * 9.8f, 0.2f, 10.0f);
             state.filter.SetFilterParams(cutoff, q);
             buffer[i] = state.filter.Filter(buffer[i]);
          }
       }
+
+      BESPOKE_REGISTER_MODULE(FilterModuleAdapter);
 
    } // namespace wasm
 } // namespace bespoke

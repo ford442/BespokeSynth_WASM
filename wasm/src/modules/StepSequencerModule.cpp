@@ -17,7 +17,6 @@ namespace bespoke
       : Module(id, "stepsequencer", "Step Sequencer", ModuleCategory::Pulse)
       {
          setSize(220, 92);
-         addOutput("Notes", PortType::Note);
       }
 
       bool StepSequencerModule::isStepActive(int step) const

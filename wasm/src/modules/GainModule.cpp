@@ -19,9 +19,6 @@ namespace bespoke
       : Module(id, "gain", "Gain", ModuleCategory::AudioEffect)
       {
          setSize(120, 80);
-         addInput("In", PortType::Audio);
-         addInput("Mod", PortType::Modulation);
-         addOutput("Out", PortType::Audio);
       }
 
       void GainModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)

@@ -9,6 +9,7 @@
 #include "BespokeWasm/ModuleCanvasHelpers.h"
 #include "BespokeWasm/ModuleFactory.h"
 #include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/WasmPatchState.h"
 #include "BespokeWasm/AudioProcessPlan.h"
 #include "BespokeWasm/AudioAnalysis.h"
 #include "BespokeWasm/Theme.h"
@@ -200,20 +201,15 @@ namespace bespoke
          snapshot.transportBPM = mTransport ? mTransport->getBPM() : 120.0f;
          snapshot.nodes.clear();
          snapshot.connections.clear();
+         snapshot.paramArena.clear();
          snapshot.nodes.reserve(mModules.size());
          snapshot.connections.reserve(mConnections.size());
 
+         auto& registry = WasmModuleAdapterRegistry::instance();
          for (const auto& [id, module] : mModules)
          {
-            AudioGraphNode node;
-            node.id = id;
-            node.type = module->getType();
-            node.enabled = module->isEnabled();
-
-            if (const WasmModuleAdapter* adapter = WasmModuleAdapterRegistry::instance().find(node.type))
-               adapter->fillAudioGraphNode(moduleControlMap(*module), node);
-
-            snapshot.nodes.push_back(node);
+            appendAudioGraphNode(snapshot, id, module->getType(), module->isEnabled(),
+                                 moduleControlMap(*module));
          }
 
          for (const auto& conn : mConnections)
@@ -223,8 +219,13 @@ namespace bespoke
             if (srcIt == mModules.end() || dstIt == mModules.end())
                continue;
 
-            const auto& outputs = srcIt->second->getOutputs();
-            const auto& inputs = dstIt->second->getInputs();
+            const WasmModuleAdapter* srcAdapter = registry.find(srcIt->second->getType());
+            const WasmModuleAdapter* dstAdapter = registry.find(dstIt->second->getType());
+            if (!srcAdapter || !dstAdapter)
+               continue;
+
+            const auto outputs = srcAdapter->outputPorts();
+            const auto inputs = dstAdapter->inputPorts();
             if (conn.sourcePortIndex < 0 || conn.destPortIndex < 0 ||
                 conn.sourcePortIndex >= static_cast<int>(outputs.size()) ||
                 conn.destPortIndex >= static_cast<int>(inputs.size()))
@@ -235,8 +236,8 @@ namespace bespoke
             audioConn.sourcePortIndex = conn.sourcePortIndex;
             audioConn.destModuleId = conn.destModuleId;
             audioConn.destPortIndex = conn.destPortIndex;
-            audioConn.sourcePortType = outputs[conn.sourcePortIndex].type;
-            audioConn.destPortType = inputs[conn.destPortIndex].type;
+            audioConn.sourcePortType = outputs[static_cast<size_t>(conn.sourcePortIndex)].type;
+            audioConn.destPortType = inputs[static_cast<size_t>(conn.destPortIndex)].type;
             snapshot.connections.push_back(audioConn);
          }
       }
@@ -267,10 +268,17 @@ namespace bespoke
          if (sourceIt == mModules.end() || destIt == mModules.end() || sourceId == destId ||
              sourcePort < 0 || destPort < 0)
             return false;
-         const auto& outputs = sourceIt->second->getOutputs();
-         const auto& inputs = destIt->second->getInputs();
+
+         auto& registry = WasmModuleAdapterRegistry::instance();
+         const WasmModuleAdapter* sourceAdapter = registry.find(sourceIt->second->getType());
+         const WasmModuleAdapter* destAdapter = registry.find(destIt->second->getType());
+         if (!sourceAdapter || !destAdapter)
+            return false;
+
+         const auto outputs = sourceAdapter->outputPorts();
+         const auto inputs = destAdapter->inputPorts();
          return sourcePort < static_cast<int>(outputs.size()) && destPort < static_cast<int>(inputs.size()) &&
-                outputs[sourcePort].type == inputs[destPort].type;
+                outputs[static_cast<size_t>(sourcePort)].type == inputs[static_cast<size_t>(destPort)].type;
       }
 
       bool ModuleCanvas::findPortAt(float worldX, float worldY, bool output, int& moduleId, int& portIndex) const
@@ -345,6 +353,7 @@ namespace bespoke
          Lock lock(mMutex);
 
          StateSnapshot snapshot;
+         snapshot.schemaVersion = kPatchSchemaVersion;
          snapshot.transportBPM = mTransport ? mTransport->getBPM() : 120.0f;
          snapshot.transportPlaying = mTransport && mTransport->isPlaying();
          snapshot.offsetX = mOffsetX;

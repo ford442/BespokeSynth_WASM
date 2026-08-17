@@ -5,7 +5,7 @@
 #include "BespokeWasm/adapters/AdsrModuleAdapter.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
-#include <cstring>
+#include <new>
 
 namespace bespoke
 {
@@ -29,40 +29,54 @@ namespace bespoke
          };
       }
 
+      std::vector<PortDescriptor> AdsrModuleAdapter::inputPorts() const
+      {
+         return { { PortType::Audio, "In" }, { PortType::Note, "Gate" } };
+      }
+
+      std::vector<PortDescriptor> AdsrModuleAdapter::outputPorts() const
+      {
+         return { { PortType::Audio, "Out" } };
+      }
+
       std::unique_ptr<Module> AdsrModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<AdsrModule>(id);
       }
 
-      void AdsrModuleAdapter::fillAudioGraphNode(const std::map<std::string, float>& controls,
-                                                 AudioGraphNode& node) const
+      void AdsrModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
       {
-         auto get = [&](const char* name, float fallback) -> float
-         {
-            auto it = controls.find(name);
-            return it != controls.end() ? it->second : fallback;
-         };
-         node.attack = get("attack", 10.0f);
-         node.decay = get("decay", 120.0f);
-         node.sustain = get("sustain", 0.7f);
-         node.release = get("release", 200.0f);
+         auto* params = new (dst) AdsrParams();
+         params->attack = wasmControlValue(controls, "attack", 10.0f);
+         params->decay = wasmControlValue(controls, "decay", 120.0f);
+         params->sustain = wasmControlValue(controls, "sustain", 0.7f);
+         params->release = wasmControlValue(controls, "release", 200.0f);
       }
 
       void AdsrModuleAdapter::initRuntimeState(void* runtimeState) const
       {
-         std::memset(runtimeState, 0, sizeof(AdsrAdapterRuntimeState));
+         new (runtimeState) AdsrAdapterRuntimeState();
+      }
+
+      void AdsrModuleAdapter::destroyRuntimeState(void* runtimeState) const
+      {
+         static_cast<AdsrAdapterRuntimeState*>(runtimeState)->~AdsrAdapterRuntimeState();
       }
 
       void AdsrModuleAdapter::processAudio(void* runtimeState,
-                                           const AudioGraphNode& node,
+                                           const void* paramsPtr,
                                            float* buffer,
                                            const WasmAudioProcessContext& context) const
       {
+         if (!runtimeState || !paramsPtr || !buffer)
+            return;
+
          auto& state = *static_cast<AdsrAdapterRuntimeState*>(runtimeState);
-         const float attackSec = clampFloat(node.attack, 1.0f, 5000.0f) * 0.001f;
-         const float decaySec = clampFloat(node.decay, 1.0f, 5000.0f) * 0.001f;
-         const float sustain = clampFloat(node.sustain, 0.0f, 1.0f);
-         const float releaseSec = clampFloat(node.release, 1.0f, 5000.0f) * 0.001f;
+         const auto& params = *static_cast<const AdsrParams*>(paramsPtr);
+         const float attackSec = clampFloat(params.attack, 1.0f, 5000.0f) * 0.001f;
+         const float decaySec = clampFloat(params.decay, 1.0f, 5000.0f) * 0.001f;
+         const float sustain = clampFloat(params.sustain, 0.0f, 1.0f);
+         const float releaseSec = clampFloat(params.release, 1.0f, 5000.0f) * 0.001f;
          const float sampleDt = 1.0f / std::max(1.0f, context.sampleRate);
 
          for (int n = 0; n < context.noteCount; ++n)
@@ -140,6 +154,8 @@ namespace bespoke
             buffer[i] *= state.level;
          }
       }
+
+      BESPOKE_REGISTER_MODULE(AdsrModuleAdapter);
 
    } // namespace wasm
 } // namespace bespoke

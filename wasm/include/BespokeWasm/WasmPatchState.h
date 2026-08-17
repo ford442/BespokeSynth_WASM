@@ -14,10 +14,14 @@ namespace bespoke
 {
    namespace wasm
    {
+      constexpr int kPatchSchemaVersionV1 = 1;
+      constexpr int kPatchSchemaVersion = 2;
+
       std::string serializePatchState(const ModuleCanvas::StateSnapshot& snapshot, int viewMode);
       bool deserializePatchState(const std::string& json,
                                  ModuleCanvas::StateSnapshot& snapshot,
                                  int& viewMode,
                                  std::string& error);
+      void migratePatchState(ModuleCanvas::StateSnapshot& snapshot);
    } // namespace wasm
 } // namespace bespoke

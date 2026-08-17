@@ -6,7 +6,7 @@
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
 #include <cmath>
-#include <cstring>
+#include <new>
 
 namespace bespoke
 {
@@ -32,35 +32,42 @@ namespace bespoke
          };
       }
 
+      std::vector<PortDescriptor> StepSequencerModuleAdapter::inputPorts() const
+      {
+         return {};
+      }
+
+      std::vector<PortDescriptor> StepSequencerModuleAdapter::outputPorts() const
+      {
+         return { { PortType::Note, "Notes" } };
+      }
+
       std::unique_ptr<Module> StepSequencerModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<StepSequencerModule>(id);
       }
 
-      void StepSequencerModuleAdapter::fillAudioGraphNode(const std::map<std::string, float>& controls,
-                                                          AudioGraphNode& node) const
+      void StepSequencerModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
       {
-         auto get = [&](const char* name, float fallback) -> float
-         {
-            auto it = controls.find(name);
-            return it != controls.end() ? it->second : fallback;
-         };
-         node.patternMask = static_cast<int>(get("pattern", static_cast<float>(0x1111))) & 0xFFFF;
-         node.seqPitch = static_cast<int>(std::lround(get("pitch", 60.0f)));
-         node.gateLength = clampFloat(get("gate", 0.75f), 0.05f, 1.0f);
-         node.steps = std::max(1, std::min(16, static_cast<int>(std::lround(get("steps", 16.0f)))));
+         auto* params = new (dst) StepSequencerParams();
+         params->patternMask = static_cast<int>(wasmControlValue(controls, "pattern", static_cast<float>(0x1111))) & 0xFFFF;
+         params->pitch = static_cast<int>(std::lround(wasmControlValue(controls, "pitch", 60.0f)));
+         params->gate = clampFloat(wasmControlValue(controls, "gate", 0.75f), 0.05f, 1.0f);
+         params->steps = std::max(1, std::min(16, static_cast<int>(std::lround(wasmControlValue(controls, "steps", 16.0f)))));
       }
 
       void StepSequencerModuleAdapter::initRuntimeState(void* runtimeState) const
       {
-         std::memset(runtimeState, 0, sizeof(StepSequencerRuntimeState));
-         auto* state = static_cast<StepSequencerRuntimeState*>(runtimeState);
-         state->lastEmittedStep = -1;
-         state->noteOffBeat = -1.0;
+         new (runtimeState) StepSequencerRuntimeState();
+      }
+
+      void StepSequencerModuleAdapter::destroyRuntimeState(void* runtimeState) const
+      {
+         static_cast<StepSequencerRuntimeState*>(runtimeState)->~StepSequencerRuntimeState();
       }
 
       void StepSequencerModuleAdapter::emitNotesForBeatRange(void* runtimeState,
-                                                             const AudioGraphNode& node,
+                                                             const void* paramsPtr,
                                                              double beatStart,
                                                              double beatEnd,
                                                              WasmNoteEvent* outNotes,
@@ -68,13 +75,14 @@ namespace bespoke
                                                              int& outCount) const
       {
          outCount = 0;
-         if (!outNotes || maxNotes <= 0)
+         if (!outNotes || maxNotes <= 0 || !runtimeState || !paramsPtr)
             return;
 
          auto& state = *static_cast<StepSequencerRuntimeState*>(runtimeState);
-         const int stepCount = std::max(1, std::min(16, node.steps));
-         const int pitch = std::max(0, std::min(127, node.seqPitch));
-         const float gate = clampFloat(node.gateLength, 0.05f, 1.0f);
+         const auto& params = *static_cast<const StepSequencerParams*>(paramsPtr);
+         const int stepCount = std::max(1, std::min(16, params.steps));
+         const int pitch = std::max(0, std::min(127, params.pitch));
+         const float gate = clampFloat(params.gate, 0.05f, 1.0f);
          const double stepBeats = 1.0 / kStepsPerBeat;
 
          auto pushNote = [&](const WasmNoteEvent& event)
@@ -111,7 +119,7 @@ namespace bespoke
             maybeNoteOff(stepBeat);
 
             const int patternStep = ((absoluteStep % stepCount) + stepCount) % stepCount;
-            if ((node.patternMask & (1 << patternStep)) == 0)
+            if ((params.patternMask & (1 << patternStep)) == 0)
                continue;
 
             if (state.noteIsOn)
@@ -128,6 +136,8 @@ namespace bespoke
 
          maybeNoteOff(beatEnd);
       }
+
+      BESPOKE_REGISTER_MODULE(StepSequencerModuleAdapter);
 
    } // namespace wasm
 } // namespace bespoke

@@ -24,6 +24,9 @@
 #include "BespokeWasm/adapters/DelayModuleAdapter.h"
 #include "BespokeWasm/adapters/NoiseModuleAdapter.h"
 #include "BespokeWasm/adapters/StepSequencerModuleAdapter.h"
+#include "BespokeWasm/adapters/OscillatorModuleAdapter.h"
+#include "BespokeWasm/adapters/GainModuleAdapter.h"
+#include "BespokeWasm/adapters/ReverbModuleAdapter.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include "BespokeWasm/AudioHealth.h"
 #include "BespokeWasm/AudioRtGuard.h"
@@ -203,40 +206,14 @@ static AudioGraphSnapshot make_test_graph(float gain, float cutoff, float lfoDep
    AudioGraphSnapshot graph;
    graph.transportPlaying = true;
 
-   AudioGraphNode osc;
-   osc.id = 1;
-   osc.type = "oscillator";
-   osc.frequency = 440.0f;
-   osc.volume = 0.8f;
-   osc.waveform = 1;
-   graph.nodes.push_back(osc);
-
-   AudioGraphNode filter;
-   filter.id = 2;
-   filter.type = "filter";
-   filter.cutoff = cutoff;
-   filter.resonance = 0.2f;
-   filter.filterType = 0;
-   graph.nodes.push_back(filter);
-
-   AudioGraphNode gainNode;
-   gainNode.id = 3;
-   gainNode.type = "gain";
-   gainNode.gain = gain;
-   graph.nodes.push_back(gainNode);
-
-   AudioGraphNode lfo;
-   lfo.id = 4;
-   lfo.type = "lfo";
-   lfo.lfoRate = 6.0f;
-   lfo.lfoDepth = lfoDepth;
-   lfo.lfoShape = 0;
-   graph.nodes.push_back(lfo);
-
-   AudioGraphNode out;
-   out.id = 5;
-   out.type = "output";
-   graph.nodes.push_back(out);
+   appendAudioGraphNode(graph, 1, "oscillator", true,
+                        { { "frequency", 440.0f }, { "volume", 0.8f }, { "waveform", 1.0f } });
+   appendAudioGraphNode(graph, 2, "filter", true,
+                        { { "cutoff", cutoff }, { "resonance", 0.2f }, { "type", 0.0f } });
+   appendAudioGraphNode(graph, 3, "gain", true, { { "gain", gain } });
+   appendAudioGraphNode(graph, 4, "lfo", true,
+                        { { "rate", 6.0f }, { "depth", lfoDepth }, { "shape", 0.0f } });
+   appendAudioGraphNode(graph, 5, "output", true, {});
 
    auto audioConnection = [](int src, int dst)
    {
@@ -395,13 +372,12 @@ void test_filter_module_adapter()
    TEST("Filter adapter audio role", adapter.audioRole() == WasmAudioRole::AudioProcessor);
 
    std::map<std::string, float> controls = { { "cutoff", 800.0f }, { "resonance", 0.4f }, { "type", 1.0f } };
-   AudioGraphNode node;
-   node.id = 42;
-   node.type = "filter";
-   adapter.fillAudioGraphNode(controls, node);
-   TEST("Filter adapter fills cutoff", std::fabs(node.cutoff - 800.0f) < 0.01f);
-   TEST("Filter adapter fills resonance", std::fabs(node.resonance - 0.4f) < 0.01f);
-   TEST("Filter adapter fills filter type", node.filterType == 1);
+   FilterParams params{};
+   adapter.fillParams(controls, &params);
+   TEST("Filter adapter fills cutoff", std::fabs(params.cutoff - 800.0f) < 0.01f);
+   TEST("Filter adapter fills resonance", std::fabs(params.resonance - 0.4f) < 0.01f);
+   TEST("Filter adapter fills filter type", params.type == 1);
+   TEST("Filter adapter declares audio in and CV", adapter.inputPorts().size() == 2);
 
    FilterAdapterRuntimeState runtime{};
    adapter.initRuntimeState(&runtime);
@@ -413,7 +389,7 @@ void test_filter_module_adapter()
    WasmAudioProcessContext context;
    context.sampleRate = 44100.0f;
    context.numSamples = 64;
-   adapter.processAudio(&runtime, node, buffer, context);
+   adapter.processAudio(&runtime, &params, buffer, context);
    double energy = 0.0;
    for (float sample : buffer)
       energy += sample * sample;
@@ -425,6 +401,8 @@ void test_filter_module_adapter()
    {
       ui->setControlValue("cutoff", 500.0f);
       TEST("Filter UI module stores cutoff", std::fabs(ui->getControlValue("cutoff") - 500.0f) < 0.01f);
+      TEST("Filter UI inherits adapter ports", ui->getInputs().size() == 2 && ui->getOutputs().size() == 1);
+      TEST("Filter UI CV port is modulation", ui->getInputs()[1].type == PortType::Modulation);
    }
 }
 
@@ -434,47 +412,45 @@ void test_first_wave_module_adapters()
 
    {
       NoiseModuleAdapter adapter;
-      AudioGraphNode node;
-      node.type = "noise";
-      adapter.fillAudioGraphNode({ { "volume", 0.5f }, { "color", 0.0f } }, node);
+      NoiseParams params{};
+      adapter.fillParams({ { "volume", 0.5f }, { "color", 0.0f } }, &params);
       NoiseAdapterRuntimeState runtime{};
       adapter.initRuntimeState(&runtime);
       float buffer[256] = {};
       WasmAudioProcessContext context;
       context.sampleRate = 44100.0f;
       context.numSamples = 256;
-      adapter.processAudio(&runtime, node, buffer, context);
+      adapter.processAudio(&runtime, &params, buffer, context);
       TEST("Noise adapter produces non-silent output", buffer_rms(std::vector<float>(buffer, buffer + 256)) > 0.01f);
       TEST("Noise adapter registered", WasmModuleAdapterRegistry::instance().find("noise") != nullptr);
    }
 
    {
       DelayModuleAdapter adapter;
-      AudioGraphNode node;
-      node.type = "delay";
-      adapter.fillAudioGraphNode({ { "time", 0.01f }, { "feedback", 0.5f }, { "mix", 0.5f } }, node);
-      DelayAdapterRuntimeState runtime{};
-      adapter.initRuntimeState(&runtime);
+      DelayParams params{};
+      adapter.fillParams({ { "time", 0.01f }, { "feedback", 0.5f }, { "mix", 0.5f } }, &params);
+      std::vector<uint8_t> runtimeStorage(adapter.runtimeStateSize());
+      adapter.initRuntimeState(runtimeStorage.data());
 
       float buffer[512] = {};
       buffer[0] = 1.0f;
       WasmAudioProcessContext context;
       context.sampleRate = 44100.0f;
       context.numSamples = 512;
-      adapter.processAudio(&runtime, node, buffer, context);
+      adapter.processAudio(runtimeStorage.data(), &params, buffer, context);
       double tail = 0.0;
       for (int i = 100; i < 512; ++i)
          tail += std::fabs(buffer[i]);
       TEST("Delay adapter leaves echo energy", tail > 0.01);
       TEST("Delay adapter registered", WasmModuleAdapterRegistry::instance().find("delay") != nullptr);
+      adapter.destroyRuntimeState(runtimeStorage.data());
    }
 
    {
       AdsrModuleAdapter adapter;
-      AudioGraphNode node;
-      node.type = "adsr";
-      adapter.fillAudioGraphNode(
-         { { "attack", 5.0f }, { "decay", 40.0f }, { "sustain", 0.4f }, { "release", 80.0f } }, node);
+      AdsrParams params{};
+      adapter.fillParams(
+         { { "attack", 5.0f }, { "decay", 40.0f }, { "sustain", 0.4f }, { "release", 80.0f } }, &params);
       AdsrAdapterRuntimeState runtime{};
       adapter.initRuntimeState(&runtime);
 
@@ -489,7 +465,7 @@ void test_first_wave_module_adapters()
       context.blockStartTimeSeconds = 1.0;
       context.notes = &noteOn;
       context.noteCount = 1;
-      adapter.processAudio(&runtime, node, buffer, context);
+      adapter.processAudio(&runtime, &params, buffer, context);
       TEST("ADSR adapter applies envelope after note-on", buffer_rms(std::vector<float>(buffer, buffer + 256)) > 0.01f);
       TEST("ADSR adapter registered", WasmModuleAdapterRegistry::instance().find("adsr") != nullptr);
 
@@ -506,24 +482,10 @@ void test_first_wave_module_adapters()
       AudioGraphSnapshot graph;
       graph.transportPlaying = true;
 
-      AudioGraphNode noise;
-      noise.id = 1;
-      noise.type = "noise";
-      noise.noiseVolume = 0.4f;
-      graph.nodes.push_back(noise);
-
-      AudioGraphNode delay;
-      delay.id = 2;
-      delay.type = "delay";
-      delay.delayTime = 0.05f;
-      delay.delayFeedback = 0.2f;
-      delay.delayMix = 0.4f;
-      graph.nodes.push_back(delay);
-
-      AudioGraphNode out;
-      out.id = 3;
-      out.type = "output";
-      graph.nodes.push_back(out);
+      appendAudioGraphNode(graph, 1, "noise", true, { { "volume", 0.4f } });
+      appendAudioGraphNode(graph, 2, "delay", true,
+                           { { "time", 0.05f }, { "feedback", 0.2f }, { "mix", 0.4f } });
+      appendAudioGraphNode(graph, 3, "output", true, {});
 
       AudioGraphConnection c1;
       c1.sourceModuleId = 1;
@@ -555,13 +517,13 @@ void test_step_sequencer_note_graph()
            WasmAudioRole::NoteSource);
 
    StepSequencerModuleAdapter adapter;
-   AudioGraphNode seqNode;
-   seqNode.id = 1;
-   seqNode.type = "stepsequencer";
-   adapter.fillAudioGraphNode(
-      { { "pattern", 1.0f }, { "pitch", 72.0f }, { "gate", 0.5f }, { "steps", 16.0f } }, seqNode);
-   TEST("Sequencer fills pattern mask", seqNode.patternMask == 1);
-   TEST("Sequencer fills pitch", seqNode.seqPitch == 72);
+   StepSequencerParams seqParams{};
+   adapter.fillParams(
+      { { "pattern", 1.0f }, { "pitch", 72.0f }, { "gate", 0.5f }, { "steps", 16.0f } }, &seqParams);
+   TEST("Sequencer fills pattern mask", seqParams.patternMask == 1);
+   TEST("Sequencer fills pitch", seqParams.pitch == 72);
+   TEST("Sequencer declares note output", adapter.outputPorts().size() == 1 &&
+        adapter.outputPorts()[0].type == PortType::Note);
 
    auto ui = adapter.createUiModule(9);
    TEST("Sequencer UI created", ui != nullptr);
@@ -583,26 +545,10 @@ void test_step_sequencer_note_graph()
    graph.transportPlaying = true;
    graph.transportBPM = 120.0f;
 
-   AudioGraphNode seq;
-   seq.id = 1;
-   seq.type = "stepsequencer";
-   seq.patternMask = 0x1; // only step 0
-   seq.seqPitch = 60;
-   seq.gateLength = 0.5f;
-   seq.steps = 16;
-   graph.nodes.push_back(seq);
-
-   AudioGraphNode osc;
-   osc.id = 2;
-   osc.type = "oscillator";
-   osc.volume = 1.0f;
-   osc.frequency = 440.0f;
-   graph.nodes.push_back(osc);
-
-   AudioGraphNode out;
-   out.id = 3;
-   out.type = "output";
-   graph.nodes.push_back(out);
+   appendAudioGraphNode(graph, 1, "stepsequencer", true,
+                        { { "pattern", 1.0f }, { "pitch", 60.0f }, { "gate", 0.5f }, { "steps", 16.0f } });
+   appendAudioGraphNode(graph, 2, "oscillator", true, { { "volume", 1.0f }, { "frequency", 440.0f } });
+   appendAudioGraphNode(graph, 3, "output", true, {});
 
    AudioGraphConnection noteConn;
    noteConn.sourceModuleId = 1;
@@ -655,7 +601,10 @@ void test_step_sequencer_note_graph()
    TEST("Sequencer gated energy is positive", energyOn > 0.05);
 
    // Empty pattern with note cable should stay silent (no free-run).
-   graph.nodes[0].patternMask = 0;
+   auto* seqParamsMut = static_cast<StepSequencerParams*>(graph.paramsFor(graph.nodes[0]));
+   TEST("Sequencer params are in the arena", seqParamsMut != nullptr);
+   if (seqParamsMut)
+      seqParamsMut->patternMask = 0;
    compileAudioProcessPlan(graph, graph.processPlan);
    auto silent = render_graph(graph, &engine);
    TEST("Empty pattern with note cable stays silent", buffer_rms(silent) == 0.0f);
@@ -673,11 +622,13 @@ void test_audio_process_plan()
    TEST("Plan step count matches audio nodes", graph.processPlan.steps.size() == 4);
 
    bool oscBeforeOutput = false;
+   const int oscType = WasmModuleAdapterRegistry::instance().typeIndexFor("oscillator");
+   const int outType = WasmModuleAdapterRegistry::instance().typeIndexFor("output");
    for (const auto& step : graph.processPlan.steps)
    {
-      if (step.processor == PlanProcessorKind::Oscillator)
+      if (step.typeIndex == oscType)
          oscBeforeOutput = true;
-      if (step.processor == PlanProcessorKind::Output)
+      if (step.typeIndex == outType)
          TEST("Oscillator precedes output in plan", oscBeforeOutput);
    }
 
@@ -722,18 +673,11 @@ void test_audio_graph_benchmark()
    graph.transportPlaying = true;
    graph.transportBPM = 120.0f;
 
-   AudioGraphNode out;
-   out.id = 1;
-   out.type = "output";
-   graph.nodes.push_back(out);
+   appendAudioGraphNode(graph, 1, "output", true, {});
 
    for (int i = 2; i <= 65; ++i)
    {
-      AudioGraphNode gain;
-      gain.id = i;
-      gain.type = "gain";
-      gain.gain = 0.99f;
-      graph.nodes.push_back(gain);
+      appendAudioGraphNode(graph, i, "gain", true, { { "gain", 0.99f } });
 
       AudioGraphConnection conn;
       conn.sourceModuleId = i - 1;
@@ -790,6 +734,171 @@ void test_audio_health_metrics()
    TEST("Health JSON mentions noteDropCount", std::strstr(json, "noteDropCount") != nullptr);
 }
 
+void test_typed_adapter_round_trip()
+{
+   printf("\n=== Typed Adapter Round-Trip Tests ===\n");
+
+   class FakeConstantAdapter : public WasmModuleAdapter
+   {
+   public:
+      struct Params
+      {
+         float value = 0.25f;
+      };
+
+      const char* typeId() const override { return "test.constant"; }
+      const char* displayName() const override { return "Test Constant"; }
+      ModuleCategory category() const override { return ModuleCategory::Synth; }
+      WasmAudioRole audioRole() const override { return WasmAudioRole::AudioSource; }
+      std::vector<WasmControlDescriptor> controlDescriptors() const override { return { { "value", 0.25f } }; }
+      std::vector<PortDescriptor> outputPorts() const override { return { { PortType::Audio, "Out" } }; }
+      std::unique_ptr<Module> createUiModule(int) const override { return nullptr; }
+      size_t paramsSize() const override { return sizeof(Params); }
+      void fillParams(const WasmControlMap& controls, void* dst) const override
+      {
+         auto* params = static_cast<Params*>(dst);
+         params->value = wasmControlValue(controls, "value", 0.25f);
+      }
+      void processAudio(void*, const void* paramsPtr, float* buffer, const WasmAudioProcessContext& context) const override
+      {
+         const auto& params = *static_cast<const Params*>(paramsPtr);
+         for (int i = 0; i < context.numSamples; ++i)
+            buffer[i] = params.value;
+      }
+   };
+
+   class FakeScaleAdapter : public WasmModuleAdapter
+   {
+   public:
+      struct Params
+      {
+         float scale = 2.0f;
+      };
+
+      const char* typeId() const override { return "test.scale"; }
+      const char* displayName() const override { return "Test Scale"; }
+      ModuleCategory category() const override { return ModuleCategory::AudioEffect; }
+      WasmAudioRole audioRole() const override { return WasmAudioRole::AudioProcessor; }
+      std::vector<WasmControlDescriptor> controlDescriptors() const override { return { { "scale", 2.0f } }; }
+      std::vector<PortDescriptor> inputPorts() const override { return { { PortType::Audio, "In" } }; }
+      std::vector<PortDescriptor> outputPorts() const override { return { { PortType::Audio, "Out" } }; }
+      std::unique_ptr<Module> createUiModule(int) const override { return nullptr; }
+      size_t paramsSize() const override { return sizeof(Params); }
+      void fillParams(const WasmControlMap& controls, void* dst) const override
+      {
+         auto* params = static_cast<Params*>(dst);
+         params->scale = wasmControlValue(controls, "scale", 2.0f);
+      }
+      void processAudio(void*, const void* paramsPtr, float* buffer, const WasmAudioProcessContext& context) const override
+      {
+         const auto& params = *static_cast<const Params*>(paramsPtr);
+         for (int i = 0; i < context.numSamples; ++i)
+            buffer[i] *= params.scale;
+      }
+   };
+
+   auto& registry = WasmModuleAdapterRegistry::instance();
+   registry.registerAdapter(std::make_unique<FakeConstantAdapter>());
+   registry.registerAdapter(std::make_unique<FakeScaleAdapter>());
+
+   TEST("Fake constant adapter registered by type id", registry.find("test.constant") != nullptr);
+   TEST("Fake scale adapter interned type index", registry.typeIndexFor("test.scale") >= 0);
+   TEST("adapterAt matches find", registry.adapterAt(registry.typeIndexFor("test.constant")) == registry.find("test.constant"));
+
+   AudioGraphSnapshot graph;
+   graph.transportPlaying = true;
+   appendAudioGraphNode(graph, 1, "test.constant", true, { { "value", 0.25f } });
+   appendAudioGraphNode(graph, 2, "test.scale", true, { { "scale", 2.0f } });
+   appendAudioGraphNode(graph, 3, "output", true, {});
+
+   AudioGraphConnection c1;
+   c1.sourceModuleId = 1;
+   c1.destModuleId = 2;
+   c1.sourcePortType = PortType::Audio;
+   c1.destPortType = PortType::Audio;
+   graph.connections.push_back(c1);
+   AudioGraphConnection c2;
+   c2.sourceModuleId = 2;
+   c2.destModuleId = 3;
+   c2.sourcePortType = PortType::Audio;
+   c2.destPortType = PortType::Audio;
+   graph.connections.push_back(c2);
+
+   auto rendered = render_graph(graph);
+   TEST("Fake adapter graph is constant 0.5", std::fabs(rendered[0] - 0.5f) < 0.0001f);
+   TEST("Fake adapter graph is non-silent", buffer_rms(rendered) > 0.4f);
+
+   TEST("AudioGraphNode has no module-specific payload", sizeof(AudioGraphNode) <= 32);
+}
+
+void test_reverb_adapter()
+{
+   printf("\n=== Reverb Adapter Tests ===\n");
+
+   TEST("Reverb adapter registered", WasmModuleAdapterRegistry::instance().find("reverb") != nullptr);
+   ReverbModuleAdapter adapter;
+   TEST("Reverb declares audio ports", adapter.inputPorts().size() == 1 && adapter.outputPorts().size() == 1);
+
+   ReverbParams params{};
+   adapter.fillParams({ { "room", 0.8f }, { "damping", 0.2f }, { "mix", 0.5f } }, &params);
+   TEST("Reverb fills room size", std::fabs(params.roomSize - 0.8f) < 0.01f);
+
+   std::vector<uint8_t> runtime(adapter.runtimeStateSize());
+   adapter.initRuntimeState(runtime.data());
+   float buffer[2048] = {};
+   buffer[0] = 1.0f;
+   WasmAudioProcessContext context;
+   context.sampleRate = 44100.0f;
+   context.numSamples = 2048;
+   adapter.processAudio(runtime.data(), &params, buffer, context);
+   double tail = 0.0;
+   for (int i = 1200; i < 2048; ++i)
+      tail += std::fabs(buffer[i]);
+   TEST("Reverb leaves tail energy", tail > 0.001);
+   adapter.destroyRuntimeState(runtime.data());
+
+   AudioGraphSnapshot graph;
+   graph.transportPlaying = true;
+   appendAudioGraphNode(graph, 1, "noise", true, { { "volume", 0.4f } });
+   appendAudioGraphNode(graph, 2, "reverb", true, { { "room", 0.7f }, { "mix", 0.4f } });
+   appendAudioGraphNode(graph, 3, "output", true, {});
+   AudioGraphConnection c1{ 1, 0, 2, 0, PortType::Audio, PortType::Audio };
+   AudioGraphConnection c2{ 2, 0, 3, 0, PortType::Audio, PortType::Audio };
+   graph.connections.push_back(c1);
+   graph.connections.push_back(c2);
+   auto rendered = render_graph(graph);
+   TEST("Noise→reverb→output graph is non-silent", buffer_rms(rendered) > 0.001f);
+}
+
+void test_patch_schema_v1_migration()
+{
+   printf("\n=== Patch Schema V1 Migration Tests ===\n");
+
+   const char* v1Json =
+      "{\n"
+      "  \"filetype\": \"bespokesynth\",\n"
+      "  \"format\": \"bespokesynth-wasm-state\",\n"
+      "  \"version\": 1,\n"
+      "  \"modules\": [\n"
+      "    { \"id\": 10, \"type\": \"oscillator\", \"position\": { \"x\": 1, \"y\": 2 },\n"
+      "      \"controls\": { \"frequency\": 330.0 } }\n"
+      "  ],\n"
+      "  \"connections\": []\n"
+      "}\n";
+
+   ModuleCanvas::StateSnapshot loaded;
+   int viewMode = 0;
+   std::string error;
+   TEST("V1 patch deserializes", deserializePatchState(v1Json, loaded, viewMode, error));
+   TEST("V1 patch migrates to current schema", loaded.schemaVersion == kPatchSchemaVersion);
+   TEST("V1 oscillator keeps frequency", std::fabs(loaded.modules[0].controls["frequency"] - 330.0f) < 0.01f);
+   TEST("V1 oscillator gains default volume", std::fabs(loaded.modules[0].controls["volume"] - 0.7f) < 0.01f);
+   TEST("V1 oscillator gains default waveform", std::fabs(loaded.modules[0].controls["waveform"] - 0.0f) < 0.01f);
+
+   const std::string v2 = serializePatchState(loaded, 0);
+   TEST("Migrated patch serializes current version", v2.find("\"version\": 2") != std::string::npos);
+}
+
 int main()
 {
    printf("BespokeSynth WASM Test Suite\n");
@@ -809,6 +918,9 @@ int main()
    test_first_wave_module_adapters();
    test_step_sequencer_note_graph();
    test_patch_state_json();
+   test_patch_schema_v1_migration();
+   test_typed_adapter_round_trip();
+   test_reverb_adapter();
    test_audio_health_metrics();
 
    printf("\n============================\n");

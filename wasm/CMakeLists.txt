@@ -83,6 +83,22 @@ message(STATUS "  Threads: ${BESPOKE_WASM_THREADS}")
 message(STATUS "  Asyncify: ${BESPOKE_WASM_ASYNCIFY}")
 message(STATUS "  Build flavor: ${BESPOKE_WASM_BUILD_FLAVOR}")
 
+# Each adapter is one header + one source + one line here.
+set(BESPOKE_WASM_ADAPTER_SOURCES
+    ${BESPOKE_WASM_DIR}/src/adapters/OscillatorModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/GainModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/OutputModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/FilterModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/LfoModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/AdsrModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/DelayModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/NoiseModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/StepSequencerModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/TransportModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/ScaleModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/ReverbModuleAdapter.cpp
+)
+
 # Collect WASM-specific sources
 set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/WasmMain.cpp
@@ -111,11 +127,7 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/ModuleCanvasHelpers.cpp
     ${BESPOKE_WASM_DIR}/src/ModuleFactory.cpp
     ${BESPOKE_WASM_DIR}/src/WasmModuleAdapterRegistry.cpp
-    ${BESPOKE_WASM_DIR}/src/adapters/FilterModuleAdapter.cpp
-    ${BESPOKE_WASM_DIR}/src/adapters/AdsrModuleAdapter.cpp
-    ${BESPOKE_WASM_DIR}/src/adapters/DelayModuleAdapter.cpp
-    ${BESPOKE_WASM_DIR}/src/adapters/NoiseModuleAdapter.cpp
-    ${BESPOKE_WASM_DIR}/src/adapters/StepSequencerModuleAdapter.cpp
+    ${BESPOKE_WASM_ADAPTER_SOURCES}
     ${BESPOKE_WASM_DIR}/src/modules/OscillatorModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/GainModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/OutputModule.cpp
@@ -283,11 +295,7 @@ add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
     ${BESPOKE_WASM_DIR}/src/AudioHealth.cpp
     ${BESPOKE_WASM_DIR}/src/WasmModuleAdapterRegistry.cpp
-    ${BESPOKE_WASM_DIR}/src/adapters/FilterModuleAdapter.cpp
-    ${BESPOKE_WASM_DIR}/src/adapters/AdsrModuleAdapter.cpp
-    ${BESPOKE_WASM_DIR}/src/adapters/DelayModuleAdapter.cpp
-    ${BESPOKE_WASM_DIR}/src/adapters/NoiseModuleAdapter.cpp
-    ${BESPOKE_WASM_DIR}/src/adapters/StepSequencerModuleAdapter.cpp
+    ${BESPOKE_WASM_ADAPTER_SOURCES}
     ${BESPOKE_WASM_DIR}/src/Module.cpp
     ${BESPOKE_WASM_DIR}/src/modules/FilterModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/OscillatorModule.cpp
