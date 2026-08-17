@@ -6,6 +6,7 @@
  */
 
 #include "BespokeWasm/WasmPatchState.h"
+#include "BespokeWasm/WasmModuleAdapter.h"
 #include <cctype>
 #include <iomanip>
 #include <map>
@@ -491,7 +492,28 @@ namespace bespoke
          }
 
          snapshot = std::move(parsed);
+         migratePatchState(snapshot);
          return true;
+      }
+
+      void migratePatchState(ModuleCanvas::StateSnapshot& snapshot)
+      {
+         if (snapshot.schemaVersion >= kPatchSchemaVersion)
+            return;
+
+         auto& registry = WasmModuleAdapterRegistry::instance();
+         for (auto& module : snapshot.modules)
+         {
+            const WasmModuleAdapter* adapter = registry.find(module.type);
+            if (!adapter)
+               continue;
+            for (const auto& control : adapter->controlDescriptors())
+            {
+               if (module.controls.find(control.name) == module.controls.end())
+                  module.controls[control.name] = control.defaultValue;
+            }
+         }
+         snapshot.schemaVersion = kPatchSchemaVersion;
       }
    } // namespace wasm
 } // namespace bespoke

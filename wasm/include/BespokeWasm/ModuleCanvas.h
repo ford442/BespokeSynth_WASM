@@ -53,7 +53,7 @@ namespace bespoke
 
          struct StateSnapshot
          {
-            int schemaVersion = 1;
+            int schemaVersion = 2;
             float transportBPM = 120.0f;
             bool transportPlaying = false;
             float offsetX = 0.0f;

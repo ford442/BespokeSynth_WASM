@@ -19,9 +19,6 @@ namespace bespoke
       : Module(id, "filter", "Filter", ModuleCategory::AudioEffect)
       {
          setSize(150, 110);
-         addInput("In", PortType::Audio);
-         addInput("CV", PortType::Modulation);
-         addOutput("Out", PortType::Audio);
       }
 
       void FilterModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)

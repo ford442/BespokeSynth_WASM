@@ -17,6 +17,14 @@ namespace bespoke
    namespace wasm
    {
 
+      struct AdsrParams
+      {
+         float attack = 10.0f;
+         float decay = 120.0f;
+         float sustain = 0.7f;
+         float release = 200.0f;
+      };
+
       struct AdsrAdapterRuntimeState
       {
          enum class Stage
@@ -43,14 +51,18 @@ namespace bespoke
          WasmAudioRole audioRole() const override { return WasmAudioRole::AudioProcessor; }
 
          std::vector<WasmControlDescriptor> controlDescriptors() const override;
+         std::vector<PortDescriptor> inputPorts() const override;
+         std::vector<PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
-         void fillAudioGraphNode(const std::map<std::string, float>& controls,
-                                 AudioGraphNode& node) const override;
+
+         size_t paramsSize() const override { return sizeof(AdsrParams); }
+         void fillParams(const WasmControlMap& controls, void* dst) const override;
 
          size_t runtimeStateSize() const override { return sizeof(AdsrAdapterRuntimeState); }
          void initRuntimeState(void* runtimeState) const override;
+         void destroyRuntimeState(void* runtimeState) const override;
          void processAudio(void* runtimeState,
-                           const AudioGraphNode& node,
+                           const void* params,
                            float* buffer,
                            const WasmAudioProcessContext& context) const override;
       };

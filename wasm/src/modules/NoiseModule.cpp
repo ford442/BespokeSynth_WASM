@@ -15,7 +15,6 @@ namespace bespoke
       : Module(id, "noise", "Noise", ModuleCategory::Synth)
       {
          setSize(120, 80);
-         addOutput("Out", PortType::Audio);
       }
 
       void NoiseModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)

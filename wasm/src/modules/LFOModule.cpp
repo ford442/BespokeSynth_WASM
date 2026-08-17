@@ -19,7 +19,6 @@ namespace bespoke
       : Module(id, "lfo", "LFO", ModuleCategory::Modulator)
       {
          setSize(130, 100);
-         addOutput("Mod", PortType::Modulation);
       }
 
       void LFOModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)

@@ -9,7 +9,6 @@
 
 #include "BespokeWasm/ModuleTypes.h"
 #include <cstdint>
-#include <string>
 #include <vector>
 
 namespace bespoke
@@ -17,38 +16,20 @@ namespace bespoke
    namespace wasm
    {
 
+      constexpr uint32_t kAudioGraphParamAlign = 8;
+
+      inline uint32_t alignAudioGraphOffset(uint32_t offset, uint32_t alignment = kAudioGraphParamAlign)
+      {
+         return (offset + (alignment - 1u)) & ~(alignment - 1u);
+      }
+
       struct AudioGraphNode
       {
          int id = -1;
-         std::string type;
+         int typeIndex = -1;
          bool enabled = true;
-         float frequency = 440.0f;
-         float volume = 1.0f;
-         int waveform = 0;
-         float gain = 1.0f;
-         float cutoff = 1000.0f;
-         float resonance = 0.5f;
-         int filterType = 0;
-         float lfoRate = 1.0f;
-         float lfoDepth = 1.0f;
-         int lfoShape = 0;
-         // ADSR (times in milliseconds)
-         float attack = 10.0f;
-         float decay = 120.0f;
-         float sustain = 0.7f;
-         float release = 200.0f;
-         // Delay
-         float delayTime = 0.25f;
-         float delayFeedback = 0.35f;
-         float delayMix = 0.35f;
-         // Noise
-         float noiseVolume = 0.35f;
-         int noiseColor = 0;
-         // Step sequencer (16th-note grid; pattern bit i = step i active)
-         int patternMask = 0x1111; // steps 0,4,8,12
-         int seqPitch = 60;
-         float gateLength = 0.75f; // fraction of step
-         int steps = 16;
+         uint32_t paramOffset = 0;
+         uint32_t paramSize = 0;
       };
 
       struct AudioGraphConnection
@@ -80,25 +61,11 @@ namespace bespoke
          int size() const { return count; }
       };
 
-      enum class PlanProcessorKind : uint8_t
-      {
-         None = 0,
-         Oscillator,
-         Noise,
-         Filter,
-         Gain,
-         Adsr,
-         Delay,
-         Output,
-         Lfo,
-         StepSequencer,
-      };
-
       struct PlanStep
       {
          int nodeIndex = -1;
          int moduleId = -1;
-         PlanProcessorKind processor = PlanProcessorKind::None;
+         int typeIndex = -1;
          WasmAudioRole audioRole = WasmAudioRole::None;
          int outBufferSlot = -1;
          SmallVec<int, 4> inputBufferSlots;
@@ -117,8 +84,8 @@ namespace bespoke
          int bufferSlotCount = 0;
          int modulationSlotCount = 0;
          std::vector<PlanStep> steps;
-         std::vector<int> lfoNodeIndices;
-         std::vector<int> sequencerNodeIndices;
+         std::vector<int> modulationSourceNodeIndices;
+         std::vector<int> noteSourceNodeIndices;
          std::vector<int> nodeIndexByModuleId;
       };
 
@@ -128,7 +95,22 @@ namespace bespoke
          float transportBPM = 120.0f;
          std::vector<AudioGraphNode> nodes;
          std::vector<AudioGraphConnection> connections;
+         std::vector<uint8_t> paramArena;
          AudioProcessPlan processPlan;
+
+         const void* paramsFor(const AudioGraphNode& node) const
+         {
+            if (node.paramSize == 0)
+               return nullptr;
+            if (static_cast<size_t>(node.paramOffset) + node.paramSize > paramArena.size())
+               return nullptr;
+            return paramArena.data() + node.paramOffset;
+         }
+
+         void* paramsFor(const AudioGraphNode& node)
+         {
+            return const_cast<void*>(static_cast<const AudioGraphSnapshot*>(this)->paramsFor(node));
+         }
       };
 
    } // namespace wasm

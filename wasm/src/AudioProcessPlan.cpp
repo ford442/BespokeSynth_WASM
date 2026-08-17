@@ -20,9 +20,8 @@ namespace bespoke
    {
       namespace
       {
-         bool participatesInAudioTopology(const std::string& type)
+         bool participatesInAudioTopology(const WasmModuleAdapter* adapter)
          {
-            const WasmModuleAdapter* adapter = WasmModuleAdapterRegistry::instance().find(type);
             if (!adapter)
                return false;
             switch (adapter->audioRole())
@@ -35,29 +34,6 @@ namespace bespoke
                   return false;
             }
          }
-
-         PlanProcessorKind processorKindFor(const std::string& type)
-         {
-            if (type == "oscillator")
-               return PlanProcessorKind::Oscillator;
-            if (type == "noise")
-               return PlanProcessorKind::Noise;
-            if (type == "filter")
-               return PlanProcessorKind::Filter;
-            if (type == "gain")
-               return PlanProcessorKind::Gain;
-            if (type == "adsr")
-               return PlanProcessorKind::Adsr;
-            if (type == "delay")
-               return PlanProcessorKind::Delay;
-            if (type == "output")
-               return PlanProcessorKind::Output;
-            if (type == "lfo")
-               return PlanProcessorKind::Lfo;
-            if (type == "stepsequencer")
-               return PlanProcessorKind::StepSequencer;
-            return PlanProcessorKind::None;
-         }
       }
 
       void compileAudioProcessPlan(const AudioGraphSnapshot& snapshot, AudioProcessPlan& plan)
@@ -65,6 +41,8 @@ namespace bespoke
          plan = AudioProcessPlan{};
          if (snapshot.nodes.empty())
             return;
+
+         auto& registry = WasmModuleAdapterRegistry::instance();
 
          int maxModuleId = -1;
          for (const auto& node : snapshot.nodes)
@@ -88,16 +66,20 @@ namespace bespoke
          for (size_t nodeIndex = 0; nodeIndex < snapshot.nodes.size(); ++nodeIndex)
          {
             const auto& node = snapshot.nodes[nodeIndex];
-            if (node.enabled && participatesInAudioTopology(node.type))
+            const WasmModuleAdapter* adapter = registry.adapterAt(node.typeIndex);
+            if (!node.enabled || !adapter)
+               continue;
+
+            if (participatesInAudioTopology(adapter))
             {
                audioModuleIds.insert(node.id);
                indegree[node.id] = 0;
             }
 
-            if (node.enabled && node.type == "lfo")
-               plan.lfoNodeIndices.push_back(static_cast<int>(nodeIndex));
-            if (node.enabled && node.type == "stepsequencer")
-               plan.sequencerNodeIndices.push_back(static_cast<int>(nodeIndex));
+            if (adapter->audioRole() == WasmAudioRole::ModulationSource)
+               plan.modulationSourceNodeIndices.push_back(static_cast<int>(nodeIndex));
+            if (adapter->audioRole() == WasmAudioRole::NoteSource)
+               plan.noteSourceNodeIndices.push_back(static_cast<int>(nodeIndex));
          }
 
          for (const auto& conn : snapshot.connections)
@@ -192,7 +174,7 @@ namespace bespoke
 
          std::unordered_map<int, int> modulationSlotByModuleId;
          int nextModSlot = 0;
-         for (int lfoNodeIndex : plan.lfoNodeIndices)
+         for (int lfoNodeIndex : plan.modulationSourceNodeIndices)
             modulationSlotByModuleId[snapshot.nodes[static_cast<size_t>(lfoNodeIndex)].id] = nextModSlot++;
 
          plan.modulationSlotCount = nextModSlot;
@@ -205,11 +187,12 @@ namespace bespoke
                continue;
 
             const auto& node = snapshot.nodes[static_cast<size_t>(nodeIndex)];
+            const WasmModuleAdapter* adapter = registry.adapterAt(node.typeIndex);
             PlanStep step;
             step.nodeIndex = nodeIndex;
             step.moduleId = moduleId;
-            step.processor = processorKindFor(node.type);
-            if (const WasmModuleAdapter* adapter = WasmModuleAdapterRegistry::instance().find(node.type))
+            step.typeIndex = node.typeIndex;
+            if (adapter)
                step.audioRole = adapter->audioRole();
 
             const auto audioInputs = audioInputsByDest.find(moduleId);
@@ -244,9 +227,9 @@ namespace bespoke
                   if (sourceNodeIndex < 0)
                      continue;
                   step.noteSourceSlots.push_back(sourceNodeIndex);
-                  for (int scratch = 0; scratch < static_cast<int>(plan.sequencerNodeIndices.size()); ++scratch)
+                  for (int scratch = 0; scratch < static_cast<int>(plan.noteSourceNodeIndices.size()); ++scratch)
                   {
-                     if (plan.sequencerNodeIndices[static_cast<size_t>(scratch)] == sourceNodeIndex)
+                     if (plan.noteSourceNodeIndices[static_cast<size_t>(scratch)] == sourceNodeIndex)
                      {
                         step.noteSourceScratchSlots.push_back(scratch);
                         break;
@@ -266,7 +249,7 @@ namespace bespoke
                   ++slotRefCount[step.outBufferSlot];
             }
 
-            if (step.processor == PlanProcessorKind::Output)
+            if (step.audioRole == WasmAudioRole::Sink)
             {
                plan.outputNodeIndex = nodeIndex;
                plan.outputBufferSlot = step.outBufferSlot;

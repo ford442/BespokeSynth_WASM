@@ -19,7 +19,6 @@ namespace bespoke
       : Module(id, "output", "Output", ModuleCategory::Other)
       {
          setSize(120, 90);
-         addInput("In", PortType::Audio);
       }
 
       void OutputModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)

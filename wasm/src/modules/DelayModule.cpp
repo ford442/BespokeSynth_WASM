@@ -15,8 +15,6 @@ namespace bespoke
       : Module(id, "delay", "Delay", ModuleCategory::AudioEffect)
       {
          setSize(140, 100);
-         addInput("In", PortType::Audio);
-         addOutput("Out", PortType::Audio);
       }
 
       void DelayModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)

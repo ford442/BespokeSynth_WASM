@@ -15,9 +15,6 @@ namespace bespoke
       : Module(id, "adsr", "ADSR", ModuleCategory::AudioEffect)
       {
          setSize(150, 110);
-         addInput("In", PortType::Audio);
-         addInput("Gate", PortType::Note);
-         addOutput("Out", PortType::Audio);
       }
 
       void AdsrModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)

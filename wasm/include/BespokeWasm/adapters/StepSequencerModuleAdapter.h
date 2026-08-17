@@ -14,6 +14,14 @@ namespace bespoke
    namespace wasm
    {
 
+      struct StepSequencerParams
+      {
+         int patternMask = 0x1111;
+         int pitch = 60;
+         float gate = 0.75f;
+         int steps = 16;
+      };
+
       struct StepSequencerRuntimeState
       {
          int lastEmittedStep = -1;
@@ -31,21 +39,24 @@ namespace bespoke
          WasmAudioRole audioRole() const override { return WasmAudioRole::NoteSource; }
 
          std::vector<WasmControlDescriptor> controlDescriptors() const override;
+         std::vector<PortDescriptor> inputPorts() const override;
+         std::vector<PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
-         void fillAudioGraphNode(const std::map<std::string, float>& controls,
-                                 AudioGraphNode& node) const override;
+
+         size_t paramsSize() const override { return sizeof(StepSequencerParams); }
+         void fillParams(const WasmControlMap& controls, void* dst) const override;
 
          size_t runtimeStateSize() const override { return sizeof(StepSequencerRuntimeState); }
          void initRuntimeState(void* runtimeState) const override;
+         void destroyRuntimeState(void* runtimeState) const override;
 
-         /** Emit note on/off events for steps crossed in [beatStart, beatEnd). */
          void emitNotesForBeatRange(void* runtimeState,
-                                    const AudioGraphNode& node,
+                                    const void* params,
                                     double beatStart,
                                     double beatEnd,
                                     WasmNoteEvent* outNotes,
                                     int maxNotes,
-                                    int& outCount) const;
+                                    int& outCount) const override;
       };
 
    } // namespace wasm
