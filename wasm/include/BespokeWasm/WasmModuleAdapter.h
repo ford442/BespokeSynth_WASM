@@ -27,6 +27,7 @@ namespace bespoke
       class Module;
 
       using WasmControlMap = std::map<std::string, float>;
+      using WasmStringMap = std::map<std::string, std::string>;
 
       struct WasmControlDescriptor
       {
@@ -52,10 +53,15 @@ namespace bespoke
          float sampleRate = 44100.0f;
          int numSamples = 0;
          double blockStartTimeSeconds = 0.0;
+         double beatStart = 0.0;
+         double beatEnd = 0.0;
+         float bpm = 120.0f;
          const float* modulationBuffer = nullptr;
+         const float* inputAudio = nullptr;
          const WasmNoteEvent* notes = nullptr;
          int noteCount = 0;
          bool hasNoteCable = false;
+         bool hasAudioInput = false;
       };
 
       inline float wasmControlValue(const WasmControlMap& controls, const char* name, float fallback)
@@ -85,6 +91,16 @@ namespace bespoke
          {
             (void)controls;
             (void)dst;
+         }
+
+         virtual void fillParams(int moduleId,
+                                 const WasmControlMap& controls,
+                                 const WasmStringMap& extras,
+                                 void* dst) const
+         {
+            (void)moduleId;
+            (void)extras;
+            fillParams(controls, dst);
          }
 
          virtual size_t runtimeStateSize() const { return 0; }
@@ -159,14 +175,15 @@ namespace bespoke
                                 int moduleId,
                                 const std::string& type,
                                 bool enabled,
-                                const WasmControlMap& controls);
+                                const WasmControlMap& controls,
+                                const WasmStringMap& extras = {});
 
-#define BESPOKE_REGISTER_MODULE(AdapterClass)                                    \
+#define BESPOKE_REGISTER_MODULE(AdapterClass)                                          \
    static bespoke::wasm::WasmModuleAdapterRegistrar g_bespoke_register_##AdapterClass( \
-      []() -> std::unique_ptr<bespoke::wasm::WasmModuleAdapter>                  \
-      {                                                                          \
-         return std::make_unique<AdapterClass>();                                \
-      })
+   []() -> std::unique_ptr<bespoke::wasm::WasmModuleAdapter>                           \
+   {                                                                                   \
+      return std::make_unique<AdapterClass>();                                         \
+   })
 
    } // namespace wasm
 } // namespace bespoke

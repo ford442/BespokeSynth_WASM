@@ -116,6 +116,20 @@ export interface BespokeSynthModule extends EmscriptenModule {
     _bespoke_get_render_test_mode(): number;
     _bespoke_set_font_test_visible(visible: number): void;
     _bespoke_get_font_test_visible(): number;
+
+    _bespoke_load_sample(bytes: number, len: number, name: number): number;
+    _bespoke_get_sample_hash(sampleId: number): number;
+    _bespoke_get_sample_name(sampleId: number): number;
+    _bespoke_assign_sample(moduleId: number, hash: number): number;
+    _bespoke_find_first_module(type: number): number;
+    _bespoke_set_module_string(moduleId: number, key: number, value: number): number;
+    _bespoke_get_module_string(moduleId: number, key: number): number;
+    _bespoke_push_input_audio(frames: number, framesCount: number): void;
+    _bespoke_set_offline_format(bitsPerSample: number): void;
+    _bespoke_render_offline(seconds: number, sampleRate: number): number;
+    _bespoke_get_offline_wav(outByteLength: number): number;
+    _bespoke_get_offline_wav_size(): number;
+    _bespoke_free_offline_render(): void;
 }
 
 /**

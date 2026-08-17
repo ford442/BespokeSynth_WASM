@@ -12,7 +12,7 @@ fi
 
 mapfile -t files < <(
   git ls-files 'wasm/**/*.cpp' 'wasm/**/*.h' 'wasm/**/*.c' 'Source/**/*.cpp' 'Source/**/*.h' 2>/dev/null \
-    | grep -v '^libs/' || true
+    | grep -v '^libs/' | grep -v '^wasm/third_party/' || true
 )
 
 if ((${#files[@]} == 0)); then

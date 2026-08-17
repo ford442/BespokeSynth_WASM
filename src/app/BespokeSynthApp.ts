@@ -12,6 +12,7 @@ import {
   downloadPatchState,
   getPatchStateJson,
   loadBundledLayout,
+  loadPatchStateJson,
   promptForPatchStateFile,
 } from '../patchState';
 import { PatchStorage, PATCH_DEFAULT_AUTOSAVE_NAME } from '../patchStorage';
@@ -48,6 +49,15 @@ import {
   setupRendererPanel,
 } from '../ui/rendererPanel';
 import { setupAudioHealthHud } from '../ui/audioHealthHud';
+import { collectSampleHashes } from '../samples/opfsStore';
+import {
+  installSampleDropTarget,
+  promptForAudioFile,
+  restorePatchSamples,
+} from '../samples/sampleIo';
+import { decodePatchFragment, writeShareUrl } from '../samples/patchShare';
+import { downloadOfflineWav } from '../samples/offlineExport';
+import { startInputCapture, type InputCaptureHandle } from '../audio/inputCapture';
 
 export class BespokeSynthApp {
   private canvas: HTMLCanvasElement | null = null;
@@ -70,6 +80,7 @@ export class BespokeSynthApp {
   private audioBackendId: AudioBackendId = resolveAudioBackend();
   private workletRing: WorkletRingBackend | null = null;
   private readonly patchStatusHelpers = createPatchStatusHelpers();
+  private inputCapture: InputCaptureHandle | null = null;
 
   getModule(): BespokeSynthModule | null {
     return this.module;
@@ -115,6 +126,23 @@ export class BespokeSynthApp {
       },
       onLoadPatch: () => {
         if (this.module) void promptForPatchStateFile(this.module);
+      },
+      onImportSample: () => {
+        if (!this.module) return;
+        void promptForAudioFile(this.module).then((id) => {
+          this.patchStatusHelpers.showPatchStatus(id >= 0 ? 'Sample loaded' : 'Sample import failed');
+        });
+      },
+      onExportWav: () => {
+        if (!this.module) return;
+        const ok = downloadOfflineWav(this.module, { seconds: 4, bitsPerSample: 32 });
+        this.patchStatusHelpers.showPatchStatus(ok ? 'Exported WAV' : 'Export failed');
+      },
+      onSharePatch: () => {
+        void this.shareCurrentPatch();
+      },
+      onToggleInput: () => {
+        void this.toggleInputCapture();
       },
     });
 
@@ -245,6 +273,10 @@ export class BespokeSynthApp {
       syncOverlay: (module, canvas) => {
         syncControlOverlays(module, canvas, this.guiOverlay, this.labelElements);
       },
+    });
+
+    installSampleDropTarget(this.canvas, () => this.module, (message) => {
+      this.patchStatusHelpers.showPatchStatus(message);
     });
   }
 
@@ -442,6 +474,47 @@ export class BespokeSynthApp {
         this.module?._bespoke_set_audio_backend_id?.(2);
       });
     }
+
+    void this.loadSharedPatchFromUrl();
+  }
+
+  private async loadSharedPatchFromUrl(): Promise<void> {
+    if (!this.module) return;
+    const json = await decodePatchFragment(window.location.hash);
+    if (!json) return;
+    await restorePatchSamples(this.module, collectSampleHashes(json));
+    if (loadPatchStateJson(this.module, json)) {
+      this.patchStatusHelpers.showPatchStatus('Loaded shared patch');
+    }
+  }
+
+  private async shareCurrentPatch(): Promise<void> {
+    if (!this.module) return;
+    const json = getPatchStateJson(this.module);
+    const url = await writeShareUrl(json);
+    try {
+      await navigator.clipboard.writeText(url);
+      this.patchStatusHelpers.showPatchStatus('Share URL copied');
+    } catch {
+      this.patchStatusHelpers.showPatchStatus('Share URL updated');
+    }
+  }
+
+  private async toggleInputCapture(): Promise<void> {
+    if (!this.module) return;
+    if (this.inputCapture?.running()) {
+      this.inputCapture.stop();
+      this.inputCapture = null;
+      this.patchStatusHelpers.showPatchStatus('Mic input off');
+      return;
+    }
+    try {
+      this.inputCapture = await startInputCapture(this.module);
+      this.patchStatusHelpers.showPatchStatus('Mic input on');
+    } catch (error) {
+      console.error('Mic capture failed', error);
+      this.patchStatusHelpers.showPatchStatus('Mic permission denied');
+    }
   }
 
   async captureScreenshot(options: CaptureScreenshotOptions = {}): Promise<string | null> {
@@ -583,6 +656,8 @@ export class BespokeSynthApp {
   }
 
   shutdown(): void {
+    this.inputCapture?.stop();
+    this.inputCapture = null;
     this.renderLoop?.stop();
     this.renderLoop = null;
     if (this.module?._bespoke_shutdown) {

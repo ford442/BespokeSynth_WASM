@@ -41,6 +41,7 @@ namespace bespoke
             bool minimized = false;
             bool enabled = true;
             std::map<std::string, float> controls;
+            std::map<std::string, std::string> extras;
          };
 
          struct StateConnection
@@ -53,7 +54,7 @@ namespace bespoke
 
          struct StateSnapshot
          {
-            int schemaVersion = 2;
+            int schemaVersion = 3;
             float transportBPM = 120.0f;
             bool transportPlaying = false;
             float offsetX = 0.0f;
@@ -73,6 +74,8 @@ namespace bespoke
          int getModuleCount() const { return static_cast<int>(mModules.size()); }
          bool setModuleControlValue(int moduleId, const std::string& name, float value);
          bool getModuleControlValue(int moduleId, const std::string& name, float& value) const;
+         bool setModuleStringProperty(int moduleId, const std::string& name, const std::string& value);
+         bool getModuleStringProperty(int moduleId, const std::string& name, std::string& value) const;
 
          void connectModules(int sourceId, int sourcePort, int destId, int destPort);
          void disconnectModules(int sourceId, int destId);
@@ -138,6 +141,7 @@ namespace bespoke
          void buildAudioGraphSnapshotLocked(AudioGraphSnapshot& snapshot) const;
          void publishAudioGraphSnapshotLocked();
          std::map<std::string, float> moduleControlMap(const Module& module) const;
+         std::map<std::string, std::string> moduleStringMap(const Module& module) const;
 
          std::unordered_map<int, std::unique_ptr<Module>> mModules;
          std::vector<Connection> mConnections;

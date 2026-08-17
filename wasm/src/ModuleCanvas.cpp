@@ -126,6 +126,27 @@ namespace bespoke
          return true;
       }
 
+      bool ModuleCanvas::setModuleStringProperty(int moduleId, const std::string& name, const std::string& value)
+      {
+         Lock lock(mMutex);
+         auto it = mModules.find(moduleId);
+         if (it == mModules.end())
+            return false;
+         it->second->setStringProperty(name, value);
+         publishAudioGraphSnapshotLocked();
+         return true;
+      }
+
+      bool ModuleCanvas::getModuleStringProperty(int moduleId, const std::string& name, std::string& value) const
+      {
+         Lock lock(mMutex);
+         auto it = mModules.find(moduleId);
+         if (it == mModules.end())
+            return false;
+         value = it->second->getStringProperty(name);
+         return true;
+      }
+
       void ModuleCanvas::connectModules(int sourceId, int sourcePort, int destId, int destPort)
       {
          Lock lock(mMutex);
@@ -209,7 +230,7 @@ namespace bespoke
          for (const auto& [id, module] : mModules)
          {
             appendAudioGraphNode(snapshot, id, module->getType(), module->isEnabled(),
-                                 moduleControlMap(*module));
+                                 moduleControlMap(*module), moduleStringMap(*module));
          }
 
          for (const auto& conn : mConnections)
@@ -250,15 +271,23 @@ namespace bespoke
          return controls;
       }
 
+      std::map<std::string, std::string> ModuleCanvas::moduleStringMap(const Module& module) const
+      {
+         std::map<std::string, std::string> extras;
+         for (const auto& name : module.stringPropertyNames())
+            extras[name] = module.getStringProperty(name);
+         return extras;
+      }
+
       void ModuleCanvas::publishAudioGraphSnapshotLocked()
       {
          AudioGraphSnapshot snapshot;
          buildAudioGraphSnapshotLocked(snapshot);
          compileAudioProcessPlan(snapshot, snapshot.processPlan);
          std::atomic_store_explicit(
-            &mPublishedAudioGraph,
-            std::make_shared<const AudioGraphSnapshot>(std::move(snapshot)),
-            std::memory_order_release);
+         &mPublishedAudioGraph,
+         std::make_shared<const AudioGraphSnapshot>(std::move(snapshot)),
+         std::memory_order_release);
       }
 
       bool ModuleCanvas::portsAreCompatible(int sourceId, int sourcePort, int destId, int destPort) const
@@ -374,6 +403,8 @@ namespace bespoke
 
             for (const auto& controlName : WasmModuleAdapterRegistry::instance().serializableControlNames(stateModule.type))
                stateModule.controls[controlName] = module->getControlValue(controlName);
+            for (const auto& extraName : module->stringPropertyNames())
+               stateModule.extras[extraName] = module->getStringProperty(extraName);
 
             snapshot.modules.push_back(stateModule);
          }
@@ -436,6 +467,8 @@ namespace bespoke
 
             for (const auto& [name, value] : stateModule.controls)
                module->setControlValue(name, value);
+            for (const auto& [name, value] : stateModule.extras)
+               module->setStringProperty(name, value);
          }
 
          for (const auto& stateConn : snapshot.connections)

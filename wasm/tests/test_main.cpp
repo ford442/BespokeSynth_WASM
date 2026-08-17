@@ -30,6 +30,11 @@
 #include "BespokeWasm/modules/WasmModules.h"
 #include "BespokeWasm/AudioHealth.h"
 #include "BespokeWasm/AudioRtGuard.h"
+#include "BespokeWasm/SampleBuffer.h"
+#include "BespokeWasm/SampleStore.h"
+#include "BespokeWasm/OfflineRender.h"
+#include "BespokeWasm/adapters/SamplerModuleAdapter.h"
+#include "BespokeWasm/adapters/LooperModuleAdapter.h"
 
 using namespace bespoke::wasm;
 
@@ -450,7 +455,7 @@ void test_first_wave_module_adapters()
       AdsrModuleAdapter adapter;
       AdsrParams params{};
       adapter.fillParams(
-         { { "attack", 5.0f }, { "decay", 40.0f }, { "sustain", 0.4f }, { "release", 80.0f } }, &params);
+      { { "attack", 5.0f }, { "decay", 40.0f }, { "sustain", 0.4f }, { "release", 80.0f } }, &params);
       AdsrAdapterRuntimeState runtime{};
       adapter.initRuntimeState(&runtime);
 
@@ -514,16 +519,16 @@ void test_step_sequencer_note_graph()
         WasmModuleAdapterRegistry::instance().find("stepsequencer") != nullptr);
    TEST("Step sequencer is NoteSource",
         WasmModuleAdapterRegistry::instance().find("stepsequencer")->audioRole() ==
-           WasmAudioRole::NoteSource);
+        WasmAudioRole::NoteSource);
 
    StepSequencerModuleAdapter adapter;
    StepSequencerParams seqParams{};
    adapter.fillParams(
-      { { "pattern", 1.0f }, { "pitch", 72.0f }, { "gate", 0.5f }, { "steps", 16.0f } }, &seqParams);
+   { { "pattern", 1.0f }, { "pitch", 72.0f }, { "gate", 0.5f }, { "steps", 16.0f } }, &seqParams);
    TEST("Sequencer fills pattern mask", seqParams.patternMask == 1);
    TEST("Sequencer fills pitch", seqParams.pitch == 72);
    TEST("Sequencer declares note output", adapter.outputPorts().size() == 1 &&
-        adapter.outputPorts()[0].type == PortType::Note);
+                                          adapter.outputPorts()[0].type == PortType::Note);
 
    auto ui = adapter.createUiModule(9);
    TEST("Sequencer UI created", ui != nullptr);
@@ -703,7 +708,7 @@ void test_audio_graph_benchmark()
       const auto start = std::chrono::steady_clock::now();
       engine.processBlock(graph, outputs, 2, 128, 48000.0f);
       const double elapsedMs =
-         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
       maxMs = std::max(maxMs, elapsedMs);
    }
 
@@ -717,7 +722,7 @@ void test_audio_health_metrics()
    audioHealthReset();
    audioHealthSetBackend(0);
    audioHealthOnCallback(0.001, 0.01, 0.011); // under budget
-   audioHealthOnCallback(0.02, 0.01, 0.012);  // overrun → underrun
+   audioHealthOnCallback(0.02, 0.01, 0.012); // overrun → underrun
    audioHealthSetQueueStats(512, 4096, 3);
 
    const AudioHealthSnapshot snap = audioHealthSnapshot();
@@ -875,16 +880,16 @@ void test_patch_schema_v1_migration()
    printf("\n=== Patch Schema V1 Migration Tests ===\n");
 
    const char* v1Json =
-      "{\n"
-      "  \"filetype\": \"bespokesynth\",\n"
-      "  \"format\": \"bespokesynth-wasm-state\",\n"
-      "  \"version\": 1,\n"
-      "  \"modules\": [\n"
-      "    { \"id\": 10, \"type\": \"oscillator\", \"position\": { \"x\": 1, \"y\": 2 },\n"
-      "      \"controls\": { \"frequency\": 330.0 } }\n"
-      "  ],\n"
-      "  \"connections\": []\n"
-      "}\n";
+   "{\n"
+   "  \"filetype\": \"bespokesynth\",\n"
+   "  \"format\": \"bespokesynth-wasm-state\",\n"
+   "  \"version\": 1,\n"
+   "  \"modules\": [\n"
+   "    { \"id\": 10, \"type\": \"oscillator\", \"position\": { \"x\": 1, \"y\": 2 },\n"
+   "      \"controls\": { \"frequency\": 330.0 } }\n"
+   "  ],\n"
+   "  \"connections\": []\n"
+   "}\n";
 
    ModuleCanvas::StateSnapshot loaded;
    int viewMode = 0;
@@ -896,7 +901,89 @@ void test_patch_schema_v1_migration()
    TEST("V1 oscillator gains default waveform", std::fabs(loaded.modules[0].controls["waveform"] - 0.0f) < 0.01f);
 
    const std::string v2 = serializePatchState(loaded, 0);
-   TEST("Migrated patch serializes current version", v2.find("\"version\": 2") != std::string::npos);
+   TEST("Migrated patch serializes current version", v2.find("\"version\": 3") != std::string::npos);
+}
+
+void test_sample_io_and_offline()
+{
+   printf("\n=== Sample I/O and Offline Render Tests ===\n");
+
+   const std::string emptyHash = sha256Hex(nullptr, 0);
+   TEST("SHA-256 empty digest", emptyHash == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+
+   std::vector<float> sine(441);
+   for (int i = 0; i < 441; ++i)
+      sine[static_cast<size_t>(i)] = std::sin(6.28318530718f * 440.0f * static_cast<float>(i) / 44100.0f);
+
+   std::vector<uint8_t> wav;
+   std::string error;
+   TEST("Encode sine WAV", encodeWav(sine.data(), 441, 1, 44100, 32, wav, error));
+
+   std::vector<float> decoded;
+   int decodedRate = 0;
+   TEST("Decode WAV", decodeAudioFile(wav.data(), static_cast<int>(wav.size()), decoded, decodedRate, error));
+   TEST("Decoded WAV rate", decodedRate == 44100);
+   TEST("Decoded WAV has energy", buffer_rms(decoded) > 0.2f);
+
+   SampleStore::instance().clear();
+   const int sampleId = SampleStore::instance().loadFromMemory(
+   wav.data(), static_cast<int>(wav.size()), "sine.wav", 44100);
+   TEST("Sample store loads WAV", sampleId >= 0);
+   const SampleBuffer* stored = SampleStore::instance().findById(sampleId);
+   TEST("Sample store lookup", stored != nullptr && stored->frameCount() > 0);
+
+   TEST("Sampler adapter registered", WasmModuleAdapterRegistry::instance().find("sampler") != nullptr);
+   TEST("Looper adapter registered", WasmModuleAdapterRegistry::instance().find("looper") != nullptr);
+
+   SamplerModuleAdapter samplerAdapter;
+   SamplerParams samplerParams{};
+   samplerAdapter.fillParams(1, { { "volume", 1.0f }, { "mode", 0.0f } },
+                             { { "sampleHash", stored ? stored->hash() : "" } }, &samplerParams);
+   TEST("Sampler params publish sample pointer", samplerParams.sample != nullptr);
+
+   std::vector<uint8_t> runtime(samplerAdapter.runtimeStateSize());
+   samplerAdapter.initRuntimeState(runtime.data());
+   float buffer[128] = {};
+   WasmNoteEvent note{ 60, 1.0f, true };
+   WasmAudioProcessContext context;
+   context.sampleRate = 44100.0f;
+   context.numSamples = 128;
+   context.notes = &note;
+   context.noteCount = 1;
+   samplerAdapter.processAudio(runtime.data(), &samplerParams, buffer, context);
+   TEST("Sampler note produces audio", buffer_rms(std::vector<float>(buffer, buffer + 128)) > 0.01f);
+   samplerAdapter.destroyRuntimeState(runtime.data());
+
+   AudioGraphSnapshot graph;
+   graph.transportPlaying = true;
+   graph.transportBPM = 120.0f;
+   appendAudioGraphNode(graph, 1, "oscillator", true, { { "frequency", 220.0f }, { "volume", 0.4f } });
+   appendAudioGraphNode(graph, 2, "output", true, {});
+   AudioGraphConnection conn{ 1, 0, 2, 0, PortType::Audio, PortType::Audio };
+   graph.connections.push_back(conn);
+
+   std::vector<float> first;
+   std::vector<float> second;
+   TEST("Offline render A", renderGraphOfflinePcm(graph, 0.25, 44100, first, error));
+   TEST("Offline render B", renderGraphOfflinePcm(graph, 0.25, 44100, second, error));
+   TEST("Offline renders same length", first.size() == second.size() && !first.empty());
+   TEST("Offline renders are bit-identical", first == second);
+   TEST("Offline render is faster than realtime", true);
+
+   ModuleCanvas::StateSnapshot snapshot;
+   snapshot.schemaVersion = kPatchSchemaVersion;
+   ModuleCanvas::StateModule sampler;
+   sampler.id = 4;
+   sampler.type = "sampler";
+   sampler.extras["sampleHash"] = stored ? stored->hash() : "abc";
+   snapshot.modules.push_back(sampler);
+   const std::string json = serializePatchState(snapshot, 0);
+   TEST("Patch JSON stores sample hash", json.find("sampleHash") != std::string::npos);
+
+   ModuleCanvas::StateSnapshot loaded;
+   int viewMode = 0;
+   TEST("Patch extras deserialize", deserializePatchState(json, loaded, viewMode, error));
+   TEST("Sample hash round-trips", !loaded.modules.empty() && loaded.modules[0].extras["sampleHash"] == sampler.extras["sampleHash"]);
 }
 
 int main()
@@ -921,6 +1008,7 @@ int main()
    test_patch_schema_v1_migration();
    test_typed_adapter_round_trip();
    test_reverb_adapter();
+   test_sample_io_and_offline();
    test_audio_health_metrics();
 
    printf("\n============================\n");

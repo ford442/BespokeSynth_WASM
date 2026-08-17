@@ -150,6 +150,21 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_render_test_mode(void);
 EMSCRIPTEN_KEEPALIVE void bespoke_set_font_test_visible(int visible);
 EMSCRIPTEN_KEEPALIVE int bespoke_get_font_test_visible(void);
 
+// Sample I/O, live input, and offline render
+EMSCRIPTEN_KEEPALIVE int bespoke_load_sample(const unsigned char* bytes, int len, const char* name);
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_sample_hash(int sampleId);
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_sample_name(int sampleId);
+EMSCRIPTEN_KEEPALIVE int bespoke_assign_sample(int moduleId, const char* hash);
+EMSCRIPTEN_KEEPALIVE int bespoke_find_first_module(const char* type);
+EMSCRIPTEN_KEEPALIVE int bespoke_set_module_string(int moduleId, const char* key, const char* value);
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_module_string(int moduleId, const char* key);
+EMSCRIPTEN_KEEPALIVE void bespoke_push_input_audio(const float* frames, int framesCount);
+EMSCRIPTEN_KEEPALIVE void bespoke_set_offline_format(int bitsPerSample);
+EMSCRIPTEN_KEEPALIVE int bespoke_render_offline(double seconds, int sampleRate);
+EMSCRIPTEN_KEEPALIVE const unsigned char* bespoke_get_offline_wav(int* outByteLength);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_offline_wav_size(void);
+EMSCRIPTEN_KEEPALIVE void bespoke_free_offline_render(void);
+
 #ifdef __cplusplus
 }
 #endif

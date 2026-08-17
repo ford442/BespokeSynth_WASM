@@ -22,6 +22,10 @@ import { readAudioHealth } from './audio/audioHealth';
 import { resolveAudioBackend, switchAudioPreference, type AudioBackendId } from './audio/audioMode';
 import { runAudioWorkletPoc } from './audio/workletPoc';
 import { BespokeSynthApp } from './app/BespokeSynthApp';
+import { downloadOfflineWav, renderOfflineWav } from './samples/offlineExport';
+import { decodePatchFragment, writeShareUrl } from './samples/patchShare';
+import { importAudioFile } from './samples/sampleIo';
+import { collectSampleHashes } from './samples/opfsStore';
 
 document.addEventListener('DOMContentLoaded', async () => {
   const app = new BespokeSynthApp();
@@ -96,6 +100,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     getHostMouseDownCount: () => app.getModule()?._bespoke_get_host_mouse_down_count?.() ?? 0,
     resetHostCounters: () => app.getModule()?._bespoke_reset_host_counters?.(),
     getHostFrameCount: () => app.getHostFrameCount(),
+    importSampleFile: (file: File) => {
+      const mod = app.getModule();
+      return mod ? importAudioFile(mod, file) : Promise.resolve(-1);
+    },
+    renderOfflineWav: (options?: { seconds?: number; sampleRate?: number; bitsPerSample?: 16 | 24 | 32 }) => {
+      const mod = app.getModule();
+      return mod ? renderOfflineWav(mod, options) : null;
+    },
+    downloadOfflineWav: (options?: { seconds?: number; sampleRate?: number }) => {
+      const mod = app.getModule();
+      return mod ? downloadOfflineWav(mod, options) : false;
+    },
+    sharePatch: async () => {
+      const json = getPatchStateJson(app.getModule());
+      return writeShareUrl(json);
+    },
+    loadSharedPatch: async (hash?: string) => {
+      const json = await decodePatchFragment(hash ?? window.location.hash);
+      if (!json) return false;
+      const mod = app.getModule();
+      if (!mod) return false;
+      const { restorePatchSamples } = await import('./samples/sampleIo');
+      await restorePatchSamples(mod, collectSampleHashes(json));
+      return loadPatchStateJson(mod, json);
+    },
   };
 
   window.addEventListener('beforeunload', () => {

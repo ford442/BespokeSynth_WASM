@@ -21,6 +21,9 @@
 #include "BespokeWasm/Knob.h"
 #include "BespokeWasm/Theme.h"
 #include "BespokeWasm/PixelFont.h"
+#include "BespokeWasm/SampleStore.h"
+#include "BespokeWasm/InputAudioBus.h"
+#include "BespokeWasm/OfflineRender.h"
 #include <cstdio>
 #include <cmath>
 #include <cstring>
@@ -95,6 +98,12 @@ static auto& gPanelStatus = gRuntime.panelStatus;
 static auto& gInitState = gRuntime.initState;
 static auto& gInitErrorMessage = gRuntime.initErrorMessage;
 static auto& gAudioCallbackActive = gRuntime.audioCallbackActive;
+static std::string gLastSampleHash;
+static std::string gLastSampleName;
+static std::string gModuleStringBuffer;
+static std::string gSampleError;
+static std::vector<uint8_t> gOfflineWav;
+static int gOfflineBits = 32;
 
 static constexpr int PANEL_MIXER = static_cast<int>(PanelType::Mixer);
 static constexpr int PANEL_EFFECTS = static_cast<int>(PanelType::Effects);
@@ -108,8 +117,8 @@ static const char* kVersion = "1.0.0-wasm";
 static float gFrameDeltaSeconds = 1.0f / 60.0f;
 
 // Debug counters for verifying a single input/render path (e2e / diagnostics).
-static std::atomic<uint32_t> gHostRenderCallCount{0};
-static std::atomic<uint32_t> gHostMouseDownCallCount{0};
+static std::atomic<uint32_t> gHostRenderCallCount{ 0 };
+static std::atomic<uint32_t> gHostMouseDownCallCount{ 0 };
 
 // Updated each frame by renderDemoPanels() so that bespoke_get_control_info()
 // always reflects current screen positions.
@@ -1238,7 +1247,8 @@ EMSCRIPTEN_KEEPALIVE float bespoke_get_control_value(int moduleId, const char* c
 EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_on(int channel, int pitch, float velocity)
 {
    (void)channel;
-   if (!gAudioGraphEngine) return;
+   if (!gAudioGraphEngine)
+      return;
    gAudioGraphEngine->queueNote({ pitch, std::max(0.0f, std::min(1.0f, velocity)), true,
                                   emscripten_get_now() / 1000.0 });
 }
@@ -1246,29 +1256,34 @@ EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_on(int channel, int pitch, float vel
 EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_off(int channel, int pitch)
 {
    (void)channel;
-   if (!gAudioGraphEngine) return;
+   if (!gAudioGraphEngine)
+      return;
    gAudioGraphEngine->queueNote({ pitch, 0.0f, false, emscripten_get_now() / 1000.0 });
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_midi_cc(int channel, int cc, float value)
 {
    (void)channel;
-   if (!gCanvas) return;
+   if (!gCanvas)
+      return;
    value = std::max(0.0f, std::min(1.0f, value));
    if (cc == 7)
    {
       const int gain = gCanvas->findFirstModuleOfType("gain");
-      if (gain >= 0) gCanvas->setModuleControlValue(gain, "gain", value);
+      if (gain >= 0)
+         gCanvas->setModuleControlValue(gain, "gain", value);
    }
    else if (cc == 74)
    {
       const int filter = gCanvas->findFirstModuleOfType("filter");
-      if (filter >= 0) gCanvas->setModuleControlValue(filter, "cutoff", 20.0f + value * 19980.0f);
+      if (filter >= 0)
+         gCanvas->setModuleControlValue(filter, "cutoff", 20.0f + value * 19980.0f);
    }
    else if (cc == 1)
    {
       const int lfo = gCanvas->findFirstModuleOfType("lfo");
-      if (lfo >= 0) gCanvas->setModuleControlValue(lfo, "depth", value);
+      if (lfo >= 0)
+         gCanvas->setModuleControlValue(lfo, "depth", value);
    }
 }
 
@@ -1725,6 +1740,128 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_font_test_visible(int visible)
 EMSCRIPTEN_KEEPALIVE int bespoke_get_font_test_visible(void)
 {
    return gFontTestVisible ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_load_sample(const unsigned char* bytes, int len, const char* name)
+{
+   int deviceRate = 44100;
+   if (gAudioBackend)
+      deviceRate = gAudioBackend->getSampleRate();
+   else if (gRuntime.externalSampleRate > 0.0f)
+      deviceRate = static_cast<int>(gRuntime.externalSampleRate);
+
+   const int id = SampleStore::instance().loadFromMemory(bytes, len, name ? name : "sample", deviceRate);
+   if (id < 0)
+   {
+      gSampleError = "Failed to decode sample";
+      gLastSampleHash.clear();
+      gLastSampleName.clear();
+      return -1;
+   }
+   if (const SampleBuffer* sample = SampleStore::instance().findById(id))
+   {
+      gLastSampleHash = sample->hash();
+      gLastSampleName = sample->name();
+   }
+   return id;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_sample_hash(int sampleId)
+{
+   if (sampleId < 0)
+      return gLastSampleHash.c_str();
+   if (const SampleBuffer* sample = SampleStore::instance().findById(sampleId))
+   {
+      gLastSampleHash = sample->hash();
+      return gLastSampleHash.c_str();
+   }
+   return "";
+}
+
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_sample_name(int sampleId)
+{
+   if (const SampleBuffer* sample = SampleStore::instance().findById(sampleId))
+   {
+      gLastSampleName = sample->name();
+      return gLastSampleName.c_str();
+   }
+   return "";
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_assign_sample(int moduleId, const char* hash)
+{
+   if (!gCanvas || !hash)
+      return 0;
+   return gCanvas->setModuleStringProperty(moduleId, "sampleHash", hash) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_find_first_module(const char* type)
+{
+   if (!gCanvas || !type)
+      return -1;
+   return gCanvas->findFirstModuleOfType(type);
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_set_module_string(int moduleId, const char* key, const char* value)
+{
+   if (!gCanvas || !key)
+      return 0;
+   return gCanvas->setModuleStringProperty(moduleId, key, value ? value : "") ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_module_string(int moduleId, const char* key)
+{
+   gModuleStringBuffer.clear();
+   if (!gCanvas || !key)
+      return "";
+   if (!gCanvas->getModuleStringProperty(moduleId, key, gModuleStringBuffer))
+      return "";
+   return gModuleStringBuffer.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_push_input_audio(const float* frames, int framesCount)
+{
+   InputAudioBus::instance().push(frames, framesCount);
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_offline_format(int bitsPerSample)
+{
+   if (bitsPerSample == 16 || bitsPerSample == 24 || bitsPerSample == 32)
+      gOfflineBits = bitsPerSample;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_render_offline(double seconds, int sampleRate)
+{
+   gOfflineWav.clear();
+   if (!gCanvas)
+      return 0;
+   AudioGraphSnapshot graph = gCanvas->createAudioGraphSnapshot();
+   graph.transportPlaying = true;
+   std::string error;
+   if (!renderGraphOffline(graph, seconds, sampleRate > 0 ? sampleRate : 44100, gOfflineBits, gOfflineWav, error))
+   {
+      printf("BespokeSynth WASM: offline render failed: %s\n", error.c_str());
+      return 0;
+   }
+   return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE const unsigned char* bespoke_get_offline_wav(int* outByteLength)
+{
+   if (outByteLength)
+      *outByteLength = static_cast<int>(gOfflineWav.size());
+   return gOfflineWav.empty() ? nullptr : gOfflineWav.data();
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_offline_wav_size(void)
+{
+   return static_cast<int>(gOfflineWav.size());
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_free_offline_render(void)
+{
+   gOfflineWav.clear();
+   gOfflineWav.shrink_to_fit();
 }
 
 } // extern "C"

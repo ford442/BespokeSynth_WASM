@@ -8,8 +8,8 @@ Detailed architecture (SDL vs AudioWorklet, block API, CPU load) lives in [../wa
 
 | Role | Examples | Graph behavior |
 | --- | --- | --- |
-| `AudioSource` | oscillator, noise | Produce audio buffers; participate in audio topology |
-| `AudioProcessor` | filter, gain, delay, adsr | Process incoming audio |
+| `AudioSource` | oscillator, noise, sampler | Produce audio buffers; participate in audio topology |
+| `AudioProcessor` | filter, gain, delay, adsr, looper | Process incoming audio |
 | `Sink` | output | Terminal audio node |
 | `ModulationSource` | lfo | Emit per-sample modulation for CV ports |
 | `NoteSource` | stepsequencer | Emit note on/off events from transport beat position |

@@ -386,7 +386,19 @@ namespace bespoke
                out << (controlIndex++ == 0 ? " " : ", ");
                out << "\"" << escapeJson(name) << "\": " << value;
             }
-            out << (module.controls.empty() ? "" : " ") << "}\n";
+            out << (module.controls.empty() ? "" : " ") << "}";
+            if (!module.extras.empty())
+            {
+               out << ",\n      \"extras\": {";
+               size_t extraIndex = 0;
+               for (const auto& [name, value] : module.extras)
+               {
+                  out << (extraIndex++ == 0 ? " " : ", ");
+                  out << "\"" << escapeJson(name) << "\": \"" << escapeJson(value) << "\"";
+               }
+               out << " }";
+            }
+            out << "\n";
             out << "    }" << (i + 1 < snapshot.modules.size() ? "," : "") << "\n";
          }
          out << "  ],\n";
@@ -466,6 +478,16 @@ namespace bespoke
                {
                   if (value.type == JsonValue::Type::Number)
                      module.controls[name] = static_cast<float>(value.numberValue);
+               }
+            }
+
+            const JsonValue* extras = moduleValue.get("extras");
+            if (extras && extras->type == JsonValue::Type::Object)
+            {
+               for (const auto& [name, value] : extras->objectValue)
+               {
+                  if (value.type == JsonValue::Type::String)
+                     module.extras[name] = value.stringValue;
                }
             }
 

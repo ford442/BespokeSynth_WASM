@@ -59,6 +59,18 @@ namespace bespoke
          virtual void setControlValue(const std::string& name, float value) {}
          virtual float getControlValue(const std::string& name) const { return 0.0f; }
 
+         virtual void setStringProperty(const std::string& name, const std::string& value)
+         {
+            (void)name;
+            (void)value;
+         }
+         virtual std::string getStringProperty(const std::string& name) const
+         {
+            (void)name;
+            return {};
+         }
+         virtual std::vector<std::string> stringPropertyNames() const { return {}; }
+
          virtual bool handleMouseDown(float worldX, float worldY) { return false; }
          virtual bool handleMouseDrag(float worldX, float worldY, float dx, float dy) { return false; }
          virtual void handleMouseUp() {}

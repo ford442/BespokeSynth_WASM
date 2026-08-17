@@ -85,7 +85,8 @@ namespace bespoke
                                 int moduleId,
                                 const std::string& type,
                                 bool enabled,
-                                const WasmControlMap& controls)
+                                const WasmControlMap& controls,
+                                const WasmStringMap& extras)
       {
          auto& registry = WasmModuleAdapterRegistry::instance();
          const WasmModuleAdapter* adapter = registry.find(type);
@@ -102,7 +103,7 @@ namespace bespoke
          if (size > 0)
          {
             snapshot.paramArena.resize(static_cast<size_t>(offset) + size, 0);
-            adapter->fillParams(controls, snapshot.paramArena.data() + offset);
+            adapter->fillParams(moduleId, controls, extras, snapshot.paramArena.data() + offset);
          }
          node.paramOffset = offset;
          node.paramSize = size;

@@ -6,6 +6,7 @@
  */
 
 #include "BespokeWasm/AudioGraphEngine.h"
+#include "BespokeWasm/InputAudioBus.h"
 #include <algorithm>
 #include <cstring>
 
@@ -47,6 +48,22 @@ namespace bespoke
 
          if (mSummedModulation.size() < static_cast<size_t>(maxBlockSize))
             mSummedModulation.resize(static_cast<size_t>(maxBlockSize));
+         if (mInputScratch.size() < static_cast<size_t>(maxBlockSize))
+            mInputScratch.resize(static_cast<size_t>(maxBlockSize));
+      }
+
+      void AudioGraphEngine::resetClock()
+      {
+         mAudioTimeSeconds = 0.0;
+         mBeatPosition = 0.0;
+         mNoteWriteIndex.store(0, std::memory_order_relaxed);
+         mNoteReadIndex.store(0, std::memory_order_relaxed);
+         mMidiNoteCount = 0;
+         for (auto& slot : mRuntimeSlots)
+            destroySlot(slot);
+         mRuntimeSlots.clear();
+         mSlotIndexByModuleId.clear();
+         mRuntimeArena.clear();
       }
 
       void AudioGraphEngine::destroySlot(RuntimeSlot& slot)
@@ -195,10 +212,13 @@ namespace bespoke
             return;
 
          drainNoteRing();
+         if (static_cast<int>(mInputScratch.size()) < numSamples)
+            return;
+         InputAudioBus::instance().consume(mInputScratch.data(), numSamples);
 
          const double beatStart = mBeatPosition;
          const double beatsPerBlock = static_cast<double>(numSamples) * graph.transportBPM /
-            (static_cast<double>(sampleRate) * 60.0);
+                                      (static_cast<double>(sampleRate) * 60.0);
          const double beatEnd = beatStart + beatsPerBlock;
          mBeatPosition = beatEnd;
 
@@ -215,19 +235,23 @@ namespace bespoke
             int& noteCount = mNoteSourceCounts[static_cast<size_t>(seqSlot)];
             noteCount = 0;
             adapter->emitNotesForBeatRange(
-               stateFor(node),
-               graph.paramsFor(node),
-               beatStart,
-               beatEnd,
-               mNoteSourceScratch[static_cast<size_t>(seqSlot)].data(),
-               kMaxNoteEventsPerBlock,
-               noteCount);
+            stateFor(node),
+            graph.paramsFor(node),
+            beatStart,
+            beatEnd,
+            mNoteSourceScratch[static_cast<size_t>(seqSlot)].data(),
+            kMaxNoteEventsPerBlock,
+            noteCount);
          }
 
          WasmAudioProcessContext modulationContext;
          modulationContext.sampleRate = sampleRate;
          modulationContext.numSamples = numSamples;
          modulationContext.blockStartTimeSeconds = mAudioTimeSeconds;
+         modulationContext.beatStart = beatStart;
+         modulationContext.beatEnd = beatEnd;
+         modulationContext.bpm = graph.transportBPM;
+         modulationContext.inputAudio = mInputScratch.data();
 
          for (int lfoSlot = 0; lfoSlot < static_cast<int>(plan.modulationSourceNodeIndices.size()); ++lfoSlot)
          {
@@ -244,7 +268,7 @@ namespace bespoke
 
          const double blockStart = mAudioTimeSeconds;
          const WasmNoteEvent* globalMidiNotes =
-            mMidiNoteCount > 0 ? mMidiNoteScratch.data() : nullptr;
+         mMidiNoteCount > 0 ? mMidiNoteScratch.data() : nullptr;
 
          for (const auto& step : plan.steps)
          {
@@ -296,7 +320,12 @@ namespace bespoke
             context.sampleRate = sampleRate;
             context.numSamples = numSamples;
             context.blockStartTimeSeconds = blockStart;
+            context.beatStart = beatStart;
+            context.beatEnd = beatEnd;
+            context.bpm = graph.transportBPM;
+            context.inputAudio = mInputScratch.data();
             context.hasNoteCable = step.hasNoteCable;
+            context.hasAudioInput = step.inputBufferSlots.count > 0;
             if (moduleNotes && moduleNoteCount > 0)
             {
                context.notes = moduleNotes;

@@ -355,8 +355,10 @@ Check `src/index.ts` for error handling around module initialization.
 ### 5. File System Sandboxing
 
 The WASM runtime has a virtual file system, not direct filesystem access:
-- Cannot read user's local files directly
-- Use IndexedDB for persistent storage
+- User audio files are imported through the TS shell (drag-and-drop or file picker) and decoded in C++
+- Sample bytes persist in the Origin Private File System, keyed by content hash
+- Patch JSON stores `extras.sampleHash` references, not PCM
+- Use IndexedDB for patch metadata (`src/patchStorage.ts`)
 - Use Fetch API for remote assets
 
 ### 6. Web MIDI

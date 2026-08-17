@@ -97,6 +97,8 @@ set(BESPOKE_WASM_ADAPTER_SOURCES
     ${BESPOKE_WASM_DIR}/src/adapters/TransportModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/ScaleModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/ReverbModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/SamplerModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/LooperModuleAdapter.cpp
 )
 
 # Collect WASM-specific sources
@@ -115,6 +117,11 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/WasmAudioEngine.cpp
     ${BESPOKE_WASM_DIR}/src/AudioHealth.cpp
     ${BESPOKE_WASM_DIR}/src/AudioRtGuard.cpp
+    ${BESPOKE_WASM_DIR}/src/SampleBuffer.cpp
+    ${BESPOKE_WASM_DIR}/src/SampleStore.cpp
+    ${BESPOKE_WASM_DIR}/src/InputAudioBus.cpp
+    ${BESPOKE_WASM_DIR}/src/LooperArena.cpp
+    ${BESPOKE_WASM_DIR}/src/OfflineRender.cpp
     ${BESPOKE_WASM_DIR}/src/WasmInputRouter.cpp
     ${BESPOKE_WASM_DIR}/src/WasmRuntimeState.cpp
     ${BESPOKE_WASM_DIR}/src/WasmPatchState.cpp
@@ -139,6 +146,8 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/modules/StepSequencerModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/TransportModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/ScaleModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/SamplerModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/LooperModule.cpp
 
     # --- JUCE module wrappers (implementations) ---
     ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_core/juce_core.cpp
@@ -182,6 +191,7 @@ target_include_directories(BespokeSynthWASM PRIVATE
     ${BESPOKE_SOURCE_DIR}
     ${BESPOKE_WASM_DIR}/src
     ${BESPOKE_WASM_DIR}/include
+    ${BESPOKE_WASM_DIR}/third_party/dr_libs
     ${BESPOKE_LIBS_DIR}
     ${BESPOKE_LIBS_DIR}/nanovg/src
     ${BESPOKE_LIBS_DIR}/nanovg
@@ -305,6 +315,11 @@ add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/src/AudioProcessPlan.cpp
     ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
     ${BESPOKE_WASM_DIR}/src/AudioHealth.cpp
+    ${BESPOKE_WASM_DIR}/src/SampleBuffer.cpp
+    ${BESPOKE_WASM_DIR}/src/SampleStore.cpp
+    ${BESPOKE_WASM_DIR}/src/InputAudioBus.cpp
+    ${BESPOKE_WASM_DIR}/src/LooperArena.cpp
+    ${BESPOKE_WASM_DIR}/src/OfflineRender.cpp
     ${BESPOKE_WASM_DIR}/src/WasmModuleAdapterRegistry.cpp
     ${BESPOKE_WASM_ADAPTER_SOURCES}
     ${BESPOKE_WASM_DIR}/src/Module.cpp
@@ -319,6 +334,8 @@ add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/src/modules/StepSequencerModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/TransportModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/ScaleModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/SamplerModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/LooperModule.cpp
     ${BESPOKE_WASM_DIR}/src/ModuleCanvasHelpers.cpp
     ${BESPOKE_WASM_DIR}/src/WasmPatchState.cpp
     ${BESPOKE_WASM_DIR}/src/PixelFont.cpp
@@ -329,6 +346,7 @@ add_executable(BespokeSynthWASM_test
 target_include_directories(BespokeSynthWASM_test PRIVATE
     ${BESPOKE_WASM_DIR}/include
     ${BESPOKE_WASM_DIR}/src
+    ${BESPOKE_WASM_DIR}/third_party/dr_libs
     ${BESPOKE_SOURCE_DIR}
 )
 

@@ -13,6 +13,10 @@ export interface RendererPanelOptions {
   onScreenshot: () => void;
   onSavePatch: () => void;
   onLoadPatch: () => void;
+  onImportSample?: () => void;
+  onExportWav?: () => void;
+  onSharePatch?: () => void;
+  onToggleInput?: () => void;
 }
 
 export function setupRendererPanel(options: RendererPanelOptions): void {
@@ -84,7 +88,46 @@ export function setupRendererPanel(options: RendererPanelOptions): void {
   loadBtn.title = 'Load patch JSON';
   loadBtn.addEventListener('click', () => options.onLoadPatch());
 
-  headerControls.append(rendererSelect, audioSelect, debugSelect, screenshotBtn, saveBtn, loadBtn);
+  const sampleBtn = document.createElement('button');
+  sampleBtn.id = 'sampleBtn';
+  sampleBtn.className = 'btn';
+  sampleBtn.textContent = 'Sample';
+  sampleBtn.title = 'Import WAV/FLAC/MP3';
+  sampleBtn.addEventListener('click', () => options.onImportSample?.());
+
+  const exportBtn = document.createElement('button');
+  exportBtn.id = 'exportWavBtn';
+  exportBtn.className = 'btn';
+  exportBtn.textContent = 'Export WAV';
+  exportBtn.title = 'Offline-render the patch to a WAV file';
+  exportBtn.addEventListener('click', () => options.onExportWav?.());
+
+  const shareBtn = document.createElement('button');
+  shareBtn.id = 'sharePatchBtn';
+  shareBtn.className = 'btn';
+  shareBtn.textContent = 'Share';
+  shareBtn.title = 'Copy a URL that reloads this patch';
+  shareBtn.addEventListener('click', () => options.onSharePatch?.());
+
+  const inputBtn = document.createElement('button');
+  inputBtn.id = 'inputCaptureBtn';
+  inputBtn.className = 'btn';
+  inputBtn.textContent = 'Mic';
+  inputBtn.title = 'Capture microphone input for the looper';
+  inputBtn.addEventListener('click', () => options.onToggleInput?.());
+
+  headerControls.append(
+    rendererSelect,
+    audioSelect,
+    debugSelect,
+    screenshotBtn,
+    saveBtn,
+    loadBtn,
+    sampleBtn,
+    exportBtn,
+    shareBtn,
+    inputBtn,
+  );
 }
 
 export function setupFloatingRendererToggle(rendererBackend: RendererBackend): void {

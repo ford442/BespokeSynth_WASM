@@ -47,6 +47,9 @@ namespace bespoke
          /** Grow buffer arenas on the UI thread (init / buffer-size changes). */
          void prepareForBlock(int maxBlockSize, int maxAudioSlots, int maxModulationSlots);
 
+         /** Zero transport clock and drop queued MIDI (offline / determinism). */
+         void resetClock();
+
          void processBlock(const AudioGraphSnapshot& graph,
                            float* const* output,
                            int numOutputChannels,
@@ -75,6 +78,7 @@ namespace bespoke
          std::vector<float> mAudioArena;
          std::vector<float> mModulationArena;
          std::vector<float> mSummedModulation;
+         std::vector<float> mInputScratch;
          int mPreparedBlockSize = 0;
          int mPreparedAudioSlots = 0;
          int mPreparedModulationSlots = 0;

@@ -172,6 +172,48 @@ namespace bespoke
          bool mPlaying = false;
       };
 
+      class SamplerModule : public Module
+      {
+      public:
+         SamplerModule(int id);
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
+         void setControlValue(const std::string& name, float value) override;
+         float getControlValue(const std::string& name) const override;
+         void setStringProperty(const std::string& name, const std::string& value) override;
+         std::string getStringProperty(const std::string& name) const override;
+         std::vector<std::string> stringPropertyNames() const override;
+         bool handleMouseDown(float worldX, float worldY) override;
+
+      private:
+         void refreshSample();
+
+         std::string mSampleHash;
+         std::string mSampleName;
+         const class SampleBuffer* mSample = nullptr;
+         float mVolume = 0.85f;
+         float mStart = 0.0f;
+         float mEnd = 1.0f;
+         float mLoopStart = 0.0f;
+         float mLoopEnd = 1.0f;
+         int mMode = 0;
+         int mRootPitch = 60;
+      };
+
+      class LooperModule : public Module
+      {
+      public:
+         LooperModule(int id);
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
+         void setControlValue(const std::string& name, float value) override;
+         float getControlValue(const std::string& name) const override;
+         bool handleMouseDown(float worldX, float worldY) override;
+
+      private:
+         float mMix = 1.0f;
+         int mBars = 1;
+         int mCommand = 0;
+      };
+
       class ScaleModule : public Module
       {
       public:

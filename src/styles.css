@@ -250,6 +250,11 @@ body {
     cursor: crosshair;
 }
 
+#canvas.sample-drop-active {
+    outline: 2px dashed #6ee7b7;
+    outline-offset: -8px;
+}
+
 /* ── Hybrid DOM text overlay ──────────────────────────────────────────────────
  * Absolutely positioned over the WebGPU canvas so we can use system /
  * variable fonts for crisp sub-pixel text while all heavy rendering
