@@ -31,6 +31,12 @@ add_compile_options(
 )
 
 # 2. Linker options
+# USE_WEBGL2 is unconditional (not gated on BESPOKE_WASM_WEBGPU) because
+# WebGL2Context/WebGL2Renderer are always compiled in as the runtime-selectable
+# fallback backend (?renderer=webgl), not an alternate build configuration.
+# NOTE: -sENVIRONMENT=web is intentionally NOT set here (directory-wide) — it
+# would also apply to BespokeSynthWASM_test, which `npm run test:unit` runs
+# under Node. It's added to BespokeSynthWASM's own EMSCRIPTEN_LINK_FLAGS below.
 add_link_options(
     "-sALLOW_MEMORY_GROWTH=1"
     "-sUSE_WEBGL2=1"
@@ -187,15 +193,12 @@ add_executable(BespokeSynthWASM
     ${CORE_SOURCES}
 )
 
+# Only paths not already covered by the global include_directories() calls
+# above (wasm/include, ../Source, ../libs, ../libs/nanovg[/src], ../libs/leathers)
+# belong here — duplicating them just repeats identical -I flags on every TU.
 target_include_directories(BespokeSynthWASM PRIVATE
-    ${BESPOKE_SOURCE_DIR}
     ${BESPOKE_WASM_DIR}/src
-    ${BESPOKE_WASM_DIR}/include
     ${BESPOKE_WASM_DIR}/third_party/dr_libs
-    ${BESPOKE_LIBS_DIR}
-    ${BESPOKE_LIBS_DIR}/nanovg/src
-    ${BESPOKE_LIBS_DIR}/nanovg
-    ${BESPOKE_LIBS_DIR}/leathers
     ${BESPOKE_LIBS_DIR}/json/jsoncpp/include
 )
 
@@ -212,7 +215,9 @@ elseif(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Profile")
     target_compile_options(BespokeSynthWASM PRIVATE -O2 -g)
     target_compile_definitions(BespokeSynthWASM PRIVATE BESPOKE_WASM_FRAME_INSTRUMENTATION=1)
 else()
-    target_compile_options(BespokeSynthWASM PRIVATE -O3)
+    # -flto enables cross-TU inlining/dead-code elimination at link time; only
+    # worth its extra build time for the optimized production build.
+    target_compile_options(BespokeSynthWASM PRIVATE -O3 -flto)
 endif()
 
 # Build EXPORTED_FUNCTIONS from wasm/exports.txt (single manifest; see scripts/check-wasm-exports.sh).
@@ -236,9 +241,14 @@ set(BESPOKE_WASM_EXPORTED_FUNCTIONS "'${BESPOKE_WASM_EXPORTED_FUNCTIONS_JOINED}'
 set(EMSCRIPTEN_LINK_FLAGS
     "-sWASM=1"
     "-sINVOKE_RUN=0"
+    "-sENVIRONMENT=web" # Browser-only deliverable; trims Node/worker glue from the JS runtime.
     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','allocateUTF8','stringToUTF8','lengthBytesUTF8','HEAPF32','HEAPU8','HEAP8','wasmMemory']"
     "-sEXPORTED_FUNCTIONS=[${BESPOKE_WASM_EXPORTED_FUNCTIONS}]"
     "-sALLOW_MEMORY_GROWTH=1"
+    # 128MB covers JUCE/nanovg static init plus the module graph and sample
+    # buffers for a typical patch without triggering a memory-growth
+    # reallocation (which pauses audio) on first load; ALLOW_MEMORY_GROWTH=1
+    # above still lets larger patches/samples grow past it.
     "-sINITIAL_MEMORY=134217728"  # 128MB initial
     "-sSTACK_SIZE=1048576"  # 1MB stack
     "--shell-file=${BESPOKE_WASM_DIR}/shell.html"
@@ -261,7 +271,7 @@ if(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Debug")
 elseif(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Profile")
     list(APPEND EMSCRIPTEN_LINK_FLAGS "-O2" "-g" "-sASSERTIONS=1")
 else()
-    list(APPEND EMSCRIPTEN_LINK_FLAGS "-O3" "-sASSERTIONS=0")
+    list(APPEND EMSCRIPTEN_LINK_FLAGS "-O3" "-sASSERTIONS=0" "-flto")
 endif()
 
 # Add WebGPU support

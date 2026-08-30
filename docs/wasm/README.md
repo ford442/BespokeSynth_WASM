@@ -4,7 +4,7 @@ Start here for the browser port. The WASM build is a distinct implementation fro
 
 1. Read [architecture.md](architecture.md) to find the TypeScript, bridge, renderer, and audio boundaries.
 2. Use [roadmap.md](roadmap.md) to select an in-scope milestone.
-3. Follow [webgl-fallback.md](webgl-fallback.md) for renderer debugging and screenshots.
+3. Follow [webgl-fallback.md](webgl-fallback.md) for renderer debugging and screenshots, and [gpu-context.md](gpu-context.md) for adapter/device setup, HiDPI, and device-lost handling.
 4. Read [audio.md](audio.md), [samples.md](samples.md), [module-porting.md](module-porting.md), or [python.md](python.md) before changing those systems.
 5. Read [resources.md](resources.md) before changing the WASM preload / `.data` packaging.
 

@@ -600,9 +600,15 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
    if (!gRenderer)
       return;
 
+   // Once the GPU device is lost, the WGPUDevice/WGPUQueue held by gContext and
+   // gRenderer are no longer valid; stop issuing commands and let the JS shell's
+   // __bespoke_on_device_lost handler decide whether to reload or fall back.
+   if (gContext && gContext->isDeviceLost())
+      return;
+
    gHostRenderCallCount.fetch_add(1, std::memory_order_relaxed);
    gRenderTime += gFrameDeltaSeconds;
-   gRenderer->beginFrame(gWidth, gHeight, 1.0f, gRenderTime);
+   gRenderer->beginFrame(gWidth, gHeight, static_cast<float>(emscripten_get_device_pixel_ratio()), gRenderTime);
 
    // Clear background
    gRenderer->fillColor(Color(0.12f, 0.12f, 0.14f, 1.0f));

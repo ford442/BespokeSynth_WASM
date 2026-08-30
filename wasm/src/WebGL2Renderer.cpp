@@ -275,6 +275,12 @@ void WebGL2Renderer::endFrame()
 
    const float viewSize[2] = { static_cast<float>(mWidth), static_cast<float>(mHeight) };
 
+   // dc.scissor is authored in the same logical (CSS) pixel space as mWidth/mHeight,
+   // but glScissor operates on the actual (physical) framebuffer set up by
+   // WebGL2Context::resize(); scale by the device pixel ratio so clipping stays
+   // aligned with the higher-resolution backing store on HiDPI displays.
+   const float dpr = mPixelRatio > 0.0f ? mPixelRatio : 1.0f;
+
    glDisable(GL_SCISSOR_TEST); // default for the frame
    for (const DrawCall& dc : mDrawCalls)
    {
@@ -284,10 +290,10 @@ void WebGL2Renderer::endFrame()
       if (dc.hasScissor)
       {
          glEnable(GL_SCISSOR_TEST);
-         GLint sx = static_cast<GLint>(dc.scissor[0]);
-         GLint sy = mHeight - static_cast<GLint>(dc.scissor[1] + dc.scissor[3]);
-         GLint sw = static_cast<GLint>(dc.scissor[2]);
-         GLint sh = static_cast<GLint>(dc.scissor[3]);
+         GLint sx = static_cast<GLint>(dc.scissor[0] * dpr);
+         GLint sy = static_cast<GLint>((static_cast<float>(mHeight) - (dc.scissor[1] + dc.scissor[3])) * dpr);
+         GLint sw = static_cast<GLint>(dc.scissor[2] * dpr);
+         GLint sh = static_cast<GLint>(dc.scissor[3] * dpr);
          if (sw < 0) sw = 0;
          if (sh < 0) sh = 0;
          glScissor(sx, sy, sw, sh);
