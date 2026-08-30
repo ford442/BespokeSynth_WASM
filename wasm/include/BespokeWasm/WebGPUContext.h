@@ -28,8 +28,11 @@ public:
     void assignDevice(WGPUDevice device);
     void notifyComplete(bool success);
 
+    // width/height are logical (CSS) pixels; the backing surface is configured
+    // at width*devicePixelRatio x height*devicePixelRatio so rendering is sharp
+    // on HiDPI displays while all layout/hit-testing math stays in CSS pixels.
     void resize(int width, int height);
-    
+
     // Render Pass Management
     WGPURenderPassEncoder beginFrame();
     void endFrame(bool captureScreenshot = false);
@@ -41,7 +44,16 @@ public:
     WGPUTextureFormat getSwapChainFormat() const { return mFormat; }
     WGPUInstance getInstance() const { return mInstance; }
 
+    // True once the device-lost callback has fired; callers should stop
+    // issuing GPU commands and surface a recoverable error instead of
+    // continuing to draw into an invalid device.
+    bool isDeviceLost() const { return mDeviceLost; }
+
     Uniforms mCurrentState;
+
+    // Exposed so the WasmBridge callbacks (defined in the .cpp) can update
+    // context state without befriending free functions.
+    void notifyDeviceLost(const char* reason);
 
 private:
     // Called when the device request completes successfully
@@ -56,14 +68,23 @@ private:
     WGPUQueue mQueue = nullptr;
     WGPUSurface mSurface = nullptr;
     WGPUTextureFormat mFormat = WGPUTextureFormat_BGRA8Unorm;
+    WGPUTextureUsage mSurfaceUsages = WGPUTextureUsage_None;
+    bool mSupportsCopySrc = false;
+    bool mDeviceLost = false;
+    // Set when wgpuSurfaceGetCurrentTexture() reports SuccessSuboptimal (canvas
+    // size/format no longer matches the configured surface); reconfigure at the
+    // start of the next frame rather than mid-frame, per the WebGPU spec.
+    bool mNeedsReconfigure = false;
     std::function<void(bool)> mOnComplete;
-    
+
     // Current frame state
     WGPUCommandEncoder mCurrentEncoder = nullptr;
     WGPUTexture mCurrentSurfaceTexture = nullptr;
     WGPUTextureView mCurrentView = nullptr;
     WGPURenderPassEncoder mCurrentPass = nullptr;
 
+    // Physical (device) pixel dimensions of the configured surface — this is
+    // width/height passed to resize() multiplied by devicePixelRatio.
     int mWidth = 0;
     int mHeight = 0;
 

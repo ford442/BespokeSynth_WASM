@@ -7,12 +7,24 @@
 
 #include "BespokeWasm/WebGL2Context.h"
 
+#include <emscripten.h>
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
 namespace {
 
 thread_local std::string gLastWebGL2Error;
+
+double currentDevicePixelRatio() {
+   const double dpr = emscripten_get_device_pixel_ratio();
+   return dpr > 0.0 ? dpr : 1.0;
+}
+
+int toPhysicalPixels(int logicalPixels, double dpr) {
+   return std::max(1, static_cast<int>(std::lround(static_cast<double>(logicalPixels) * dpr)));
+}
 
 const char* emscriptenResultToString(int result)
 {
@@ -133,9 +145,12 @@ bool WebGL2Context::initialize(const char* canvasSelector)
 
    mCanvasSelector = canvasSelector;
 
-   if (!probeSupport(canvasSelector))
-      return false;
-
+   // Create the real context directly rather than probing with a throwaway
+   // context first: some browsers (and headless/SwiftShader setups used by
+   // Playwright/CI) enforce a tight limit on concurrent WebGL contexts per
+   // page, and creating two back-to-back was enough to hit it. Callers that
+   // want a capability check without committing to initialization should use
+   // the static probeSupport() instead.
    EmscriptenWebGLContextAttributes attrs;
    emscripten_webgl_init_context_attributes(&attrs);
    attrs.majorVersion = 2;
@@ -263,8 +278,13 @@ void WebGL2Context::makeCurrent()
 
 void WebGL2Context::resize(int width, int height)
 {
-   mWidth = width;
-   mHeight = height;
+   // width/height are logical (CSS) pixels; the canvas backing store (and the
+   // GL viewport) use the physical pixel size so rendering is sharp on HiDPI
+   // displays. The JS shell is responsible for setting canvas.width/height to
+   // this same physical size (see BespokeSynthApp.resizeCanvas()).
+   const double dpr = currentDevicePixelRatio();
+   mWidth = toPhysicalPixels(width, dpr);
+   mHeight = toPhysicalPixels(height, dpr);
 
    if (!mContext)
       return;

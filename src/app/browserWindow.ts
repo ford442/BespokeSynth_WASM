@@ -14,6 +14,7 @@ export interface BespokeBrowserWindow extends Window {
   Module?: BespokeSynthModule;
   __bespoke_on_init_progress?: (step: string, detail: string) => void;
   __bespoke_on_init_complete?: (status: number) => void;
+  __bespoke_on_device_lost?: () => void;
 }
 
 export const bespokeWindow = window as BespokeBrowserWindow;

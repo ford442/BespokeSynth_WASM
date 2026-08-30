@@ -46,7 +46,6 @@ export function startRenderLoop(options: RenderLoopOptions): RenderLoopHandle {
 
 export function syncControlOverlays(
   module: BespokeSynthModule,
-  canvas: HTMLCanvasElement,
   guiOverlay: HTMLElement | null,
   labelElements: Map<number, HTMLElement>,
 ): void {
@@ -59,11 +58,6 @@ export function syncControlOverlays(
   });
 
   if (count === 0) return;
-
-  const cssW = canvas.clientWidth || canvas.width;
-  const cssH = canvas.clientHeight || canvas.height;
-  const scaleX = cssW / (canvas.width || cssW);
-  const scaleY = cssH / (canvas.height || cssH);
 
   for (let i = 0; i < count; i++) {
     const ptr: number = module._bespoke_get_control_info?.(i) ?? 0;
@@ -83,8 +77,11 @@ export function syncControlOverlays(
       continue;
     }
 
-    const cssCenterX = (info.x + info.size * 0.5) * scaleX;
-    const cssBelowY = (info.y + info.size * 1.15) * scaleY;
+    // info.x/info.y/info.size are authored in logical (CSS) pixels — the same
+    // space passed to bespoke_resize() — so no scaling is needed to place the
+    // DOM overlay, even though canvas.width/height are physical (HiDPI) pixels.
+    const cssCenterX = info.x + info.size * 0.5;
+    const cssBelowY = info.y + info.size * 1.15;
 
     let displayVal = '';
     if (info.unit === 'Hz') {

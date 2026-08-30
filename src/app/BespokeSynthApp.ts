@@ -77,6 +77,11 @@ export class BespokeSynthApp {
   private readonly labelElements = new Map<number, HTMLElement>();
   private rendererBackend: RendererBackend = resolveRendererBackend();
   private rendererFallbackReason: string | null = null;
+  // Logical (CSS) canvas size in step with canvas.width/height, which is
+  // sized in physical (devicePixelRatio-scaled) pixels for HiDPI sharpness.
+  // The WASM side does all layout/hit-testing math in logical pixels.
+  private cssWidth = 800;
+  private cssHeight = 600;
   private audioBackendId: AudioBackendId = resolveAudioBackend();
   private workletRing: WorkletRingBackend | null = null;
   private readonly patchStatusHelpers = createPatchStatusHelpers();
@@ -183,6 +188,7 @@ export class BespokeSynthApp {
       this.module = await loadWasmModule(this.canvas ?? undefined);
       this.initProgress.completeStep('wasm_load');
       console.log('WASM module loaded successfully');
+      bespokeWindow.__bespoke_on_device_lost = () => this.handleDeviceLost();
 
       const backendCode = this.rendererBackend === 'webgl' ? 1 : 0;
       this.module._bespoke_set_renderer_backend?.(backendCode);
@@ -208,8 +214,8 @@ export class BespokeSynthApp {
       }, 50);
 
       const result = this.module._bespoke_init?.(
-        this.canvas.width,
-        this.canvas.height,
+        this.cssWidth,
+        this.cssHeight,
         sampleRate,
         bufferSize,
       );
@@ -270,8 +276,8 @@ export class BespokeSynthApp {
     this.renderLoop = startRenderLoop({
       module: this.module,
       canvas: this.canvas,
-      syncOverlay: (module, canvas) => {
-        syncControlOverlays(module, canvas, this.guiOverlay, this.labelElements);
+      syncOverlay: (module) => {
+        syncControlOverlays(module, this.guiOverlay, this.labelElements);
       },
     });
 
@@ -342,8 +348,8 @@ export class BespokeSynthApp {
 
     try {
       const result = this.module._bespoke_init?.(
-        this.canvas.width,
-        this.canvas.height,
+        this.cssWidth,
+        this.cssHeight,
         sampleRate,
         bufferSize,
       );
@@ -646,12 +652,51 @@ export class BespokeSynthApp {
 
     const container = this.canvas.parentElement;
     if (container) {
-      this.canvas.width = container.clientWidth;
-      this.canvas.height = container.clientHeight;
+      this.cssWidth = container.clientWidth || 1;
+      this.cssHeight = container.clientHeight || 1;
+
+      // Size the backing store in physical pixels so rendering is sharp on
+      // HiDPI displays; #canvas is styled at width/height:100% so the on-page
+      // display size tracks the container regardless of this attribute.
+      const dpr = window.devicePixelRatio || 1;
+      this.canvas.width = Math.max(1, Math.round(this.cssWidth * dpr));
+      this.canvas.height = Math.max(1, Math.round(this.cssHeight * dpr));
 
       if (this.isInitialized && this.module?._bespoke_resize) {
-        this.module._bespoke_resize(this.canvas.width, this.canvas.height);
+        this.module._bespoke_resize(this.cssWidth, this.cssHeight);
       }
+    }
+  }
+
+  /**
+   * WebGPU device-lost callback (GPU driver reset, browser tab discard, etc).
+   * The WGPUDevice held by the C++ side is unrecoverable, so stop rendering
+   * and surface a recoverable error rather than continuing into a black canvas.
+   */
+  private handleDeviceLost(): void {
+    console.error('WebGPU device lost');
+    this.renderLoop?.stop();
+    this.renderLoop = null;
+
+    const statusEl = document.getElementById('status');
+    const headerEl = statusEl?.querySelector('.status-header');
+    const subheaderEl = statusEl?.querySelector('.status-subheader');
+    if (statusEl) {
+      statusEl.classList.remove('hidden');
+      statusEl.classList.add('error');
+    }
+    if (headerEl) headerEl.textContent = 'Graphics Device Lost';
+    if (subheaderEl) {
+      subheaderEl.textContent = 'The GPU connection was lost (driver reset or tab suspended). Reload to continue.';
+    }
+    if (statusEl && !statusEl.querySelector('.init-recovery')) {
+      const recovery = document.createElement('div');
+      recovery.className = 'init-recovery';
+      recovery.innerHTML = '<button type="button" class="btn init-retry-btn">Reload</button>';
+      recovery.querySelector('.init-retry-btn')?.addEventListener('click', () => {
+        window.location.reload();
+      });
+      statusEl.appendChild(recovery);
     }
   }
 

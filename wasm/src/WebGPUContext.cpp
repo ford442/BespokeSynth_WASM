@@ -1,10 +1,12 @@
 #include "BespokeWasm/WebGPUContext.h"
 #include <iostream>
 #include <cstdio>
+#include <cmath>
 #include <emscripten.h>
 #include <emscripten/html5.h>
 #include <cstring>
 #include <cassert>
+#include <algorithm>
 
 // --- WebGPU Callbacks ---
 // Using the new-style callback API with WGPUCallbackInfo structs
@@ -13,6 +15,22 @@
 class WebGPUContext;
 static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message);
 static void handleDeviceRequest(WebGPUContext* context, WGPURequestDeviceStatus status, WGPUDevice device, const char* message);
+
+namespace {
+
+// The canvas backing store is sized in physical (device) pixels so rendering
+// is sharp on HiDPI displays; all layout/hit-testing math elsewhere in the
+// app stays in logical (CSS) pixels. See docs/webgl-fallback.md.
+double currentDevicePixelRatio() {
+    const double dpr = emscripten_get_device_pixel_ratio();
+    return dpr > 0.0 ? dpr : 1.0;
+}
+
+int toPhysicalPixels(int logicalPixels, double dpr) {
+    return std::max(1, static_cast<int>(std::lround(static_cast<double>(logicalPixels) * dpr)));
+}
+
+} // namespace
 
 // Adapter callback - new style with WGPUStringView
 static void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void* userdata1, void* userdata2) {
@@ -44,6 +62,28 @@ static void deviceErrorCallback(WGPUDevice const * device, WGPUErrorType type, W
     printf("WebGPU Device Error (type=%d): %s\n", (int)type, msg.c_str());
 }
 
+// Device-lost callback - fires on context loss (GPU driver reset, tab backgrounding
+// on some platforms, or explicit device.destroy()). We can't recover the same
+// WGPUDevice, so we flag it and let the JS shell decide whether to reload or
+// fall back to WebGL2, instead of continuing to submit commands into a dead device.
+static void deviceLostCallback(WGPUDevice const * device, WGPUDeviceLostReason reason, WGPUStringView message, void* userdata1, void* userdata2) {
+    (void)device;
+    (void)userdata2;
+    std::string msg;
+    if (message.data && message.length > 0) {
+        msg = std::string(message.data, message.length);
+    }
+    printf("WebGPU Device Lost (reason=%d): %s\n", (int)reason, msg.c_str());
+
+    // A device destroyed by our own releaseGpuResources() (reason=Destroyed) is an
+    // expected teardown, not a loss the app needs to recover from.
+    if (reason == WGPUDeviceLostReason_Destroyed)
+        return;
+
+    if (auto* context = static_cast<WebGPUContext*>(userdata1))
+        context->notifyDeviceLost(msg.c_str());
+}
+
 // --- Implementation ---
 
 static void handleDeviceRequest(WebGPUContext* context, WGPURequestDeviceStatus status, WGPUDevice device, const char* message) {
@@ -69,12 +109,47 @@ static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatu
 
         if (context && adapter) {
             printf("WebGPUContext: Adapter found, requesting device\n");
+
+            // Request the adapter's own supported limits rather than the
+            // (much lower) WebGPU default limits, so later features (larger
+            // storage buffers/textures for GPU compute, more bind groups for
+            // richer pipelines) aren't capped below what the hardware offers.
+            WGPULimits adapterLimits = {};
+            const bool haveLimits = wgpuAdapterGetLimits(adapter, &adapterLimits) == WGPUStatus_Success;
+
+            // Opportunistically request features useful for later GPU work
+            // (timestamp-based frame timing, float32-filterable textures for
+            // analyzer/FFT visualizations) when the adapter actually supports them.
+            static const WGPUFeatureName kDesiredFeatures[] = {
+                WGPUFeatureName_TimestampQuery,
+                WGPUFeatureName_Float32Filterable,
+            };
+            constexpr size_t kDesiredFeatureCount = sizeof(kDesiredFeatures) / sizeof(kDesiredFeatures[0]);
+            WGPUFeatureName enabledFeatures[kDesiredFeatureCount];
+            size_t enabledFeatureCount = 0;
+            for (WGPUFeatureName feature : kDesiredFeatures) {
+                if (wgpuAdapterHasFeature(adapter, feature))
+                    enabledFeatures[enabledFeatureCount++] = feature;
+            }
+
             WGPUDeviceDescriptor deviceDesc = {};
-            
+            deviceDesc.label = WGPUStringView{"BespokeSynth WASM device", strlen("BespokeSynth WASM device")};
+            if (haveLimits)
+                deviceDesc.requiredLimits = &adapterLimits;
+            if (enabledFeatureCount > 0) {
+                deviceDesc.requiredFeatureCount = enabledFeatureCount;
+                deviceDesc.requiredFeatures = enabledFeatures;
+            }
+
             // Set up error callback in device descriptor
             deviceDesc.uncapturedErrorCallbackInfo.callback = deviceErrorCallback;
             deviceDesc.uncapturedErrorCallbackInfo.userdata1 = context;
             deviceDesc.uncapturedErrorCallbackInfo.userdata2 = nullptr;
+
+            deviceDesc.deviceLostCallbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+            deviceDesc.deviceLostCallbackInfo.callback = deviceLostCallback;
+            deviceDesc.deviceLostCallbackInfo.userdata1 = context;
+            deviceDesc.deviceLostCallbackInfo.userdata2 = nullptr;
 
             // Use new callback info structure for device request
             WGPURequestDeviceCallbackInfo deviceCallbackInfo = {};
@@ -82,7 +157,7 @@ static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatu
             deviceCallbackInfo.callback = onDeviceRequest;
             deviceCallbackInfo.userdata1 = context;
             deviceCallbackInfo.userdata2 = nullptr;
-            
+
             wgpuAdapterRequestDevice(adapter, &deviceDesc, deviceCallbackInfo);
         }
     } else {
@@ -183,6 +258,10 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
     // 3. Adapter request (asynchronous)
     WGPURequestAdapterOptions adapterOpts = {};
     adapterOpts.compatibleSurface = mSurface;
+    // The UI redraws every frame regardless of audio activity, so prefer the
+    // discrete/high-performance GPU on multi-GPU (laptop) systems over the
+    // low-power default.
+    adapterOpts.powerPreference = WGPUPowerPreference_HighPerformance;
 
     printf("WebGPUContext: Requesting adapter...\n");
 
@@ -236,6 +315,9 @@ void WebGPUContext::onDeviceReady() {
         mFormat = caps.formats[0];
         printf("WebGPUContext: Selected preferred surface format: %d\n", (int)mFormat);
     }
+    mSurfaceUsages = caps.usages;
+    mSupportsCopySrc = (mSurfaceUsages & WGPUTextureUsage_CopySrc) != 0;
+    printf("WebGPUContext: Surface supports CopySrc: %d\n", mSupportsCopySrc ? 1 : 0);
     wgpuSurfaceCapabilitiesFreeMembers(caps);
 
     // Get current canvas size and configure surface
@@ -269,20 +351,34 @@ void WebGPUContext::notifyComplete(bool success) {
     if (mOnComplete) mOnComplete(success);
 }
 
+void WebGPUContext::notifyDeviceLost(const char* reason) {
+    mDeviceLost = true;
+    emscripten_run_script(
+        "if (window.__bespoke_on_device_lost) window.__bespoke_on_device_lost();");
+    (void)reason;
+}
+
 void WebGPUContext::resize(int width, int height) {
-    mWidth = width;
-    mHeight = height;
     if (!mDevice || !mSurface) return;
+
+    // width/height are logical (CSS) pixels; configure the surface at the
+    // physical (device) pixel size so the canvas backing store matches the
+    // display's actual resolution instead of blurring on HiDPI screens.
+    const double dpr = currentDevicePixelRatio();
+    mWidth = toPhysicalPixels(width, dpr);
+    mHeight = toPhysicalPixels(height, dpr);
 
     WGPUSurfaceConfiguration config = {};
     config.device = mDevice;
     config.format = mFormat;
     config.usage = WGPUTextureUsage_RenderAttachment;
-    config.width = width;
-    config.height = height;
+    if (mSupportsCopySrc)
+        config.usage |= WGPUTextureUsage_CopySrc;
+    config.width = mWidth;
+    config.height = mHeight;
     config.presentMode = WGPUPresentMode_Fifo;
     config.alphaMode = WGPUCompositeAlphaMode_Auto;
-    
+
     wgpuSurfaceConfigure(mSurface, &config);
 }
 
@@ -297,6 +393,18 @@ WGPURenderPassEncoder WebGPUContext::beginFrame() {
         return nullptr;
     }
 
+    if (mNeedsReconfigure) {
+        // A prior frame reported SuccessSuboptimal (canvas resized, DPR changed,
+        // etc.); reconfigure against the current CSS size before requesting a
+        // new surface texture, per the WebGPU spec's suboptimal-surface guidance.
+        mNeedsReconfigure = false;
+        double cssW = 0.0;
+        double cssH = 0.0;
+        emscripten_get_element_css_size("#canvas", &cssW, &cssH);
+        if (cssW > 0 && cssH > 0)
+            resize(static_cast<int>(cssW), static_cast<int>(cssH));
+    }
+
     WGPUSurfaceTexture surfaceTexture;
     wgpuSurfaceGetCurrentTexture(mSurface, &surfaceTexture);
 
@@ -306,7 +414,10 @@ WGPURenderPassEncoder WebGPUContext::beginFrame() {
         printf("WebGPUContext: WARNING - Failed to get surface texture, status=%d\n", (int)surfaceTexture.status);
         return nullptr;
     }
-    
+
+    if (surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal)
+        mNeedsReconfigure = true;
+
     if (!surfaceTexture.texture) {
         printf("WebGPUContext: ERROR - Surface texture is null\n");
         return nullptr;
