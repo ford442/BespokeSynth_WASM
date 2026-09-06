@@ -28,6 +28,7 @@ public:
    // Probe browser/canvas support without leaving a context active.
    static bool probeSupport(const char* canvasSelector = "#canvas");
    static const char* getLastError();
+   static void setPreserveDrawingBuffer(bool enabled);
 
    bool initialize(const char* canvasSelector);
    bool isInitialized() const { return mContext != 0; }

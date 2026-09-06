@@ -58,7 +58,7 @@ Available when `?renderer=webgl` (header **Debug** dropdown or `bespoke_set_webg
 
 ### WebGL2 (recommended for CI/agents)
 
-WebGL2 enables `preserveDrawingBuffer` so standard canvas readback works:
+When WebGL2 is explicitly requested (`?renderer=webgl` / render-test), the shell enables `preserveDrawingBuffer` via `bespoke_set_webgl_preserve_drawing_buffer(1)` so standard canvas readback works:
 
 ```js
 await window.__bespoke.captureScreenshot();
@@ -145,7 +145,7 @@ Important differences:
 
 - WebGPU uses specialized WGSL fragment shaders for knobs, sliders, and spectrum views; WebGL2 uses simplified solid-color geometry plus a subset of GLSL effects.
 - WebGPU remains the source of truth for deployment-quality output.
-- WebGL2 enables `preserveDrawingBuffer` for reliable `canvas.toDataURL()` capture.
+- WebGL2 enables `preserveDrawingBuffer` only for explicit WebGL/screenshot flows; fallback WebGL2 keeps it off.
 
 ## Build Notes
 

@@ -28,7 +28,9 @@ The canvas backing store is sized in **physical** (device) pixels; all layout, h
 
 ## WebGL2 context creation (`wasm/src/WebGL2Context.cpp`)
 
-- `initialize()` used to call the static `probeSupport()` (which creates and destroys a throwaway context) before creating the real context — two context creations per init. Some browsers, and the SwiftShader/ANGLE software renderer used by headless Chrome in CI, cap the number of concurrent WebGL contexts a page may hold; `initialize()` now creates the real context directly. `probeSupport()` remains available as a standalone capability check (`bespoke_is_webgl2_supported()`) for callers that want an answer without committing to initialization.
+- The WebGL2 init path no longer pre-probes support before creating the real context. `initialize()` now does a single context creation pass, and `initializeWebGL2Renderer()` in `WasmBridge.cpp` calls it directly. This avoids the previous two-context pattern that could fail in constrained/headless setups.
+- `preserveDrawingBuffer` is configurable via `bespoke_set_webgl_preserve_drawing_buffer(int)` before `bespoke_init()`. The TypeScript shell enables it only for explicit `?renderer=webgl`/render-test screenshot flows; fallback-to-WebGL2 keeps it off to avoid the extra memory/bandwidth cost in normal runtime rendering.
+- WebGL2 attributes are now explicit: `antialias = false` (to match current non-MSAA WebGPU visuals), `powerPreference = high-performance`, and `failIfMajorPerformanceCaveat = false` for broader fallback compatibility.
 - `resize()` scales the logical width/height it receives by `devicePixelRatio` before calling `glViewport()`, matching the physical canvas backing store the JS shell sets up.
 
 ## Binary size

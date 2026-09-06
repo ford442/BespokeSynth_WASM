@@ -106,6 +106,7 @@ export interface BespokeSynthModule extends EmscriptenModule {
     _bespoke_get_renderer_backend(): number;
     _bespoke_is_webgl2_supported(): number;
     _bespoke_get_webgl2_error(): number;
+    _bespoke_set_webgl_preserve_drawing_buffer(enabled: number): void;
     _bespoke_set_webgl_debug_mode(mode: number): void;
     _bespoke_get_webgl_debug_mode(): number;
 

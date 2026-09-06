@@ -130,6 +130,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_renderer_backend(void);
 // WebGL2 capability queries (safe before bespoke_init)
 EMSCRIPTEN_KEEPALIVE int bespoke_is_webgl2_supported(void);
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_webgl2_error(void);
+EMSCRIPTEN_KEEPALIVE void bespoke_set_webgl_preserve_drawing_buffer(int enabled);
 
 // WebGL2-only debug modes (see WebGLDebugMode in Renderer2D.h)
 EMSCRIPTEN_KEEPALIVE void bespoke_set_webgl_debug_mode(int mode);

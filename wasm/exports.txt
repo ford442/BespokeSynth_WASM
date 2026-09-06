@@ -70,6 +70,7 @@ bespoke_set_renderer_backend
 bespoke_get_renderer_backend
 bespoke_is_webgl2_supported
 bespoke_get_webgl2_error
+bespoke_set_webgl_preserve_drawing_buffer
 bespoke_set_webgl_debug_mode
 bespoke_get_webgl_debug_mode
 bespoke_capture_screenshot
