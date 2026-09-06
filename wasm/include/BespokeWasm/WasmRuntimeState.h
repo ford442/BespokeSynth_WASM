@@ -95,6 +95,7 @@ namespace bespoke::wasm
       bool initialized = false;
       bool renderTestMode = false;
       bool fontTestVisible = false;
+      bool webGLPreserveDrawingBuffer = false;
    };
 
    WasmRuntimeState& runtimeState();

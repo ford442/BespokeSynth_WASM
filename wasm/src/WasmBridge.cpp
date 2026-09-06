@@ -89,6 +89,7 @@ static auto& gOscillatorModuleId = gRuntime.oscillatorModuleId;
 static auto& gGainModuleId = gRuntime.gainModuleId;
 static auto& gViewMode = gRuntime.viewMode;
 static auto& gFontTestVisible = gRuntime.fontTestVisible;
+static auto& gWebGLPreserveDrawingBuffer = gRuntime.webGLPreserveDrawingBuffer;
 static auto& gWidth = gRuntime.width;
 static auto& gHeight = gRuntime.height;
 static auto& gInitialized = gRuntime.initialized;
@@ -343,17 +344,8 @@ static bool initializeWebGL2Renderer(int sampleRate, int bufferSize)
    gInitState = InitState::WebGL2Requested;
    reportInitProgress("webgl_requested", "Creating WebGL2 context on #canvas");
 
-   if (!WebGL2Context::probeSupport("#canvas"))
-   {
-      gInitState = InitState::Failed;
-      gInitErrorMessage = WebGL2Context::getLastError();
-      if (gInitErrorMessage.empty())
-         gInitErrorMessage = "WebGL2 is not supported in this browser";
-      reportInitProgress("webgl_failed", gInitErrorMessage.c_str());
-      return false;
-   }
-
    gWebGL2Context = std::make_unique<WebGL2Context>();
+   WebGL2Context::setPreserveDrawingBuffer(gWebGLPreserveDrawingBuffer);
    if (!gWebGL2Context->initialize("#canvas"))
    {
       gInitState = InitState::Failed;
@@ -1651,6 +1643,12 @@ EMSCRIPTEN_KEEPALIVE int bespoke_is_webgl2_supported(void)
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_webgl2_error(void)
 {
    return WebGL2Context::getLastError();
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_webgl_preserve_drawing_buffer(int enabled)
+{
+   if (gInitState == InitState::NotStarted)
+      gWebGLPreserveDrawingBuffer = enabled != 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int bespoke_get_renderer_backend(void)

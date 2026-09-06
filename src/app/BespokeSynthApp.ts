@@ -192,20 +192,10 @@ export class BespokeSynthApp {
 
       const backendCode = this.rendererBackend === 'webgl' ? 1 : 0;
       this.module._bespoke_set_renderer_backend?.(backendCode);
+      this.module._bespoke_set_webgl_preserve_drawing_buffer?.(
+        this.shouldPreserveWebGLDrawingBuffer() ? 1 : 0,
+      );
       publishRendererBreadcrumbs(this.rendererBackend, this.rendererFallbackReason);
-
-      if (this.rendererBackend === 'webgl') {
-        const webglSupported = this.module._bespoke_is_webgl2_supported?.() === 1;
-        if (!webglSupported) {
-          const detail = this.module.UTF8ToString?.(
-            this.module._bespoke_get_webgl2_error?.() ?? 0,
-          );
-          throw new Error(
-            detail ||
-              'WebGL2 is not available in this browser. Try ?renderer=webgpu or use Chrome/Edge/Firefox.',
-          );
-        }
-      }
 
       const sampleRate = 44100;
       const bufferSize = 512;
@@ -309,6 +299,12 @@ export class BespokeSynthApp {
     return explicit === 'webgpu' || params.has('webgpu');
   }
 
+  private shouldPreserveWebGLDrawingBuffer(): boolean {
+    const params = new URLSearchParams(window.location.search);
+    const explicit = params.get('renderer')?.toLowerCase();
+    return explicit === 'webgl' || explicit === 'webgl2' || params.has('webgl') || isRenderTestRequested();
+  }
+
   private async retryWithWebGL2(
     sampleRate: number,
     bufferSize: number,
@@ -329,6 +325,9 @@ export class BespokeSynthApp {
     this.initProgress.setInitSteps(WEBGL2_INIT_STEPS);
     this.initProgress.initializeProgressUI();
     this.module._bespoke_set_renderer_backend?.(1);
+    this.module._bespoke_set_webgl_preserve_drawing_buffer?.(
+      this.shouldPreserveWebGLDrawingBuffer() ? 1 : 0,
+    );
     publishRendererBreadcrumbs(this.rendererBackend, this.rendererFallbackReason);
 
     const debugSelect = document.getElementById('webglDebugSelect') as HTMLSelectElement | null;

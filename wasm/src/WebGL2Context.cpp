@@ -16,6 +16,7 @@
 namespace {
 
 thread_local std::string gLastWebGL2Error;
+thread_local bool gPreserveDrawingBuffer = false;
 
 double currentDevicePixelRatio() {
    const double dpr = emscripten_get_device_pixel_ratio();
@@ -65,6 +66,24 @@ bool extensionSupported(const char* name)
    return emscripten_webgl_enable_extension(emscripten_webgl_get_current_context(), name) == EMSCRIPTEN_RESULT_SUCCESS;
 }
 
+void configureContextAttributes(EmscriptenWebGLContextAttributes& attrs)
+{
+   emscripten_webgl_init_context_attributes(&attrs);
+   attrs.majorVersion = 2;
+   attrs.minorVersion = 0;
+   attrs.alpha = EM_TRUE;
+   attrs.depth = EM_FALSE;
+   attrs.stencil = EM_FALSE;
+   attrs.antialias = EM_FALSE;
+   attrs.premultipliedAlpha = EM_TRUE;
+   attrs.preserveDrawingBuffer = gPreserveDrawingBuffer ? EM_TRUE : EM_FALSE;
+   attrs.enableExtensionsByDefault = EM_TRUE;
+   attrs.explicitSwapControl = EM_FALSE;
+   attrs.renderViaOffscreenBackBuffer = EM_FALSE;
+   attrs.failIfMajorPerformanceCaveat = EM_FALSE;
+   attrs.powerPreference = EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
+}
+
 } // namespace
 
 const char* WebGL2Context::getLastError()
@@ -79,6 +98,11 @@ void WebGL2Context::setError(const char* message)
       printf("WebGL2Context: %s\n", gLastWebGL2Error.c_str());
 }
 
+void WebGL2Context::setPreserveDrawingBuffer(bool enabled)
+{
+   gPreserveDrawingBuffer = enabled;
+}
+
 bool WebGL2Context::probeSupport(const char* canvasSelector)
 {
    gLastWebGL2Error.clear();
@@ -90,16 +114,7 @@ bool WebGL2Context::probeSupport(const char* canvasSelector)
    }
 
    EmscriptenWebGLContextAttributes attrs;
-   emscripten_webgl_init_context_attributes(&attrs);
-   attrs.majorVersion = 2;
-   attrs.minorVersion = 0;
-   attrs.alpha = EM_TRUE;
-   attrs.depth = EM_FALSE;
-   attrs.stencil = EM_FALSE;
-   attrs.antialias = EM_TRUE;
-   attrs.premultipliedAlpha = EM_TRUE;
-   attrs.preserveDrawingBuffer = EM_TRUE;
-   attrs.enableExtensionsByDefault = EM_TRUE;
+   configureContextAttributes(attrs);
 
    const EMSCRIPTEN_WEBGL_CONTEXT_HANDLE probeContext =
       emscripten_webgl_create_context(canvasSelector, &attrs);
@@ -152,18 +167,7 @@ bool WebGL2Context::initialize(const char* canvasSelector)
    // want a capability check without committing to initialization should use
    // the static probeSupport() instead.
    EmscriptenWebGLContextAttributes attrs;
-   emscripten_webgl_init_context_attributes(&attrs);
-   attrs.majorVersion = 2;
-   attrs.minorVersion = 0;
-   attrs.alpha = EM_TRUE;
-   attrs.depth = EM_FALSE;
-   attrs.stencil = EM_FALSE;
-   attrs.antialias = EM_TRUE;
-   attrs.premultipliedAlpha = EM_TRUE;
-   attrs.preserveDrawingBuffer = EM_TRUE;
-   attrs.enableExtensionsByDefault = EM_TRUE;
-   attrs.explicitSwapControl = EM_FALSE;
-   attrs.renderViaOffscreenBackBuffer = EM_FALSE;
+   configureContextAttributes(attrs);
 
    mContext = emscripten_webgl_create_context(canvasSelector, &attrs);
    if (mContext <= 0)
