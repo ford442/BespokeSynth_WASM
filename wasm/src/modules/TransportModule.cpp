@@ -87,6 +87,8 @@ namespace bespoke
 
          drawText(renderer, screenX + 70 * scale, textBaselineFromTop(renderer, screenY + 38 * scale),
                   "Space: play/stop", UITheme::kTextSecondary, 9.0f * scale);
+
+         renderPorts(renderer, screenX, screenY, scale);
       }
 
       void TransportModule::setControlValue(const std::string& name, float value)

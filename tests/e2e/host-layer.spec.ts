@@ -76,4 +76,39 @@ test.describe('Host layer single path', () => {
     expect(counts.hostDelta).toBeGreaterThanOrEqual(5);
     expect(Math.abs(counts.wasmDelta - counts.hostDelta)).toBeLessThanOrEqual(2);
   });
+
+  test('keydown and keyup use the same key identity', async ({ page }) => {
+    await gotoApp(page);
+    await waitForBespokeReady(page);
+
+    const letter = await page.evaluate(async () => {
+      const w = window as Window & {
+        __bespoke?: { getLastKeyCodes?: () => { down: number; up: number } };
+      };
+      const canvas = document.getElementById('canvas');
+      if (!canvas) throw new Error('canvas missing');
+      canvas.focus();
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', bubbles: true }));
+      document.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', code: 'KeyA', bubbles: true }));
+      return w.__bespoke?.getLastKeyCodes?.();
+    });
+    expect(letter?.down).toBe(65);
+    expect(letter?.up).toBe(65);
+    expect(letter?.down).toBe(letter?.up);
+
+    const shift = await page.evaluate(async () => {
+      const w = window as Window & {
+        __bespoke?: { getLastKeyCodes?: () => { down: number; up: number } };
+      };
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', bubbles: true, shiftKey: true }),
+      );
+      document.dispatchEvent(
+        new KeyboardEvent('keyup', { key: 'Shift', code: 'ShiftLeft', bubbles: true }),
+      );
+      return w.__bespoke?.getLastKeyCodes?.();
+    });
+    expect(shift?.down).toBe(16);
+    expect(shift?.up).toBe(16);
+  });
 });

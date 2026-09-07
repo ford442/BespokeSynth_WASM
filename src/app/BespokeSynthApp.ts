@@ -4,6 +4,7 @@ import {
   captureCanvasScreenshot,
   downloadScreenshot,
   isRenderTestRequested,
+  isLegacyPanelsRequested,
   resolveRendererBackend,
   type CaptureScreenshotOptions,
   type RendererBackend,
@@ -195,6 +196,10 @@ export class BespokeSynthApp {
       this.module._bespoke_set_webgl_preserve_drawing_buffer?.(
         this.shouldPreserveWebGLDrawingBuffer() ? 1 : 0,
       );
+      if (isLegacyPanelsRequested()) {
+        this.module._bespoke_set_legacy_panels?.(1);
+        console.log('Legacy demo panels enabled (?legacyPanels=1)');
+      }
       publishRendererBreadcrumbs(this.rendererBackend, this.rendererFallbackReason);
 
       const sampleRate = 44100;
@@ -328,6 +333,9 @@ export class BespokeSynthApp {
     this.module._bespoke_set_webgl_preserve_drawing_buffer?.(
       this.shouldPreserveWebGLDrawingBuffer() ? 1 : 0,
     );
+    if (isLegacyPanelsRequested()) {
+      this.module._bespoke_set_legacy_panels?.(1);
+    }
     publishRendererBreadcrumbs(this.rendererBackend, this.rendererFallbackReason);
 
     const debugSelect = document.getElementById('webglDebugSelect') as HTMLSelectElement | null;

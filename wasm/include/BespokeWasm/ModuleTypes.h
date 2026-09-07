@@ -42,6 +42,7 @@ namespace bespoke
          AudioProcessor,
          ModulationSource,
          NoteSource,
+         PulseSource,
          Sink
       };
 

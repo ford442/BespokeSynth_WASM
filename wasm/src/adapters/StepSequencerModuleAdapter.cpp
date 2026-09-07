@@ -72,8 +72,12 @@ namespace bespoke
                                                              double beatEnd,
                                                              WasmNoteEvent* outNotes,
                                                              int maxNotes,
-                                                             int& outCount) const
+                                                             int& outCount,
+                                                             const WasmPulseEvent* pulses,
+                                                             int pulseCount) const
       {
+         (void)pulses;
+         (void)pulseCount;
          outCount = 0;
          if (!outNotes || maxNotes <= 0 || !runtimeState || !paramsPtr)
             return;

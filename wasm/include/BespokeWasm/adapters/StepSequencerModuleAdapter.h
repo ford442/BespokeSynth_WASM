@@ -56,7 +56,9 @@ namespace bespoke
                                     double beatEnd,
                                     WasmNoteEvent* outNotes,
                                     int maxNotes,
-                                    int& outCount) const override;
+                                    int& outCount,
+                                    const WasmPulseEvent* pulses = nullptr,
+                                    int pulseCount = 0) const override;
       };
 
    } // namespace wasm

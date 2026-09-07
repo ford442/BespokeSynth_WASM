@@ -66,7 +66,7 @@ ls -lh build/BespokeSynthWASM.*
 # You should see:
 # BespokeSynthWASM.js
 # BespokeSynthWASM.wasm
-# BespokeSynthWASM.data   # preload bundle (~32 MB) — required at runtime
+# BespokeSynthWASM.data   # preload bundle (~4 KB) — required at runtime
 ```
 
 ## Step 4: Deploy to Your Server
@@ -186,8 +186,10 @@ WebGPU is required and supported in:
 
 Typical file sizes after build:
 - `BespokeSynthWASM.js`: ~100KB - 500KB
-- `BespokeSynthWASM.wasm`: ~2MB - 10MB (depends on what's included)
-- `BespokeSynthWASM.data`: ~32MB (fonts and other preloaded resources)
+- `BespokeSynthWASM.wasm`: ~1MB - 2MB (depends on what's included)
+- `BespokeSynthWASM.data`: ~4 KB (slim `wasm/resource-pack/` preload: scales, starter patch, blank layout)
+
+The full desktop `resource/` tree is still ~32 MB on disk and is **not** packed into `.data`. See [docs/wasm/resources.md](wasm/resources.md).
 
 If your files are significantly different, something may have gone wrong in the build.
 

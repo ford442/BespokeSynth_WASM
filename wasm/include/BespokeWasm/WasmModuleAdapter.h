@@ -46,6 +46,13 @@ namespace bespoke
          int pitch = 60;
          float velocity = 0.0f;
          bool isNoteOn = false;
+         int channel = 0;
+      };
+
+      struct WasmPulseEvent
+      {
+         double timeBeats = 0.0;
+         float strength = 1.0f;
       };
 
       struct WasmAudioProcessContext
@@ -60,7 +67,10 @@ namespace bespoke
          const float* inputAudio = nullptr;
          const WasmNoteEvent* notes = nullptr;
          int noteCount = 0;
+         const WasmPulseEvent* pulses = nullptr;
+         int pulseCount = 0;
          bool hasNoteCable = false;
+         bool hasPulseCable = false;
          bool hasAudioInput = false;
       };
 
@@ -124,7 +134,9 @@ namespace bespoke
                                             double beatEnd,
                                             WasmNoteEvent* outNotes,
                                             int maxNotes,
-                                            int& outCount) const
+                                            int& outCount,
+                                            const WasmPulseEvent* pulses = nullptr,
+                                            int pulseCount = 0) const
          {
             (void)runtimeState;
             (void)params;
@@ -132,6 +144,25 @@ namespace bespoke
             (void)beatEnd;
             (void)outNotes;
             (void)maxNotes;
+            (void)pulses;
+            (void)pulseCount;
+            outCount = 0;
+         }
+
+         virtual void emitPulsesForBeatRange(void* runtimeState,
+                                             const void* params,
+                                             double beatStart,
+                                             double beatEnd,
+                                             WasmPulseEvent* outPulses,
+                                             int maxPulses,
+                                             int& outCount) const
+         {
+            (void)runtimeState;
+            (void)params;
+            (void)beatStart;
+            (void)beatEnd;
+            (void)outPulses;
+            (void)maxPulses;
             outCount = 0;
          }
       };

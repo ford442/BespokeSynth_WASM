@@ -119,7 +119,7 @@ namespace bespoke::wasm
    void routeKeyDown(int keyCode, int modifiers)
    {
       auto& state = runtimeState();
-      if (keyCode == kKeyTab)
+      if (keyCode == kKeyTab && state.legacyPanelsEnabled)
       {
          state.viewMode = state.viewMode == 0 ? 1 : 0;
          std::printf("BespokeSynth WASM: Switched to %s view\n", state.viewMode == 0 ? "Modular Canvas" : "Demo Panels");

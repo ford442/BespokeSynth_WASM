@@ -22,7 +22,7 @@ set(BESPOKE_WASM_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 # 1. Force Emscripten to make SDL2 available
 # SDL2 compile option is unconditional because SDL2AudioBackend.h is included
-# by WasmBridge.cpp which is always compiled. The linker flag for SDL2 audio
+# by WasmBridgeInit.cpp which is always compiled. The linker flag for SDL2 audio
 # backend is added conditionally below based on BESPOKE_WASM_SDL2_AUDIO option.
 add_compile_options(
     "-sUSE_SDL=2"
@@ -73,6 +73,7 @@ option(BESPOKE_WASM_WEBGPU "Enable WebGPU rendering backend" ON)
 option(BESPOKE_WASM_SDL2_AUDIO "Enable SDL2 audio backend" ON)
 option(BESPOKE_WASM_THREADS "Enable threading support" OFF)
 option(BESPOKE_WASM_ASYNCIFY "Enable Asyncify support (off unless an async C++ stack is required)" OFF)
+option(BESPOKE_WASM_LEGACY_PANELS "Compile Mixer/Effects/Sequencer demo panels (runtime: ?legacyPanels=1)" ON)
 set(BESPOKE_WASM_BUILD_FLAVOR "Release" CACHE STRING "Release, Debug, or Profile WASM build")
 set_property(CACHE BESPOKE_WASM_BUILD_FLAVOR PROPERTY STRINGS Release Debug Profile)
 
@@ -105,6 +106,7 @@ set(BESPOKE_WASM_ADAPTER_SOURCES
     ${BESPOKE_WASM_DIR}/src/adapters/ReverbModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/SamplerModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/LooperModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/PulseToNoteModuleAdapter.cpp
 )
 
 # Collect WASM-specific sources
@@ -131,7 +133,12 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/WasmInputRouter.cpp
     ${BESPOKE_WASM_DIR}/src/WasmRuntimeState.cpp
     ${BESPOKE_WASM_DIR}/src/WasmPatchState.cpp
-    ${BESPOKE_WASM_DIR}/src/WasmBridge.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmBridgeInit.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmBridgeRender.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmBridgeAudio.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmBridgePatch.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmBridgeInput.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmBridgeLegacyPanels.cpp
     ${BESPOKE_WASM_DIR}/src/Knob.cpp
     ${BESPOKE_WASM_DIR}/src/Module.cpp
     ${BESPOKE_WASM_DIR}/src/ModuleCanvas.cpp
@@ -154,13 +161,19 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/modules/ScaleModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/SamplerModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/LooperModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/PulseToNoteModule.cpp
 
-    # --- JUCE module wrappers (implementations) ---
+    # --- JUCE module wrappers ---
+    # WASM audio/core only. juce_graphics / juce_events are not compiled: nothing
+    # under wasm/src includes them. CORE (OpenFrameworksPort, Scale, SynthGlobals)
+    # still parse GUI/OpenGL headers; LTO should GC unused symbols. Required:
+    # juce_core, juce_audio_basics. juce_data_structures is kept while CORE still
+    # pulls those headers transitively. juce_colour_stub.cpp satisfies juce::Colour
+    # without compiling juce_graphics.cpp.
     ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_core/juce_core.cpp
     ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_audio_basics/juce_audio_basics.cpp
-    ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_events/juce_events.cpp
-    ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_graphics/juce_graphics.cpp
     ${BESPOKE_LIBS_DIR}/JUCE/modules/juce_data_structures/juce_data_structures.cpp
+    ${BESPOKE_WASM_DIR}/src/juce_colour_stub.cpp
 )
 
 # Collect core synth sources (subset for WASM - audio processing core)
@@ -207,6 +220,7 @@ target_compile_definitions(BespokeSynthWASM PRIVATE
     BESPOKE_WASM=1
     $<$<BOOL:${BESPOKE_WASM_WEBGPU}>:BESPOKE_WEBGPU=1>
     $<$<BOOL:${BESPOKE_WASM_SDL2_AUDIO}>:BESPOKE_SDL2_AUDIO=1>
+    $<$<BOOL:${BESPOKE_WASM_LEGACY_PANELS}>:BESPOKE_WASM_LEGACY_PANELS=1>
 )
 
 if(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Debug")
@@ -346,6 +360,7 @@ add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/src/modules/ScaleModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/SamplerModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/LooperModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/PulseToNoteModule.cpp
     ${BESPOKE_WASM_DIR}/src/ModuleCanvasHelpers.cpp
     ${BESPOKE_WASM_DIR}/src/WasmPatchState.cpp
     ${BESPOKE_WASM_DIR}/src/PixelFont.cpp
@@ -369,5 +384,5 @@ target_sources(BespokeSynthWASM_test PRIVATE
 
 set_target_properties(BespokeSynthWASM_test PROPERTIES
     SUFFIX ".js"
-    LINK_FLAGS "-sWASM=1 -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
+    LINK_FLAGS "-sWASM=1 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=67108864 -sSTACK_SIZE=1048576 -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
 )

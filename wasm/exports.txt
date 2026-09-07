@@ -27,6 +27,8 @@ bespoke_delete_module
 bespoke_connect_modules
 bespoke_get_view_mode
 bespoke_set_view_mode
+bespoke_set_legacy_panels
+bespoke_get_legacy_panels
 bespoke_set_control_value
 bespoke_get_control_value
 bespoke_midi_note_on

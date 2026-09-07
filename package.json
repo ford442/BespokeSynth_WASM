@@ -23,6 +23,7 @@
     "type-check": "tsc --noEmit",
     "test:e2e": "playwright test",
     "test:unit": "node wasm/build/release/BespokeSynthWASM_test.js",
+    "test:unit:js": "node --experimental-strip-types tests/unit/keyMapping.test.ts",
     "test:exports": "bash scripts/check-wasm-exports.sh",
     "test:clang-format": "bash scripts/check-clang-format.sh",
     "test:e2e:text": "bash scripts/run-text-e2e.sh",

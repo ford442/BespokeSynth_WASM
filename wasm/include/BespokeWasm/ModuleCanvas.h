@@ -8,6 +8,7 @@
 #pragma once
 
 #include "BespokeWasm/AudioGraphTypes.h"
+#include "BespokeWasm/MidiMap.h"
 #include "BespokeWasm/ModuleTypes.h"
 #include "BespokeWasm/Module.h"
 #include "BespokeWasm/modules/WasmModules.h"
@@ -54,7 +55,7 @@ namespace bespoke
 
          struct StateSnapshot
          {
-            int schemaVersion = 3;
+            int schemaVersion = 4;
             float transportBPM = 120.0f;
             bool transportPlaying = false;
             float offsetX = 0.0f;
@@ -62,6 +63,8 @@ namespace bespoke
             float scale = 1.0f;
             std::vector<StateModule> modules;
             std::vector<StateConnection> connections;
+            std::vector<MidiCcBinding> midiCcMap;
+            int midiNoteChannel = -1;
          };
 
          ModuleCanvas();
@@ -76,6 +79,9 @@ namespace bespoke
          bool getModuleControlValue(int moduleId, const std::string& name, float& value) const;
          bool setModuleStringProperty(int moduleId, const std::string& name, const std::string& value);
          bool getModuleStringProperty(int moduleId, const std::string& name, std::string& value) const;
+         bool applyMidiCc(int channel, int cc, float value);
+         int midiNoteChannel() const;
+         void setMidiNoteChannel(int channel);
 
          void connectModules(int sourceId, int sourcePort, int destId, int destPort);
          void disconnectModules(int sourceId, int destId);
@@ -142,6 +148,7 @@ namespace bespoke
          void publishAudioGraphSnapshotLocked();
          std::map<std::string, float> moduleControlMap(const Module& module) const;
          std::map<std::string, std::string> moduleStringMap(const Module& module) const;
+         void seedDefaultMidiCcMapLocked();
 
          std::unordered_map<int, std::unique_ptr<Module>> mModules;
          std::vector<Connection> mConnections;
@@ -172,6 +179,9 @@ namespace bespoke
 
          TransportModule* mTransport = nullptr;
          ScaleModule* mScaleModule = nullptr;
+         std::vector<MidiCcBinding> mMidiCcMap;
+         int mMidiNoteChannel = -1;
+         bool mMidiMapFromPatch = false;
 
          mutable std::shared_ptr<const AudioGraphSnapshot> mPublishedAudioGraph;
 

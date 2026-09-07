@@ -54,6 +54,11 @@ export function isRenderTestRequested(search: string = window.location.search): 
   return params.get('renderTest') === '1' || params.has('renderTest');
 }
 
+export function isLegacyPanelsRequested(search: string = window.location.search): boolean {
+  const params = new URLSearchParams(search);
+  return params.get('legacyPanels') === '1' || params.has('legacyPanels');
+}
+
 export function publishRendererBreadcrumbs(
   backend: RendererBackend,
   fallbackReason: string | null = null,

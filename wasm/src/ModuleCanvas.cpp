@@ -39,6 +39,7 @@ namespace bespoke
          mModules[mScaleModule->getId()] = std::move(scaleModule);
 
          Lock lock(mMutex);
+         seedDefaultMidiCcMapLocked();
          publishAudioGraphSnapshotLocked();
          printf("ModuleCanvas: Created with Transport and Scale modules\n");
       }
@@ -58,6 +59,8 @@ namespace bespoke
          printf("ModuleCanvas: Created module '%s' (id=%d) at (%.1f, %.1f)\n",
                 type.c_str(), id, x, y);
          mModules[id] = std::move(module);
+         if (!mMidiMapFromPatch)
+            seedDefaultMidiCcMapLocked();
          publishAudioGraphSnapshotLocked();
          return id;
       }
@@ -82,6 +85,8 @@ namespace bespoke
 
          mModules.erase(moduleId);
          printf("ModuleCanvas: Deleted module %d\n", moduleId);
+         if (!mMidiMapFromPatch)
+            seedDefaultMidiCcMapLocked();
          publishAudioGraphSnapshotLocked();
       }
 
@@ -145,6 +150,60 @@ namespace bespoke
             return false;
          value = it->second->getStringProperty(name);
          return true;
+      }
+
+      bool ModuleCanvas::applyMidiCc(int channel, int cc, float value)
+      {
+         Lock lock(mMutex);
+         bool applied = false;
+         forEachMatchingMidiCc(mMidiCcMap, channel, cc, value,
+                               [&](int moduleId, const std::string& controlName, float scaled)
+                               {
+                                  auto it = mModules.find(moduleId);
+                                  if (it == mModules.end())
+                                     return;
+                                  it->second->setControlValue(controlName, scaled);
+                                  applied = true;
+                               });
+         if (applied)
+            publishAudioGraphSnapshotLocked();
+         return applied;
+      }
+
+      int ModuleCanvas::midiNoteChannel() const
+      {
+         Lock lock(mMutex);
+         return mMidiNoteChannel;
+      }
+
+      void ModuleCanvas::setMidiNoteChannel(int channel)
+      {
+         Lock lock(mMutex);
+         mMidiNoteChannel = channel;
+      }
+
+      void ModuleCanvas::seedDefaultMidiCcMapLocked()
+      {
+         auto findType = [this](const char* type) -> int
+         {
+            for (const auto& [id, module] : mModules)
+            {
+               if (module->getType() == type)
+                  return id;
+            }
+            return -1;
+         };
+
+         mMidiCcMap.clear();
+         const int gain = findType("gain");
+         if (gain >= 0)
+            mMidiCcMap.push_back({ -1, 7, gain, "gain", 0.0f, 1.0f });
+         const int filter = findType("filter");
+         if (filter >= 0)
+            mMidiCcMap.push_back({ -1, 74, filter, "cutoff", 20.0f, 20000.0f });
+         const int lfo = findType("lfo");
+         if (lfo >= 0)
+            mMidiCcMap.push_back({ -1, 1, lfo, "depth", 0.0f, 1.0f });
       }
 
       void ModuleCanvas::connectModules(int sourceId, int sourcePort, int destId, int destPort)
@@ -220,6 +279,11 @@ namespace bespoke
       {
          snapshot.transportPlaying = mTransport && mTransport->isPlaying();
          snapshot.transportBPM = mTransport ? mTransport->getBPM() : 120.0f;
+         if (mScaleModule)
+         {
+            snapshot.musicScale.root = static_cast<int>(mScaleModule->getControlValue("root"));
+            snapshot.musicScale.mode = static_cast<int>(mScaleModule->getControlValue("type"));
+         }
          snapshot.nodes.clear();
          snapshot.connections.clear();
          snapshot.paramArena.clear();
@@ -388,6 +452,8 @@ namespace bespoke
          snapshot.offsetX = mOffsetX;
          snapshot.offsetY = mOffsetY;
          snapshot.scale = mScale;
+         snapshot.midiCcMap = mMidiCcMap;
+         snapshot.midiNoteChannel = mMidiNoteChannel;
          snapshot.modules.reserve(mModules.size());
          snapshot.connections.reserve(mConnections.size());
 
@@ -426,6 +492,7 @@ namespace bespoke
       {
          Lock lock(mMutex);
          std::unordered_map<int, int> idMap;
+         mMidiMapFromPatch = true;
 
          clearUserModules();
          setViewTransform(snapshot.offsetX, snapshot.offsetY, snapshot.scale);
@@ -478,6 +545,17 @@ namespace bespoke
             if (srcIt == idMap.end() || dstIt == idMap.end())
                continue;
             connectModules(srcIt->second, stateConn.sourcePortIndex, dstIt->second, stateConn.destPortIndex);
+         }
+
+         mMidiNoteChannel = snapshot.midiNoteChannel;
+         mMidiCcMap.clear();
+         for (auto binding : snapshot.midiCcMap)
+         {
+            auto idIt = idMap.find(binding.moduleId);
+            if (idIt == idMap.end())
+               continue;
+            binding.moduleId = idIt->second;
+            mMidiCcMap.push_back(std::move(binding));
          }
 
          publishAudioGraphSnapshotLocked();

@@ -72,7 +72,17 @@ namespace bespoke
          SmallVec<int, 4> modulationSourceSlots;
          SmallVec<int, 4> noteSourceSlots;
          SmallVec<int, 4> noteSourceScratchSlots;
+         SmallVec<int, 4> pulseSourceSlots;
+         SmallVec<int, 4> pulseSourceScratchSlots;
          bool hasNoteCable = false;
+         bool hasPulseCable = false;
+      };
+
+      struct EventSourcePlan
+      {
+         int nodeIndex = -1;
+         SmallVec<int, 4> pulseSourceScratchSlots;
+         bool hasPulseCable = false;
       };
 
       struct AudioProcessPlan
@@ -86,13 +96,22 @@ namespace bespoke
          std::vector<PlanStep> steps;
          std::vector<int> modulationSourceNodeIndices;
          std::vector<int> noteSourceNodeIndices;
+         std::vector<EventSourcePlan> noteSourcePlans;
+         std::vector<int> pulseSourceNodeIndices;
          std::vector<int> nodeIndexByModuleId;
+      };
+
+      struct GraphMusicScale
+      {
+         int root = 0;
+         int mode = 6; // chromatic (identity) unless Scale UI publishes another mode
       };
 
       struct AudioGraphSnapshot
       {
          bool transportPlaying = false;
          float transportBPM = 120.0f;
+         GraphMusicScale musicScale;
          std::vector<AudioGraphNode> nodes;
          std::vector<AudioGraphConnection> connections;
          std::vector<uint8_t> paramArena;

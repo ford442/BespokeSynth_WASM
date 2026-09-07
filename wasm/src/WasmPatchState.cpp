@@ -7,6 +7,7 @@
 
 #include "BespokeWasm/WasmPatchState.h"
 #include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/MidiMap.h"
 #include <cctype>
 #include <iomanip>
 #include <map>
@@ -416,7 +417,23 @@ namespace bespoke
                 << ", \"dest_port_index\": " << conn.destPortIndex
                 << " }" << (i + 1 < snapshot.connections.size() ? "," : "") << "\n";
          }
-         out << "  ]\n";
+         out << "  ],\n";
+         out << "  \"midi\": {\n";
+         out << "    \"note_channel\": " << snapshot.midiNoteChannel << ",\n";
+         out << "    \"cc\": [\n";
+         for (size_t i = 0; i < snapshot.midiCcMap.size(); ++i)
+         {
+            const auto& binding = snapshot.midiCcMap[i];
+            out << "      { \"channel\": " << binding.channel
+                << ", \"cc\": " << binding.cc
+                << ", \"module_id\": " << binding.moduleId
+                << ", \"control\": \"" << escapeJson(binding.controlName) << "\""
+                << ", \"min\": " << binding.min
+                << ", \"max\": " << binding.max
+                << " }" << (i + 1 < snapshot.midiCcMap.size() ? "," : "") << "\n";
+         }
+         out << "    ]\n";
+         out << "  }\n";
          out << "}\n";
          return out.str();
       }
@@ -513,9 +530,57 @@ namespace bespoke
             }
          }
 
+         const JsonValue* midi = root.get("midi");
+         if (midi && midi->type == JsonValue::Type::Object)
+         {
+            parsed.midiNoteChannel = intOr(midi->get("note_channel"), -1);
+            const JsonValue* ccList = midi->get("cc");
+            if (ccList && ccList->type == JsonValue::Type::Array)
+            {
+               for (const auto& bindingValue : ccList->arrayValue)
+               {
+                  if (bindingValue.type != JsonValue::Type::Object)
+                     continue;
+                  MidiCcBinding binding;
+                  binding.channel = intOr(bindingValue.get("channel"), -1);
+                  binding.cc = intOr(bindingValue.get("cc"), 0);
+                  binding.moduleId = intOr(bindingValue.get("module_id"), -1);
+                  binding.controlName = stringOr(bindingValue.get("control"), "");
+                  binding.min = static_cast<float>(numberOr(bindingValue.get("min"), 0.0));
+                  binding.max = static_cast<float>(numberOr(bindingValue.get("max"), 1.0));
+                  if (binding.cc >= 0 && binding.moduleId >= 0 && !binding.controlName.empty())
+                     parsed.midiCcMap.push_back(std::move(binding));
+               }
+            }
+         }
+
          snapshot = std::move(parsed);
          migratePatchState(snapshot);
          return true;
+      }
+
+      void seedDefaultMidiCcBindings(ModuleCanvas::StateSnapshot& snapshot)
+      {
+         auto findType = [&snapshot](const char* type) -> int
+         {
+            for (const auto& module : snapshot.modules)
+            {
+               if (module.type == type)
+                  return module.id;
+            }
+            return -1;
+         };
+
+         snapshot.midiCcMap.clear();
+         const int gain = findType("gain");
+         if (gain >= 0)
+            snapshot.midiCcMap.push_back({ -1, 7, gain, "gain", 0.0f, 1.0f });
+         const int filter = findType("filter");
+         if (filter >= 0)
+            snapshot.midiCcMap.push_back({ -1, 74, filter, "cutoff", 20.0f, 20000.0f });
+         const int lfo = findType("lfo");
+         if (lfo >= 0)
+            snapshot.midiCcMap.push_back({ -1, 1, lfo, "depth", 0.0f, 1.0f });
       }
 
       void migratePatchState(ModuleCanvas::StateSnapshot& snapshot)
@@ -535,6 +600,8 @@ namespace bespoke
                   module.controls[control.name] = control.defaultValue;
             }
          }
+         if (snapshot.schemaVersion < 4)
+            seedDefaultMidiCcBindings(snapshot);
          snapshot.schemaVersion = kPatchSchemaVersion;
       }
    } // namespace wasm

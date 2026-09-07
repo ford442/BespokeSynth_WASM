@@ -59,6 +59,7 @@ namespace bespoke
          std::unordered_map<int, std::vector<int>> audioInputsByDest;
          std::unordered_map<int, std::vector<int>> modulationInputsByDest;
          std::unordered_map<int, std::vector<int>> noteInputsByDest;
+         std::unordered_map<int, std::vector<int>> pulseInputsByDest;
          std::unordered_map<int, std::vector<int>> audioChildrenBySource;
          std::unordered_map<int, int> indegree;
          std::unordered_set<int> audioModuleIds;
@@ -79,7 +80,14 @@ namespace bespoke
             if (adapter->audioRole() == WasmAudioRole::ModulationSource)
                plan.modulationSourceNodeIndices.push_back(static_cast<int>(nodeIndex));
             if (adapter->audioRole() == WasmAudioRole::NoteSource)
+            {
                plan.noteSourceNodeIndices.push_back(static_cast<int>(nodeIndex));
+               EventSourcePlan sourcePlan;
+               sourcePlan.nodeIndex = static_cast<int>(nodeIndex);
+               plan.noteSourcePlans.push_back(sourcePlan);
+            }
+            if (adapter->audioRole() == WasmAudioRole::PulseSource)
+               plan.pulseSourceNodeIndices.push_back(static_cast<int>(nodeIndex));
          }
 
          for (const auto& conn : snapshot.connections)
@@ -99,6 +107,10 @@ namespace bespoke
             else if (conn.sourcePortType == PortType::Note && conn.destPortType == PortType::Note)
             {
                noteInputsByDest[conn.destModuleId].push_back(conn.sourceModuleId);
+            }
+            else if (conn.sourcePortType == PortType::Pulse && conn.destPortType == PortType::Pulse)
+            {
+               pulseInputsByDest[conn.destModuleId].push_back(conn.sourceModuleId);
             }
          }
 
@@ -178,6 +190,34 @@ namespace bespoke
             modulationSlotByModuleId[snapshot.nodes[static_cast<size_t>(lfoNodeIndex)].id] = nextModSlot++;
 
          plan.modulationSlotCount = nextModSlot;
+
+         std::unordered_map<int, int> pulseScratchByModuleId;
+         for (int scratch = 0; scratch < static_cast<int>(plan.pulseSourceNodeIndices.size()); ++scratch)
+         {
+            const int nodeIndex = plan.pulseSourceNodeIndices[static_cast<size_t>(scratch)];
+            pulseScratchByModuleId[snapshot.nodes[static_cast<size_t>(nodeIndex)].id] = scratch;
+         }
+
+         auto fillPulseScratchSlots = [&](SmallVec<int, 4>& slots, bool& hasPulseCable, int destModuleId)
+         {
+            const auto pulseInputs = pulseInputsByDest.find(destModuleId);
+            if (pulseInputs == pulseInputsByDest.end())
+               return;
+            hasPulseCable = true;
+            for (int sourceId : pulseInputs->second)
+            {
+               auto it = pulseScratchByModuleId.find(sourceId);
+               if (it != pulseScratchByModuleId.end())
+                  slots.push_back(it->second);
+            }
+         };
+
+         for (auto& sourcePlan : plan.noteSourcePlans)
+         {
+            const int destId = snapshot.nodes[static_cast<size_t>(sourcePlan.nodeIndex)].id;
+            fillPulseScratchSlots(sourcePlan.pulseSourceScratchSlots, sourcePlan.hasPulseCable, destId);
+         }
+
          plan.steps.reserve(topoModuleIds.size());
 
          for (int moduleId : topoModuleIds)
@@ -235,6 +275,18 @@ namespace bespoke
                         break;
                      }
                   }
+               }
+            }
+
+            fillPulseScratchSlots(step.pulseSourceScratchSlots, step.hasPulseCable, moduleId);
+            const auto pulseInputs = pulseInputsByDest.find(moduleId);
+            if (pulseInputs != pulseInputsByDest.end())
+            {
+               for (int sourceId : pulseInputs->second)
+               {
+                  const int sourceNodeIndex = plan.nodeIndexByModuleId[static_cast<size_t>(sourceId)];
+                  if (sourceNodeIndex >= 0)
+                     step.pulseSourceSlots.push_back(sourceNodeIndex);
                }
             }
 

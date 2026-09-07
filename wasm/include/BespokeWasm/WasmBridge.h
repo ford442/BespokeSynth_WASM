@@ -51,6 +51,10 @@ EMSCRIPTEN_KEEPALIVE void bespoke_delete_module(int moduleId);
 EMSCRIPTEN_KEEPALIVE void bespoke_connect_modules(int sourceId, int destId);
 EMSCRIPTEN_KEEPALIVE int bespoke_get_view_mode(void);
 EMSCRIPTEN_KEEPALIVE void bespoke_set_view_mode(int mode);
+// Enable Mixer/Effects/Sequencer demo tabs (call before or after init).
+// Default product surface is ModuleCanvas; pass 1 for ?legacyPanels=1.
+EMSCRIPTEN_KEEPALIVE void bespoke_set_legacy_panels(int enabled);
+EMSCRIPTEN_KEEPALIVE int bespoke_get_legacy_panels(void);
 
 // Control access
 EMSCRIPTEN_KEEPALIVE void bespoke_set_control_value(int moduleId, const char* controlName, float value);

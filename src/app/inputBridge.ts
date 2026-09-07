@@ -1,4 +1,5 @@
 import type { BespokeSynthModule } from '../../wasm/types/bespoke-synth';
+import { keyboardEventToWasmKeyCode } from './keyMapping';
 
 export interface InputBridgeCallbacks {
   onPlay?: () => void;
@@ -6,6 +7,8 @@ export interface InputBridgeCallbacks {
 }
 
 let inputBridgeInstalled = false;
+let lastKeyDownCode = -1;
+let lastKeyUpCode = -1;
 
 function getModifiers(e: KeyboardEvent): number {
   let modifiers = 0;
@@ -14,6 +17,10 @@ function getModifiers(e: KeyboardEvent): number {
   if (e.ctrlKey) modifiers |= 4;
   if (e.metaKey) modifiers |= 8;
   return modifiers;
+}
+
+export function getLastKeyCodes(): { down: number; up: number } {
+  return { down: lastKeyDownCode, up: lastKeyUpCode };
 }
 
 /**
@@ -54,7 +61,8 @@ export function installInputBridge(
   document.addEventListener('keydown', (e) => {
     if (!module._bespoke_key_down) return;
     const modifiers = getModifiers(e);
-    const keyCode = e.key.length === 1 ? e.key.toUpperCase().charCodeAt(0) : (e.keyCode || e.which);
+    const keyCode = keyboardEventToWasmKeyCode(e);
+    lastKeyDownCode = keyCode;
     if (e.key === '/' || (e.ctrlKey && e.key.toLowerCase() === 'k')) e.preventDefault();
     module._bespoke_key_down(keyCode, modifiers);
   });
@@ -62,7 +70,8 @@ export function installInputBridge(
   document.addEventListener('keyup', (e) => {
     if (!module._bespoke_key_up) return;
     const modifiers = getModifiers(e);
-    const keyCode = e.code ? e.code.charCodeAt(0) : (e.keyCode || e.which);
+    const keyCode = keyboardEventToWasmKeyCode(e);
+    lastKeyUpCode = keyCode;
     module._bespoke_key_up(keyCode, modifiers);
   });
 
@@ -81,4 +90,6 @@ export function installInputBridge(
 /** Test-only: reset idempotency guard between page loads in unit tests. */
 export function resetInputBridgeForTests(): void {
   inputBridgeInstalled = false;
+  lastKeyDownCode = -1;
+  lastKeyUpCode = -1;
 }

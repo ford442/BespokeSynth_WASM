@@ -9,9 +9,9 @@
 
 #include "BespokeWasm/AudioGraphTypes.h"
 #include "BespokeWasm/WasmModuleAdapter.h"
-#include <array>
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -29,13 +29,15 @@ namespace bespoke
             float velocity = 0.0f;
             bool isNoteOn = false;
             double timestamp = 0.0;
+            int channel = 0;
          };
 
          static constexpr int kMaxNoteRingCapacity = 256;
          static constexpr int kMaxNoteEventsPerBlock = 64;
+         static constexpr int kMaxEventSources = 16;
          static constexpr int kMaxBlockSize = 2048;
 
-         AudioGraphEngine() = default;
+         AudioGraphEngine();
          ~AudioGraphEngine();
 
          AudioGraphEngine(const AudioGraphEngine&) = delete;
@@ -67,10 +69,12 @@ namespace bespoke
 
          void* stateFor(const AudioGraphNode& node);
          void destroySlot(RuntimeSlot& slot);
-         void resetNoteSourceState();
+         void resetEventSourceState();
          void drainNoteRing();
          float* audioSlotBuffer(int slot, int numSamples);
          float* modulationSlotBuffer(int slot, int numSamples);
+
+         struct ProcessScratch;
 
          std::vector<uint8_t> mRuntimeArena;
          std::vector<RuntimeSlot> mRuntimeSlots;
@@ -83,15 +87,12 @@ namespace bespoke
          int mPreparedAudioSlots = 0;
          int mPreparedModulationSlots = 0;
 
-         std::array<NoteMessage, kMaxNoteRingCapacity> mNoteRing{};
+         std::unique_ptr<ProcessScratch> mScratch;
          std::atomic<uint32_t> mNoteWriteIndex{ 0 };
          std::atomic<uint32_t> mNoteReadIndex{ 0 };
          std::atomic<uint64_t> mNoteDropCount{ 0 };
 
-         std::array<WasmNoteEvent, kMaxNoteEventsPerBlock> mMidiNoteScratch{};
          int mMidiNoteCount = 0;
-         std::array<std::array<WasmNoteEvent, kMaxNoteEventsPerBlock>, 16> mNoteSourceScratch{};
-         std::array<int, 16> mNoteSourceCounts{};
 
          double mAudioTimeSeconds = 0.0;
          double mBeatPosition = 0.0;

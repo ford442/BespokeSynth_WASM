@@ -16,601 +16,695 @@ class WebGPUContext;
 static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message);
 static void handleDeviceRequest(WebGPUContext* context, WGPURequestDeviceStatus status, WGPUDevice device, const char* message);
 
-namespace {
+namespace
+{
 
-// The canvas backing store is sized in physical (device) pixels so rendering
-// is sharp on HiDPI displays; all layout/hit-testing math elsewhere in the
-// app stays in logical (CSS) pixels. See docs/webgl-fallback.md.
-double currentDevicePixelRatio() {
-    const double dpr = emscripten_get_device_pixel_ratio();
-    return dpr > 0.0 ? dpr : 1.0;
-}
+   // The canvas backing store is sized in physical (device) pixels so rendering
+   // is sharp on HiDPI displays; all layout/hit-testing math elsewhere in the
+   // app stays in logical (CSS) pixels. See docs/webgl-fallback.md.
+   double currentDevicePixelRatio()
+   {
+      const double dpr = emscripten_get_device_pixel_ratio();
+      return dpr > 0.0 ? dpr : 1.0;
+   }
 
-int toPhysicalPixels(int logicalPixels, double dpr) {
-    return std::max(1, static_cast<int>(std::lround(static_cast<double>(logicalPixels) * dpr)));
-}
+   int toPhysicalPixels(int logicalPixels, double dpr)
+   {
+      return std::max(1, static_cast<int>(std::lround(static_cast<double>(logicalPixels) * dpr)));
+   }
 
 } // namespace
 
 // Adapter callback - new style with WGPUStringView
-static void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void* userdata1, void* userdata2) {
-    std::string msg;
-    if (message.data && message.length > 0) {
-        msg = std::string(message.data, message.length);
-    }
-    printf("WebGPUContext: onAdapterRequest called, status=%d\n", (int)status);
-    handleAdapterRequest(static_cast<WebGPUContext*>(userdata1), status, adapter, msg.c_str());
+static void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void* userdata1, void* userdata2)
+{
+   std::string msg;
+   if (message.data && message.length > 0)
+   {
+      msg = std::string(message.data, message.length);
+   }
+   printf("WebGPUContext: onAdapterRequest called, status=%d\n", (int)status);
+   handleAdapterRequest(static_cast<WebGPUContext*>(userdata1), status, adapter, msg.c_str());
 }
 
 // Device callback - new style with WGPUStringView
-static void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void* userdata1, void* userdata2) {
-    std::string msg;
-    if (message.data && message.length > 0) {
-        msg = std::string(message.data, message.length);
-    }
-    printf("WebGPUContext: onDeviceRequest called, status=%d\n", (int)status);
-    handleDeviceRequest(static_cast<WebGPUContext*>(userdata1), status, device, msg.c_str());
+static void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void* userdata1, void* userdata2)
+{
+   std::string msg;
+   if (message.data && message.length > 0)
+   {
+      msg = std::string(message.data, message.length);
+   }
+   printf("WebGPUContext: onDeviceRequest called, status=%d\n", (int)status);
+   handleDeviceRequest(static_cast<WebGPUContext*>(userdata1), status, device, msg.c_str());
 }
 
 // Device error callback - new style (includes device pointer as first param)
-static void deviceErrorCallback(WGPUDevice const * device, WGPUErrorType type, WGPUStringView message, void* userdata1, void* userdata2) {
-    (void)device; // Unused
-    std::string msg;
-    if (message.data && message.length > 0) {
-        msg = std::string(message.data, message.length);
-    }
-    printf("WebGPU Device Error (type=%d): %s\n", (int)type, msg.c_str());
+static void deviceErrorCallback(WGPUDevice const* device, WGPUErrorType type, WGPUStringView message, void* userdata1, void* userdata2)
+{
+   (void)device; // Unused
+   std::string msg;
+   if (message.data && message.length > 0)
+   {
+      msg = std::string(message.data, message.length);
+   }
+   printf("WebGPU Device Error (type=%d): %s\n", (int)type, msg.c_str());
 }
 
 // Device-lost callback - fires on context loss (GPU driver reset, tab backgrounding
 // on some platforms, or explicit device.destroy()). We can't recover the same
 // WGPUDevice, so we flag it and let the JS shell decide whether to reload or
 // fall back to WebGL2, instead of continuing to submit commands into a dead device.
-static void deviceLostCallback(WGPUDevice const * device, WGPUDeviceLostReason reason, WGPUStringView message, void* userdata1, void* userdata2) {
-    (void)device;
-    (void)userdata2;
-    std::string msg;
-    if (message.data && message.length > 0) {
-        msg = std::string(message.data, message.length);
-    }
-    printf("WebGPU Device Lost (reason=%d): %s\n", (int)reason, msg.c_str());
+static void deviceLostCallback(WGPUDevice const* device, WGPUDeviceLostReason reason, WGPUStringView message, void* userdata1, void* userdata2)
+{
+   (void)device;
+   (void)userdata2;
+   std::string msg;
+   if (message.data && message.length > 0)
+   {
+      msg = std::string(message.data, message.length);
+   }
+   printf("WebGPU Device Lost (reason=%d): %s\n", (int)reason, msg.c_str());
 
-    // A device destroyed by our own releaseGpuResources() (reason=Destroyed) is an
-    // expected teardown, not a loss the app needs to recover from.
-    if (reason == WGPUDeviceLostReason_Destroyed)
-        return;
+   // A device destroyed by our own releaseGpuResources() (reason=Destroyed) is an
+   // expected teardown, not a loss the app needs to recover from.
+   if (reason == WGPUDeviceLostReason_Destroyed)
+      return;
 
-    if (auto* context = static_cast<WebGPUContext*>(userdata1))
-        context->notifyDeviceLost(msg.c_str());
+   if (auto* context = static_cast<WebGPUContext*>(userdata1))
+      context->notifyDeviceLost(msg.c_str());
 }
 
 // --- Implementation ---
 
-static void handleDeviceRequest(WebGPUContext* context, WGPURequestDeviceStatus status, WGPUDevice device, const char* message) {
-    printf("WebGPUContext: handleDeviceRequest called, status=%d\n", (int)status);
+static void handleDeviceRequest(WebGPUContext* context, WGPURequestDeviceStatus status, WGPUDevice device, const char* message)
+{
+   printf("WebGPUContext: handleDeviceRequest called, status=%d\n", (int)status);
 
-    if (status == WGPURequestDeviceStatus_Success) {
-        printf("WebGPUContext: Device acquired, assigning to context\n");
-        if (context)
-            context->assignDevice(device);
-    } else {
-        std::cerr << "WebGPU Device Error: ";
-        if (message) std::cerr << message;
-        std::cerr << std::endl;
-        if (context) context->notifyComplete(false);
-    }
+   if (status == WGPURequestDeviceStatus_Success)
+   {
+      printf("WebGPUContext: Device acquired, assigning to context\n");
+      if (context)
+         context->assignDevice(device);
+   }
+   else
+   {
+      std::cerr << "WebGPU Device Error: ";
+      if (message)
+         std::cerr << message;
+      std::cerr << std::endl;
+      if (context)
+         context->notifyComplete(false);
+   }
 }
 
-static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message) {
-    printf("WebGPUContext: handleAdapterRequest called, status=%d\n", (int)status);
+static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message)
+{
+   printf("WebGPUContext: handleAdapterRequest called, status=%d\n", (int)status);
 
-    if (status == WGPURequestAdapterStatus_Success) {
-        if (context) context->assignAdapter(adapter);
+   if (status == WGPURequestAdapterStatus_Success)
+   {
+      if (context)
+         context->assignAdapter(adapter);
 
-        if (context && adapter) {
-            printf("WebGPUContext: Adapter found, requesting device\n");
+      if (context && adapter)
+      {
+         printf("WebGPUContext: Adapter found, requesting device\n");
 
-            // Request the adapter's own supported limits rather than the
-            // (much lower) WebGPU default limits, so later features (larger
-            // storage buffers/textures for GPU compute, more bind groups for
-            // richer pipelines) aren't capped below what the hardware offers.
-            WGPULimits adapterLimits = {};
-            const bool haveLimits = wgpuAdapterGetLimits(adapter, &adapterLimits) == WGPUStatus_Success;
+         // Request the adapter's own supported limits rather than the
+         // (much lower) WebGPU default limits, so later features (larger
+         // storage buffers/textures for GPU compute, more bind groups for
+         // richer pipelines) aren't capped below what the hardware offers.
+         WGPULimits adapterLimits = {};
+         const bool haveLimits = wgpuAdapterGetLimits(adapter, &adapterLimits) == WGPUStatus_Success;
 
-            // Opportunistically request features useful for later GPU work
-            // (timestamp-based frame timing, float32-filterable textures for
-            // analyzer/FFT visualizations) when the adapter actually supports them.
-            static const WGPUFeatureName kDesiredFeatures[] = {
-                WGPUFeatureName_TimestampQuery,
-                WGPUFeatureName_Float32Filterable,
-            };
-            constexpr size_t kDesiredFeatureCount = sizeof(kDesiredFeatures) / sizeof(kDesiredFeatures[0]);
-            WGPUFeatureName enabledFeatures[kDesiredFeatureCount];
-            size_t enabledFeatureCount = 0;
-            for (WGPUFeatureName feature : kDesiredFeatures) {
-                if (wgpuAdapterHasFeature(adapter, feature))
-                    enabledFeatures[enabledFeatureCount++] = feature;
-            }
+         // Opportunistically request features useful for later GPU work
+         // (timestamp-based frame timing, float32-filterable textures for
+         // analyzer/FFT visualizations) when the adapter actually supports them.
+         static const WGPUFeatureName kDesiredFeatures[] = {
+            WGPUFeatureName_TimestampQuery,
+            WGPUFeatureName_Float32Filterable,
+         };
+         constexpr size_t kDesiredFeatureCount = sizeof(kDesiredFeatures) / sizeof(kDesiredFeatures[0]);
+         WGPUFeatureName enabledFeatures[kDesiredFeatureCount];
+         size_t enabledFeatureCount = 0;
+         for (WGPUFeatureName feature : kDesiredFeatures)
+         {
+            if (wgpuAdapterHasFeature(adapter, feature))
+               enabledFeatures[enabledFeatureCount++] = feature;
+         }
 
-            WGPUDeviceDescriptor deviceDesc = {};
-            deviceDesc.label = WGPUStringView{"BespokeSynth WASM device", strlen("BespokeSynth WASM device")};
-            if (haveLimits)
-                deviceDesc.requiredLimits = &adapterLimits;
-            if (enabledFeatureCount > 0) {
-                deviceDesc.requiredFeatureCount = enabledFeatureCount;
-                deviceDesc.requiredFeatures = enabledFeatures;
-            }
+         WGPUDeviceDescriptor deviceDesc = {};
+         deviceDesc.label = WGPUStringView{ "BespokeSynth WASM device", strlen("BespokeSynth WASM device") };
+         if (haveLimits)
+            deviceDesc.requiredLimits = &adapterLimits;
+         if (enabledFeatureCount > 0)
+         {
+            deviceDesc.requiredFeatureCount = enabledFeatureCount;
+            deviceDesc.requiredFeatures = enabledFeatures;
+         }
 
-            // Set up error callback in device descriptor
-            deviceDesc.uncapturedErrorCallbackInfo.callback = deviceErrorCallback;
-            deviceDesc.uncapturedErrorCallbackInfo.userdata1 = context;
-            deviceDesc.uncapturedErrorCallbackInfo.userdata2 = nullptr;
+         // Set up error callback in device descriptor
+         deviceDesc.uncapturedErrorCallbackInfo.callback = deviceErrorCallback;
+         deviceDesc.uncapturedErrorCallbackInfo.userdata1 = context;
+         deviceDesc.uncapturedErrorCallbackInfo.userdata2 = nullptr;
 
-            deviceDesc.deviceLostCallbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
-            deviceDesc.deviceLostCallbackInfo.callback = deviceLostCallback;
-            deviceDesc.deviceLostCallbackInfo.userdata1 = context;
-            deviceDesc.deviceLostCallbackInfo.userdata2 = nullptr;
+         deviceDesc.deviceLostCallbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+         deviceDesc.deviceLostCallbackInfo.callback = deviceLostCallback;
+         deviceDesc.deviceLostCallbackInfo.userdata1 = context;
+         deviceDesc.deviceLostCallbackInfo.userdata2 = nullptr;
 
-            // Use new callback info structure for device request
-            WGPURequestDeviceCallbackInfo deviceCallbackInfo = {};
-            deviceCallbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
-            deviceCallbackInfo.callback = onDeviceRequest;
-            deviceCallbackInfo.userdata1 = context;
-            deviceCallbackInfo.userdata2 = nullptr;
+         // Use new callback info structure for device request
+         WGPURequestDeviceCallbackInfo deviceCallbackInfo = {};
+         deviceCallbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+         deviceCallbackInfo.callback = onDeviceRequest;
+         deviceCallbackInfo.userdata1 = context;
+         deviceCallbackInfo.userdata2 = nullptr;
 
-            wgpuAdapterRequestDevice(adapter, &deviceDesc, deviceCallbackInfo);
-        }
-    } else {
-        std::cerr << "WebGPU Adapter Error: ";
-        if (message) std::cerr << message;
-        std::cerr << std::endl;
-        if (context) context->notifyComplete(false);
-    }
+         wgpuAdapterRequestDevice(adapter, &deviceDesc, deviceCallbackInfo);
+      }
+   }
+   else
+   {
+      std::cerr << "WebGPU Adapter Error: ";
+      if (message)
+         std::cerr << message;
+      std::cerr << std::endl;
+      if (context)
+         context->notifyComplete(false);
+   }
 }
 
 // -------------------------
 
-WebGPUContext::WebGPUContext() {
-    mCurrentState.transform[0] = 1.0f; mCurrentState.transform[2] = 0.0f; mCurrentState.transform[4] = 0.0f;
-    mCurrentState.transform[1] = 0.0f; mCurrentState.transform[3] = 1.0f; mCurrentState.transform[5] = 0.0f;
-    mCurrentState.color[0] = 1.0f; mCurrentState.color[1] = 1.0f; mCurrentState.color[2] = 1.0f; mCurrentState.color[3] = 1.0f;
+WebGPUContext::WebGPUContext()
+{
+   mCurrentState.transform[0] = 1.0f;
+   mCurrentState.transform[2] = 0.0f;
+   mCurrentState.transform[4] = 0.0f;
+   mCurrentState.transform[1] = 0.0f;
+   mCurrentState.transform[3] = 1.0f;
+   mCurrentState.transform[5] = 0.0f;
+   mCurrentState.color[0] = 1.0f;
+   mCurrentState.color[1] = 1.0f;
+   mCurrentState.color[2] = 1.0f;
+   mCurrentState.color[3] = 1.0f;
 }
 
-WebGPUContext::~WebGPUContext() {
-    releaseGpuResources();
+WebGPUContext::~WebGPUContext()
+{
+   releaseGpuResources();
 }
 
-void WebGPUContext::releaseGpuResources() {
-    if (mCurrentPass) {
-        wgpuRenderPassEncoderRelease(mCurrentPass);
-        mCurrentPass = nullptr;
-    }
-    if (mCurrentView) {
-        wgpuTextureViewRelease(mCurrentView);
-        mCurrentView = nullptr;
-    }
-    if (mCurrentSurfaceTexture) {
-        wgpuTextureRelease(mCurrentSurfaceTexture);
-        mCurrentSurfaceTexture = nullptr;
-    }
-    if (mCurrentEncoder) {
-        wgpuCommandEncoderRelease(mCurrentEncoder);
-        mCurrentEncoder = nullptr;
-    }
-    if (mScreenshotStagingBuffer) {
-        wgpuBufferRelease(mScreenshotStagingBuffer);
-        mScreenshotStagingBuffer = nullptr;
-    }
-    if (mSurface) {
-        wgpuSurfaceRelease(mSurface);
-        mSurface = nullptr;
-    }
-    if (mDevice) {
-        wgpuDeviceRelease(mDevice);
-        mDevice = nullptr;
-    }
-    if (mAdapter) {
-        wgpuAdapterRelease(mAdapter);
-        mAdapter = nullptr;
-    }
-    if (mQueue) {
-        wgpuQueueRelease(mQueue);
-        mQueue = nullptr;
-    }
-    if (mInstance) {
-        wgpuInstanceRelease(mInstance);
-        mInstance = nullptr;
-    }
-    mOnComplete = nullptr;
+void WebGPUContext::releaseGpuResources()
+{
+   if (mCurrentPass)
+   {
+      wgpuRenderPassEncoderRelease(mCurrentPass);
+      mCurrentPass = nullptr;
+   }
+   if (mCurrentView)
+   {
+      wgpuTextureViewRelease(mCurrentView);
+      mCurrentView = nullptr;
+   }
+   if (mCurrentSurfaceTexture)
+   {
+      wgpuTextureRelease(mCurrentSurfaceTexture);
+      mCurrentSurfaceTexture = nullptr;
+   }
+   if (mCurrentEncoder)
+   {
+      wgpuCommandEncoderRelease(mCurrentEncoder);
+      mCurrentEncoder = nullptr;
+   }
+   if (mScreenshotStagingBuffer)
+   {
+      wgpuBufferRelease(mScreenshotStagingBuffer);
+      mScreenshotStagingBuffer = nullptr;
+   }
+   if (mSurface)
+   {
+      wgpuSurfaceRelease(mSurface);
+      mSurface = nullptr;
+   }
+   if (mDevice)
+   {
+      wgpuDeviceRelease(mDevice);
+      mDevice = nullptr;
+   }
+   if (mAdapter)
+   {
+      wgpuAdapterRelease(mAdapter);
+      mAdapter = nullptr;
+   }
+   if (mQueue)
+   {
+      wgpuQueueRelease(mQueue);
+      mQueue = nullptr;
+   }
+   if (mInstance)
+   {
+      wgpuInstanceRelease(mInstance);
+      mInstance = nullptr;
+   }
+   mOnComplete = nullptr;
 }
 
-bool WebGPUContext::initializeAsync(const char* selector, std::function<void(bool)> onComplete) {
-    mOnComplete = onComplete;
+bool WebGPUContext::initializeAsync(const char* selector, std::function<void(bool)> onComplete)
+{
+   mOnComplete = onComplete;
 
-    // 1. Instance
-    WGPUInstanceDescriptor instanceDesc = {};
-    mInstance = wgpuCreateInstance(&instanceDesc);
-    if (!mInstance) {
-        printf("WebGPUContext: ERROR - Failed to create instance\n");
-        if (mOnComplete) mOnComplete(false);
-        return false;
-    }
-    printf("WebGPUContext: Instance created\n");
+   // 1. Instance
+   WGPUInstanceDescriptor instanceDesc = {};
+   mInstance = wgpuCreateInstance(&instanceDesc);
+   if (!mInstance)
+   {
+      printf("WebGPUContext: ERROR - Failed to create instance\n");
+      if (mOnComplete)
+         mOnComplete(false);
+      return false;
+   }
+   printf("WebGPUContext: Instance created\n");
 
-    // 2. Surface - use the Emscripten-specific surface source
-    WGPUEmscriptenSurfaceSourceCanvasHTMLSelector canvasSource = {};
-    canvasSource.chain.sType = WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector;
-    canvasSource.selector = WGPUStringView{selector, strlen(selector)};
+   // 2. Surface - use the Emscripten-specific surface source
+   WGPUEmscriptenSurfaceSourceCanvasHTMLSelector canvasSource = {};
+   canvasSource.chain.sType = WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector;
+   canvasSource.selector = WGPUStringView{ selector, strlen(selector) };
 
-    WGPUSurfaceDescriptor surfaceDesc = {};
-    surfaceDesc.nextInChain = (WGPUChainedStruct*)&canvasSource;
-    mSurface = wgpuInstanceCreateSurface(mInstance, &surfaceDesc);
+   WGPUSurfaceDescriptor surfaceDesc = {};
+   surfaceDesc.nextInChain = (WGPUChainedStruct*)&canvasSource;
+   mSurface = wgpuInstanceCreateSurface(mInstance, &surfaceDesc);
 
-    if (!mSurface) {
-        std::cerr << "WebGPUContext: Failed to create surface for selector: ";
-        if (selector) std::cerr << selector;
-        std::cerr << std::endl;
-        if (mOnComplete) mOnComplete(false);
-        return false;
-    }
-    printf("WebGPUContext: Surface created for selector: %s\n", selector);
+   if (!mSurface)
+   {
+      std::cerr << "WebGPUContext: Failed to create surface for selector: ";
+      if (selector)
+         std::cerr << selector;
+      std::cerr << std::endl;
+      if (mOnComplete)
+         mOnComplete(false);
+      return false;
+   }
+   printf("WebGPUContext: Surface created for selector: %s\n", selector);
 
-    // 3. Adapter request (asynchronous)
-    WGPURequestAdapterOptions adapterOpts = {};
-    adapterOpts.compatibleSurface = mSurface;
-    // The UI redraws every frame regardless of audio activity, so prefer the
-    // discrete/high-performance GPU on multi-GPU (laptop) systems over the
-    // low-power default.
-    adapterOpts.powerPreference = WGPUPowerPreference_HighPerformance;
+   // 3. Adapter request (asynchronous)
+   WGPURequestAdapterOptions adapterOpts = {};
+   adapterOpts.compatibleSurface = mSurface;
+   // The UI redraws every frame regardless of audio activity, so prefer the
+   // discrete/high-performance GPU on multi-GPU (laptop) systems over the
+   // low-power default.
+   adapterOpts.powerPreference = WGPUPowerPreference_HighPerformance;
 
-    printf("WebGPUContext: Requesting adapter...\n");
+   printf("WebGPUContext: Requesting adapter...\n");
 
-    // Use new callback info structure
-    WGPURequestAdapterCallbackInfo callbackInfo = {};
-    callbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
-    callbackInfo.callback = onAdapterRequest;
-    callbackInfo.userdata1 = this;
-    callbackInfo.userdata2 = nullptr;
-    
-    wgpuInstanceRequestAdapter(mInstance, &adapterOpts, callbackInfo);
+   // Use new callback info structure
+   WGPURequestAdapterCallbackInfo callbackInfo = {};
+   callbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+   callbackInfo.callback = onAdapterRequest;
+   callbackInfo.userdata1 = this;
+   callbackInfo.userdata2 = nullptr;
 
-    printf("WebGPUContext: Adapter request submitted (async)\n");
-    return true;
+   wgpuInstanceRequestAdapter(mInstance, &adapterOpts, callbackInfo);
+
+   printf("WebGPUContext: Adapter request submitted (async)\n");
+   return true;
 }
 
-void WebGPUContext::processEvents() {
-    // Process pending WebGPU events.
-    // On Emscripten, WebGPU callbacks (adapter/device requests) fire via browser
-    // Promise resolution in the JS event loop — they do NOT require emscripten_sleep().
-    // Using emscripten_sleep(0) here causes Asyncify reentrancy crashes when JS
-    // calls bespoke_process_events() from multiple concurrent setInterval timers.
-    // wgpuInstanceProcessEvents() is a safe, synchronous, non-Asyncify call.
-    if (mInstance) {
-        wgpuInstanceProcessEvents(mInstance);
-    }
+void WebGPUContext::processEvents()
+{
+   // Process pending WebGPU events.
+   // On Emscripten, WebGPU callbacks (adapter/device requests) fire via browser
+   // Promise resolution in the JS event loop — they do NOT require emscripten_sleep().
+   // Using emscripten_sleep(0) here causes Asyncify reentrancy crashes when JS
+   // calls bespoke_process_events() from multiple concurrent setInterval timers.
+   // wgpuInstanceProcessEvents() is a safe, synchronous, non-Asyncify call.
+   if (mInstance)
+   {
+      wgpuInstanceProcessEvents(mInstance);
+   }
 }
 
-void WebGPUContext::onDeviceReady() {
-    printf("WebGPUContext: onDeviceReady\n");
-    if (!mDevice) {
-        printf("WebGPUContext: ERROR - Device is null in onDeviceReady\n");
-        if (mOnComplete) mOnComplete(false);
-        return;
-    }
+void WebGPUContext::onDeviceReady()
+{
+   printf("WebGPUContext: onDeviceReady\n");
+   if (!mDevice)
+   {
+      printf("WebGPUContext: ERROR - Device is null in onDeviceReady\n");
+      if (mOnComplete)
+         mOnComplete(false);
+      return;
+   }
 
-    printf("WebGPUContext: Getting device queue...\n");
-    mQueue = wgpuDeviceGetQueue(mDevice);
-    if (!mQueue) {
-        printf("WebGPUContext: ERROR - Failed to get device queue\n");
-        if (mOnComplete) mOnComplete(false);
-        return;
-    }
+   printf("WebGPUContext: Getting device queue...\n");
+   mQueue = wgpuDeviceGetQueue(mDevice);
+   if (!mQueue)
+   {
+      printf("WebGPUContext: ERROR - Failed to get device queue\n");
+      if (mOnComplete)
+         mOnComplete(false);
+      return;
+   }
 
-    // Error callback was already set in device descriptor
-    
-    printf("WebGPUContext: Getting surface capabilities...\n");
-    WGPUSurfaceCapabilities caps = {};
-    wgpuSurfaceGetCapabilities(mSurface, mAdapter, &caps);
-    if (caps.formatCount > 0) {
-        mFormat = caps.formats[0];
-        printf("WebGPUContext: Selected preferred surface format: %d\n", (int)mFormat);
-    }
-    mSurfaceUsages = caps.usages;
-    mSupportsCopySrc = (mSurfaceUsages & WGPUTextureUsage_CopySrc) != 0;
-    printf("WebGPUContext: Surface supports CopySrc: %d\n", mSupportsCopySrc ? 1 : 0);
-    wgpuSurfaceCapabilitiesFreeMembers(caps);
+   // Error callback was already set in device descriptor
 
-    // Get current canvas size and configure surface
-    printf("WebGPUContext: Configuring surface...\n");
-    double w, h;
-    emscripten_get_element_css_size("#canvas", &w, &h);
-    if (w <= 0 || h <= 0) {
-        printf("WebGPUContext: WARNING - Invalid canvas size: %.0fx%.0f, using defaults\n", w, h);
-        w = 800;
-        h = 600;
-    }
-    resize((int)w, (int)h);
+   printf("WebGPUContext: Getting surface capabilities...\n");
+   WGPUSurfaceCapabilities caps = {};
+   wgpuSurfaceGetCapabilities(mSurface, mAdapter, &caps);
+   if (caps.formatCount > 0)
+   {
+      mFormat = caps.formats[0];
+      printf("WebGPUContext: Selected preferred surface format: %d\n", (int)mFormat);
+   }
+   mSurfaceUsages = caps.usages;
+   mSupportsCopySrc = (mSurfaceUsages & WGPUTextureUsage_CopySrc) != 0;
+   printf("WebGPUContext: Surface supports CopySrc: %d\n", mSupportsCopySrc ? 1 : 0);
+   wgpuSurfaceCapabilitiesFreeMembers(caps);
 
-    printf("WebGPUContext: Device ready, initialization complete\n");
-    if (mOnComplete) mOnComplete(true);
+   // Get current canvas size and configure surface
+   printf("WebGPUContext: Configuring surface...\n");
+   double w, h;
+   emscripten_get_element_css_size("#canvas", &w, &h);
+   if (w <= 0 || h <= 0)
+   {
+      printf("WebGPUContext: WARNING - Invalid canvas size: %.0fx%.0f, using defaults\n", w, h);
+      w = 800;
+      h = 600;
+   }
+   resize((int)w, (int)h);
+
+   printf("WebGPUContext: Device ready, initialization complete\n");
+   if (mOnComplete)
+      mOnComplete(true);
 }
 
-void WebGPUContext::assignAdapter(WGPUAdapter adapter) {
-    printf("WebGPUContext: assignAdapter called\n");
-    mAdapter = adapter;
+void WebGPUContext::assignAdapter(WGPUAdapter adapter)
+{
+   printf("WebGPUContext: assignAdapter called\n");
+   mAdapter = adapter;
 }
 
-void WebGPUContext::assignDevice(WGPUDevice device) {
-    printf("WebGPUContext: assignDevice called\n");
-    mDevice = device;
-    onDeviceReady();
+void WebGPUContext::assignDevice(WGPUDevice device)
+{
+   printf("WebGPUContext: assignDevice called\n");
+   mDevice = device;
+   onDeviceReady();
 }
 
-void WebGPUContext::notifyComplete(bool success) {
-    printf("WebGPUContext: notifyComplete success=%d\n", success ? 1 : 0);
-    if (mOnComplete) mOnComplete(success);
+void WebGPUContext::notifyComplete(bool success)
+{
+   printf("WebGPUContext: notifyComplete success=%d\n", success ? 1 : 0);
+   if (mOnComplete)
+      mOnComplete(success);
 }
 
-void WebGPUContext::notifyDeviceLost(const char* reason) {
-    mDeviceLost = true;
-    emscripten_run_script(
-        "if (window.__bespoke_on_device_lost) window.__bespoke_on_device_lost();");
-    (void)reason;
+// clang-format off
+EM_JS(void, bespoke_js_on_device_lost, (), {
+    if (typeof window !== 'undefined' && window.__bespoke_on_device_lost)
+        window.__bespoke_on_device_lost();
+});
+// clang-format on
+
+void WebGPUContext::notifyDeviceLost(const char* reason)
+{
+   mDeviceLost = true;
+   bespoke_js_on_device_lost();
+   (void)reason;
 }
 
-void WebGPUContext::resize(int width, int height) {
-    if (!mDevice || !mSurface) return;
+void WebGPUContext::resize(int width, int height)
+{
+   if (!mDevice || !mSurface)
+      return;
 
-    // width/height are logical (CSS) pixels; configure the surface at the
-    // physical (device) pixel size so the canvas backing store matches the
-    // display's actual resolution instead of blurring on HiDPI screens.
-    const double dpr = currentDevicePixelRatio();
-    mWidth = toPhysicalPixels(width, dpr);
-    mHeight = toPhysicalPixels(height, dpr);
+   // width/height are logical (CSS) pixels; configure the surface at the
+   // physical (device) pixel size so the canvas backing store matches the
+   // display's actual resolution instead of blurring on HiDPI screens.
+   const double dpr = currentDevicePixelRatio();
+   mWidth = toPhysicalPixels(width, dpr);
+   mHeight = toPhysicalPixels(height, dpr);
 
-    WGPUSurfaceConfiguration config = {};
-    config.device = mDevice;
-    config.format = mFormat;
-    config.usage = WGPUTextureUsage_RenderAttachment;
-    if (mSupportsCopySrc)
-        config.usage |= WGPUTextureUsage_CopySrc;
-    config.width = mWidth;
-    config.height = mHeight;
-    config.presentMode = WGPUPresentMode_Fifo;
-    config.alphaMode = WGPUCompositeAlphaMode_Auto;
+   WGPUSurfaceConfiguration config = {};
+   config.device = mDevice;
+   config.format = mFormat;
+   config.usage = WGPUTextureUsage_RenderAttachment;
+   if (mSupportsCopySrc)
+      config.usage |= WGPUTextureUsage_CopySrc;
+   config.width = mWidth;
+   config.height = mHeight;
+   config.presentMode = WGPUPresentMode_Fifo;
+   config.alphaMode = WGPUCompositeAlphaMode_Auto;
 
-    wgpuSurfaceConfigure(mSurface, &config);
+   wgpuSurfaceConfigure(mSurface, &config);
 }
 
-WGPURenderPassEncoder WebGPUContext::beginFrame() {
-    if (!mSurface) {
-        printf("WebGPUContext: ERROR - Surface is null in beginFrame\n");
-        return nullptr;
-    }
-    
-    if (!mDevice) {
-        printf("WebGPUContext: ERROR - Device is null in beginFrame\n");
-        return nullptr;
-    }
+WGPURenderPassEncoder WebGPUContext::beginFrame()
+{
+   if (!mSurface)
+   {
+      printf("WebGPUContext: ERROR - Surface is null in beginFrame\n");
+      return nullptr;
+   }
 
-    if (mNeedsReconfigure) {
-        // A prior frame reported SuccessSuboptimal (canvas resized, DPR changed,
-        // etc.); reconfigure against the current CSS size before requesting a
-        // new surface texture, per the WebGPU spec's suboptimal-surface guidance.
-        mNeedsReconfigure = false;
-        double cssW = 0.0;
-        double cssH = 0.0;
-        emscripten_get_element_css_size("#canvas", &cssW, &cssH);
-        if (cssW > 0 && cssH > 0)
-            resize(static_cast<int>(cssW), static_cast<int>(cssH));
-    }
+   if (!mDevice)
+   {
+      printf("WebGPUContext: ERROR - Device is null in beginFrame\n");
+      return nullptr;
+   }
 
-    WGPUSurfaceTexture surfaceTexture;
-    wgpuSurfaceGetCurrentTexture(mSurface, &surfaceTexture);
+   if (mNeedsReconfigure)
+   {
+      // A prior frame reported SuccessSuboptimal (canvas resized, DPR changed,
+      // etc.); reconfigure against the current CSS size before requesting a
+      // new surface texture, per the WebGPU spec's suboptimal-surface guidance.
+      mNeedsReconfigure = false;
+      double cssW = 0.0;
+      double cssH = 0.0;
+      emscripten_get_element_css_size("#canvas", &cssW, &cssH);
+      if (cssW > 0 && cssH > 0)
+         resize(static_cast<int>(cssW), static_cast<int>(cssH));
+   }
 
-    const bool textureOk = (surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal ||
-                             surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal);
-    if (!textureOk || surfaceTexture.texture == nullptr) {
-        printf("WebGPUContext: WARNING - Failed to get surface texture, status=%d\n", (int)surfaceTexture.status);
-        return nullptr;
-    }
+   WGPUSurfaceTexture surfaceTexture;
+   wgpuSurfaceGetCurrentTexture(mSurface, &surfaceTexture);
 
-    if (surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal)
-        mNeedsReconfigure = true;
+   const bool textureOk = (surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal ||
+                           surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal);
+   if (!textureOk || surfaceTexture.texture == nullptr)
+   {
+      printf("WebGPUContext: WARNING - Failed to get surface texture, status=%d\n", (int)surfaceTexture.status);
+      return nullptr;
+   }
 
-    if (!surfaceTexture.texture) {
-        printf("WebGPUContext: ERROR - Surface texture is null\n");
-        return nullptr;
-    }
+   if (surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal)
+      mNeedsReconfigure = true;
 
-    mCurrentSurfaceTexture = surfaceTexture.texture;
+   if (!surfaceTexture.texture)
+   {
+      printf("WebGPUContext: ERROR - Surface texture is null\n");
+      return nullptr;
+   }
 
-    WGPUTextureViewDescriptor viewDesc = {};
-    viewDesc.format = mFormat;
-    viewDesc.dimension = WGPUTextureViewDimension_2D;
-    viewDesc.baseMipLevel = 0;
-    viewDesc.mipLevelCount = 1;
-    viewDesc.baseArrayLayer = 0;
-    viewDesc.arrayLayerCount = 1;
-    viewDesc.aspect = WGPUTextureAspect_All;
-    
-    mCurrentView = wgpuTextureCreateView(surfaceTexture.texture, &viewDesc);
-    if (!mCurrentView) {
-        printf("WebGPUContext: ERROR - Failed to create texture view\n");
-        return nullptr;
-    }
+   mCurrentSurfaceTexture = surfaceTexture.texture;
 
-    WGPUCommandEncoderDescriptor encoderDesc = {};
-    mCurrentEncoder = wgpuDeviceCreateCommandEncoder(mDevice, &encoderDesc);
-    if (!mCurrentEncoder) {
-        printf("WebGPUContext: ERROR - Failed to create command encoder\n");
-        if (mCurrentView) {
-            wgpuTextureViewRelease(mCurrentView);
-            mCurrentView = nullptr;
-        }
-        return nullptr;
-    }
+   WGPUTextureViewDescriptor viewDesc = {};
+   viewDesc.format = mFormat;
+   viewDesc.dimension = WGPUTextureViewDimension_2D;
+   viewDesc.baseMipLevel = 0;
+   viewDesc.mipLevelCount = 1;
+   viewDesc.baseArrayLayer = 0;
+   viewDesc.arrayLayerCount = 1;
+   viewDesc.aspect = WGPUTextureAspect_All;
 
-    WGPURenderPassColorAttachment colorAttachment = {};
-    colorAttachment.view = mCurrentView;
-    colorAttachment.loadOp = WGPULoadOp_Clear;
-    colorAttachment.storeOp = WGPUStoreOp_Store;
-    colorAttachment.clearValue = {0.1, 0.1, 0.1, 1.0};
-    colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+   mCurrentView = wgpuTextureCreateView(surfaceTexture.texture, &viewDesc);
+   if (!mCurrentView)
+   {
+      printf("WebGPUContext: ERROR - Failed to create texture view\n");
+      return nullptr;
+   }
 
-    WGPURenderPassDescriptor passDesc = {};
-    passDesc.colorAttachmentCount = 1;
-    passDesc.colorAttachments = &colorAttachment;
+   WGPUCommandEncoderDescriptor encoderDesc = {};
+   mCurrentEncoder = wgpuDeviceCreateCommandEncoder(mDevice, &encoderDesc);
+   if (!mCurrentEncoder)
+   {
+      printf("WebGPUContext: ERROR - Failed to create command encoder\n");
+      if (mCurrentView)
+      {
+         wgpuTextureViewRelease(mCurrentView);
+         mCurrentView = nullptr;
+      }
+      return nullptr;
+   }
 
-    mCurrentPass = wgpuCommandEncoderBeginRenderPass(mCurrentEncoder, &passDesc);
-    if (!mCurrentPass) {
-        printf("WebGPUContext: ERROR - Failed to begin render pass\n");
-    }
-    
-    return mCurrentPass;
+   WGPURenderPassColorAttachment colorAttachment = {};
+   colorAttachment.view = mCurrentView;
+   colorAttachment.loadOp = WGPULoadOp_Clear;
+   colorAttachment.storeOp = WGPUStoreOp_Store;
+   colorAttachment.clearValue = { 0.1, 0.1, 0.1, 1.0 };
+   colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+
+   WGPURenderPassDescriptor passDesc = {};
+   passDesc.colorAttachmentCount = 1;
+   passDesc.colorAttachments = &colorAttachment;
+
+   mCurrentPass = wgpuCommandEncoderBeginRenderPass(mCurrentEncoder, &passDesc);
+   if (!mCurrentPass)
+   {
+      printf("WebGPUContext: ERROR - Failed to begin render pass\n");
+   }
+
+   return mCurrentPass;
 }
 
-void WebGPUContext::endFrame(bool captureScreenshot) {
-    if (mCurrentPass) {
-        wgpuRenderPassEncoderEnd(mCurrentPass);
-        wgpuRenderPassEncoderRelease(mCurrentPass);
-        mCurrentPass = nullptr;
-    }
+void WebGPUContext::endFrame(bool captureScreenshot)
+{
+   if (mCurrentPass)
+   {
+      wgpuRenderPassEncoderEnd(mCurrentPass);
+      wgpuRenderPassEncoderRelease(mCurrentPass);
+      mCurrentPass = nullptr;
+   }
 
-    WGPUCommandEncoder encoder = mCurrentEncoder;
-    WGPUBuffer captureBuffer = nullptr;
-    const uint32_t bytesPerRow = captureScreenshot && mWidth > 0
-        ? ((static_cast<uint32_t>(mWidth) * 4u + 255u) / 256u) * 256u
-        : 0u;
-    const size_t captureBytes = captureScreenshot && mHeight > 0
-        ? static_cast<size_t>(bytesPerRow) * static_cast<size_t>(mHeight)
-        : 0u;
+   WGPUCommandEncoder encoder = mCurrentEncoder;
+   WGPUBuffer captureBuffer = nullptr;
+   const uint32_t bytesPerRow = captureScreenshot && mWidth > 0
+                                ? ((static_cast<uint32_t>(mWidth) * 4u + 255u) / 256u) * 256u
+                                : 0u;
+   const size_t captureBytes = captureScreenshot && mHeight > 0
+                               ? static_cast<size_t>(bytesPerRow) * static_cast<size_t>(mHeight)
+                               : 0u;
 
-    if (captureScreenshot && encoder && mCurrentSurfaceTexture && mDevice && mQueue &&
-        mWidth > 0 && mHeight > 0)
-    {
-        if (!mScreenshotStagingBuffer || mScreenshotStagingBytes < captureBytes)
-        {
-            if (mScreenshotStagingBuffer)
+   if (captureScreenshot && encoder && mCurrentSurfaceTexture && mDevice && mQueue &&
+       mWidth > 0 && mHeight > 0)
+   {
+      if (!mScreenshotStagingBuffer || mScreenshotStagingBytes < captureBytes)
+      {
+         if (mScreenshotStagingBuffer)
+         {
+            wgpuBufferRelease(mScreenshotStagingBuffer);
+            mScreenshotStagingBuffer = nullptr;
+         }
+
+         WGPUBufferDescriptor bufferDesc = {};
+         bufferDesc.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
+         bufferDesc.size = captureBytes;
+         mScreenshotStagingBuffer = wgpuDeviceCreateBuffer(mDevice, &bufferDesc);
+         mScreenshotStagingBytes = captureBytes;
+      }
+
+      if (mScreenshotStagingBuffer)
+      {
+         WGPUTexelCopyTextureInfo src = {};
+         src.texture = mCurrentSurfaceTexture;
+         src.mipLevel = 0;
+         src.origin = { 0, 0, 0 };
+         src.aspect = WGPUTextureAspect_All;
+
+         WGPUTexelCopyBufferInfo dst = {};
+         dst.buffer = mScreenshotStagingBuffer;
+         dst.layout.offset = 0;
+         dst.layout.bytesPerRow = bytesPerRow;
+         dst.layout.rowsPerImage = static_cast<uint32_t>(mHeight);
+
+         WGPUExtent3D copySize = {
+            static_cast<uint32_t>(mWidth),
+            static_cast<uint32_t>(mHeight),
+            1
+         };
+
+         wgpuCommandEncoderCopyTextureToBuffer(encoder, &src, &dst, &copySize);
+         captureBuffer = mScreenshotStagingBuffer;
+      }
+   }
+
+   if (encoder)
+   {
+      WGPUCommandBufferDescriptor cmdBufDesc = {};
+      WGPUCommandBuffer cmdBuf = wgpuCommandEncoderFinish(encoder, &cmdBufDesc);
+      wgpuQueueSubmit(mQueue, 1, &cmdBuf);
+      wgpuCommandBufferRelease(cmdBuf);
+      wgpuCommandEncoderRelease(encoder);
+      mCurrentEncoder = nullptr;
+   }
+
+   if (captureBuffer && mInstance)
+   {
+      struct MapState
+      {
+         bool done = false;
+         WGPUMapAsyncStatus status = WGPUMapAsyncStatus_Success;
+      } mapState;
+
+      WGPUBufferMapCallbackInfo mapInfo = {};
+      mapInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+      mapInfo.callback = [](WGPUMapAsyncStatus status, WGPUStringView message, void* userdata1, void* userdata2)
+      {
+         (void)message;
+         (void)userdata2;
+         auto* state = static_cast<MapState*>(userdata1);
+         state->status = status;
+         state->done = true;
+      };
+      mapInfo.userdata1 = &mapState;
+
+      wgpuBufferMapAsync(captureBuffer, WGPUMapMode_Read, 0, captureBytes, mapInfo);
+
+      int spin = 0;
+      while (!mapState.done && spin < 5000)
+      {
+         wgpuInstanceProcessEvents(mInstance);
+         ++spin;
+      }
+
+      if (mapState.status == WGPUMapAsyncStatus_Success)
+      {
+         const void* mapped = wgpuBufferGetConstMappedRange(captureBuffer, 0, captureBytes);
+         if (mapped)
+         {
+            mCapturedPixels.resize(static_cast<size_t>(mWidth) * static_cast<size_t>(mHeight) * 4u);
+            const auto* src = static_cast<const uint8_t*>(mapped);
+            for (int y = 0; y < mHeight; ++y)
             {
-                wgpuBufferRelease(mScreenshotStagingBuffer);
-                mScreenshotStagingBuffer = nullptr;
+               const uint8_t* row = src + static_cast<size_t>(y) * bytesPerRow;
+               uint8_t* dstRow = mCapturedPixels.data() + static_cast<size_t>(y) * static_cast<size_t>(mWidth) * 4u;
+               for (int x = 0; x < mWidth; ++x)
+               {
+                  const uint8_t* px = row + static_cast<size_t>(x) * 4u;
+                  dstRow[x * 4 + 0] = px[2]; // BGRA -> RGBA
+                  dstRow[x * 4 + 1] = px[1];
+                  dstRow[x * 4 + 2] = px[0];
+                  dstRow[x * 4 + 3] = px[3];
+               }
             }
+            mCapturedWidth = mWidth;
+            mCapturedHeight = mHeight;
+            mCaptureReady = true;
+         }
+         wgpuBufferUnmap(captureBuffer);
+      }
+   }
 
-            WGPUBufferDescriptor bufferDesc = {};
-            bufferDesc.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
-            bufferDesc.size = captureBytes;
-            mScreenshotStagingBuffer = wgpuDeviceCreateBuffer(mDevice, &bufferDesc);
-            mScreenshotStagingBytes = captureBytes;
-        }
+   if (mCurrentView)
+   {
+      wgpuTextureViewRelease(mCurrentView);
+      mCurrentView = nullptr;
+   }
 
-        if (mScreenshotStagingBuffer)
-        {
-            WGPUTexelCopyTextureInfo src = {};
-            src.texture = mCurrentSurfaceTexture;
-            src.mipLevel = 0;
-            src.origin = {0, 0, 0};
-            src.aspect = WGPUTextureAspect_All;
-
-            WGPUTexelCopyBufferInfo dst = {};
-            dst.buffer = mScreenshotStagingBuffer;
-            dst.layout.offset = 0;
-            dst.layout.bytesPerRow = bytesPerRow;
-            dst.layout.rowsPerImage = static_cast<uint32_t>(mHeight);
-
-            WGPUExtent3D copySize = {
-                static_cast<uint32_t>(mWidth),
-                static_cast<uint32_t>(mHeight),
-                1};
-
-            wgpuCommandEncoderCopyTextureToBuffer(encoder, &src, &dst, &copySize);
-            captureBuffer = mScreenshotStagingBuffer;
-        }
-    }
-
-    if (encoder) {
-        WGPUCommandBufferDescriptor cmdBufDesc = {};
-        WGPUCommandBuffer cmdBuf = wgpuCommandEncoderFinish(encoder, &cmdBufDesc);
-        wgpuQueueSubmit(mQueue, 1, &cmdBuf);
-        wgpuCommandBufferRelease(cmdBuf);
-        wgpuCommandEncoderRelease(encoder);
-        mCurrentEncoder = nullptr;
-    }
-
-    if (captureBuffer && mInstance)
-    {
-        struct MapState {
-            bool done = false;
-            WGPUMapAsyncStatus status = WGPUMapAsyncStatus_Success;
-        } mapState;
-
-        WGPUBufferMapCallbackInfo mapInfo = {};
-        mapInfo.mode = WGPUCallbackMode_AllowProcessEvents;
-        mapInfo.callback = [](WGPUMapAsyncStatus status, WGPUStringView message, void* userdata1, void* userdata2) {
-            (void)message;
-            (void)userdata2;
-            auto* state = static_cast<MapState*>(userdata1);
-            state->status = status;
-            state->done = true;
-        };
-        mapInfo.userdata1 = &mapState;
-
-        wgpuBufferMapAsync(captureBuffer, WGPUMapMode_Read, 0, captureBytes, mapInfo);
-
-        int spin = 0;
-        while (!mapState.done && spin < 5000)
-        {
-            wgpuInstanceProcessEvents(mInstance);
-            ++spin;
-        }
-
-        if (mapState.status == WGPUMapAsyncStatus_Success)
-        {
-            const void* mapped = wgpuBufferGetConstMappedRange(captureBuffer, 0, captureBytes);
-            if (mapped)
-            {
-                mCapturedPixels.resize(static_cast<size_t>(mWidth) * static_cast<size_t>(mHeight) * 4u);
-                const auto* src = static_cast<const uint8_t*>(mapped);
-                for (int y = 0; y < mHeight; ++y)
-                {
-                    const uint8_t* row = src + static_cast<size_t>(y) * bytesPerRow;
-                    uint8_t* dstRow = mCapturedPixels.data() + static_cast<size_t>(y) * static_cast<size_t>(mWidth) * 4u;
-                    for (int x = 0; x < mWidth; ++x)
-                    {
-                        const uint8_t* px = row + static_cast<size_t>(x) * 4u;
-                        dstRow[x * 4 + 0] = px[2]; // BGRA -> RGBA
-                        dstRow[x * 4 + 1] = px[1];
-                        dstRow[x * 4 + 2] = px[0];
-                        dstRow[x * 4 + 3] = px[3];
-                    }
-                }
-                mCapturedWidth = mWidth;
-                mCapturedHeight = mHeight;
-                mCaptureReady = true;
-            }
-            wgpuBufferUnmap(captureBuffer);
-        }
-    }
-
-    if (mCurrentView) {
-        wgpuTextureViewRelease(mCurrentView);
-        mCurrentView = nullptr;
-    }
-
-    if (mCurrentSurfaceTexture) {
-        wgpuTextureRelease(mCurrentSurfaceTexture);
-        mCurrentSurfaceTexture = nullptr;
-    }
+   if (mCurrentSurfaceTexture)
+   {
+      wgpuTextureRelease(mCurrentSurfaceTexture);
+      mCurrentSurfaceTexture = nullptr;
+   }
 }
 
 bool WebGPUContext::readCapturedPixels(std::vector<uint8_t>& outRgba, int& outWidth, int& outHeight)
 {
-    if (!mCaptureReady || mCapturedPixels.empty())
-        return false;
+   if (!mCaptureReady || mCapturedPixels.empty())
+      return false;
 
-    outRgba = mCapturedPixels;
-    outWidth = mCapturedWidth;
-    outHeight = mCapturedHeight;
-    mCaptureReady = false;
-    return true;
+   outRgba = mCapturedPixels;
+   outWidth = mCapturedWidth;
+   outHeight = mCapturedHeight;
+   mCaptureReady = false;
+   return true;
 }

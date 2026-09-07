@@ -214,6 +214,19 @@ namespace bespoke
          int mCommand = 0;
       };
 
+      class PulseToNoteModule : public Module
+      {
+      public:
+         PulseToNoteModule(int id);
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
+         void setControlValue(const std::string& name, float value) override;
+         float getControlValue(const std::string& name) const override;
+
+      private:
+         int mPitch = 60;
+         float mGate = 0.75f;
+      };
+
       class ScaleModule : public Module
       {
       public:

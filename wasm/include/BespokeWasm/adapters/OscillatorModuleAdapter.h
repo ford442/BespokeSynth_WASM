@@ -14,6 +14,7 @@ namespace bespoke
 {
    namespace wasm
    {
+      constexpr int kOscillatorVoiceCount = 8;
 
       struct OscillatorParams
       {
@@ -22,15 +23,24 @@ namespace bespoke
          int waveform = 0;
       };
 
-      struct OscillatorAdapterRuntimeState
+      struct OscillatorVoice
       {
          float phase = 0.0f;
-         float noteFrequency = 440.0f;
-         float noteVelocity = 1.0f;
-         bool noteGate = true;
+         float frequency = 440.0f;
+         float velocity = 1.0f;
+         int pitch = 60;
+         bool gated = false;
+         uint32_t age = 0;
+      };
+
+      struct OscillatorAdapterRuntimeState
+      {
+         OscillatorVoice voices[kOscillatorVoiceCount]{};
+         uint32_t ageCounter = 0;
+         float freeRunPhase = 0.0f;
+         Oscillator oscillator{ kOsc_Sin };
          bool hasReceivedNote = false;
          OscillatorType oscillatorType = kOsc_Sin;
-         Oscillator oscillator{ kOsc_Sin };
       };
 
       class OscillatorModuleAdapter : public WasmModuleAdapter

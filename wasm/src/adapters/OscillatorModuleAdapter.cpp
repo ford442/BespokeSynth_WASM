@@ -3,6 +3,7 @@
  */
 
 #include "BespokeWasm/adapters/OscillatorModuleAdapter.h"
+#include "BespokeWasm/VoiceAllocator.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
 #include <cmath>
@@ -21,34 +22,39 @@ namespace bespoke
             return std::max(minValue, std::min(maxValue, value));
          }
 
-         void updateOscillatorType(OscillatorAdapterRuntimeState& state, int waveform)
+         OscillatorType waveformType(int waveform)
          {
             switch (waveform % 4)
             {
                case 1:
-                  state.oscillatorType = kOsc_Saw;
-                  break;
+                  return kOsc_Saw;
                case 2:
-                  state.oscillatorType = kOsc_Square;
-                  break;
+                  return kOsc_Square;
                case 3:
-                  state.oscillatorType = kOsc_Tri;
-                  break;
+                  return kOsc_Tri;
                default:
-                  state.oscillatorType = kOsc_Sin;
-                  break;
+                  return kOsc_Sin;
             }
-            state.oscillator.SetType(state.oscillatorType);
          }
 
-         float renderOscillatorSample(OscillatorAdapterRuntimeState& state,
-                                      float frequency,
-                                      float sampleRate)
+         void updateOscillatorTypes(OscillatorAdapterRuntimeState& state, int waveform)
          {
-            const float sample = state.oscillator.Value(state.phase);
-            state.phase += kTwoPi * clampFloat(frequency, 0.0f, sampleRate * 0.45f) / sampleRate;
-            if (state.phase >= kTwoPi)
-               state.phase = std::fmod(state.phase, kTwoPi);
+            const OscillatorType type = waveformType(waveform);
+            state.oscillatorType = type;
+            state.oscillator.SetType(type);
+         }
+
+         float midiFrequency(int pitch)
+         {
+            return 440.0f * std::pow(2.0f, (pitch - 69) / 12.0f);
+         }
+
+         float renderSample(OscillatorAdapterRuntimeState& state, float& phase, float frequency, float sampleRate)
+         {
+            const float sample = state.oscillator.Value(phase);
+            phase += kTwoPi * clampFloat(frequency, 0.0f, sampleRate * 0.45f) / sampleRate;
+            if (phase >= kTwoPi)
+               phase = std::fmod(phase, kTwoPi);
             return sample;
          }
       }
@@ -105,7 +111,7 @@ namespace bespoke
 
          auto& state = *static_cast<OscillatorAdapterRuntimeState*>(runtimeState);
          const auto& params = *static_cast<const OscillatorParams*>(paramsPtr);
-         updateOscillatorType(state, params.waveform);
+         updateOscillatorTypes(state, params.waveform);
 
          if (context.notes && context.noteCount > 0)
          {
@@ -114,36 +120,61 @@ namespace bespoke
                const auto& note = context.notes[noteIndex];
                if (note.isNoteOn)
                {
-                  state.noteFrequency = 440.0f * std::pow(2.0f, (note.pitch - 69) / 12.0f);
-                  state.noteVelocity = clampFloat(note.velocity, 0.0f, 1.0f);
-                  state.noteGate = true;
+                  OscillatorVoice* voice =
+                  allocateVoice(state.voices, kOscillatorVoiceCount, state.ageCounter, note.pitch);
+                  voice->gated = true;
+                  voice->pitch = note.pitch;
+                  voice->velocity = clampFloat(note.velocity, 0.0f, 1.0f);
+                  voice->frequency = midiFrequency(note.pitch);
                   state.hasReceivedNote = true;
                }
-               else
+               else if (OscillatorVoice* voice =
+                        releaseVoice(state.voices, kOscillatorVoiceCount, note.pitch))
                {
-                  state.noteGate = false;
+                  voice->gated = false;
                   state.hasReceivedNote = true;
                }
             }
          }
 
-         const float frequency = state.hasReceivedNote ? state.noteFrequency : params.frequency;
-         float level = 1.0f;
-         if (context.hasNoteCable)
+         const float volume = clampFloat(params.volume, 0.0f, 1.0f);
+         const bool useVoices = context.hasNoteCable || state.hasReceivedNote;
+         if (!useVoices)
          {
-            if (!state.hasReceivedNote || !state.noteGate)
-               level = 0.0f;
-            else
-               level = state.noteVelocity;
-         }
-         else if (state.hasReceivedNote)
-         {
-            level = state.noteGate ? state.noteVelocity : 0.0f;
+            for (int i = 0; i < context.numSamples; ++i)
+               buffer[i] = renderSample(state, state.freeRunPhase, params.frequency, context.sampleRate) * volume;
+            return;
          }
 
-         const float volume = clampFloat(params.volume, 0.0f, 1.0f);
+         bool anyGated = false;
+         for (int v = 0; v < kOscillatorVoiceCount; ++v)
+         {
+            if (state.voices[v].gated)
+            {
+               anyGated = true;
+               break;
+            }
+         }
+
+         if (!anyGated)
+         {
+            for (int i = 0; i < context.numSamples; ++i)
+               buffer[i] = 0.0f;
+            return;
+         }
+
          for (int i = 0; i < context.numSamples; ++i)
-            buffer[i] = renderOscillatorSample(state, frequency, context.sampleRate) * volume * level;
+            buffer[i] = 0.0f;
+
+         for (int v = 0; v < kOscillatorVoiceCount; ++v)
+         {
+            OscillatorVoice& voice = state.voices[v];
+            if (!voice.gated)
+               continue;
+            const float level = voice.velocity * volume;
+            for (int i = 0; i < context.numSamples; ++i)
+               buffer[i] += renderSample(state, voice.phase, voice.frequency, context.sampleRate) * level;
+         }
       }
 
       BESPOKE_REGISTER_MODULE(OscillatorModuleAdapter);

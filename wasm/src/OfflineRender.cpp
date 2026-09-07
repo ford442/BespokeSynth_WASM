@@ -8,6 +8,7 @@
 #include "BespokeWasm/SampleBuffer.h"
 #include <algorithm>
 #include <cmath>
+#include <memory>
 
 namespace bespoke
 {
@@ -39,11 +40,11 @@ namespace bespoke
 
          const int frames = std::max(1, static_cast<int>(std::llround(seconds * sampleRate)));
          const int block = 128;
-         AudioGraphEngine engine;
-         engine.prepareForBlock(block,
-                                std::max(8, graph.processPlan.bufferSlotCount + 4),
-                                std::max(4, graph.processPlan.modulationSlotCount + 2));
-         engine.resetClock();
+         auto engine = std::make_unique<AudioGraphEngine>();
+         engine->prepareForBlock(block,
+                                 std::max(8, graph.processPlan.bufferSlotCount + 4),
+                                 std::max(4, graph.processPlan.modulationSlotCount + 2));
+         engine->resetClock();
 
          interleavedStereo.resize(static_cast<size_t>(frames) * 2u, 0.0f);
          std::vector<float> left(static_cast<size_t>(block));
@@ -54,7 +55,7 @@ namespace bespoke
          while (written < frames)
          {
             const int n = std::min(block, frames - written);
-            engine.processBlock(graph, channels, 2, n, static_cast<float>(sampleRate));
+            engine->processBlock(graph, channels, 2, n, static_cast<float>(sampleRate));
             for (int i = 0; i < n; ++i)
             {
                interleavedStereo[static_cast<size_t>((written + i) * 2)] = left[static_cast<size_t>(i)];

@@ -85,6 +85,7 @@ namespace bespoke::wasm
       int oscillatorModuleId = -1;
       int gainModuleId = -1;
       int viewMode = 0;
+      bool legacyPanelsEnabled = false;
       int currentPanel = static_cast<int>(PanelType::Mixer);
       int width = 800;
       int height = 600;

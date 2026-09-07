@@ -115,7 +115,7 @@ struct RuntimeTheme {
    }
 };
 
-// Global runtime theme instance – defined in WasmBridge.cpp.
+// Global runtime theme instance – defined in WasmBridgeInit.cpp.
 extern RuntimeTheme gRuntimeTheme;
 
 } // namespace wasm
