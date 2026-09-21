@@ -10,6 +10,7 @@
 #include "BespokeWasm/Renderer2D.h"
 #include "BespokeWasm/Theme.h"
 #include "BespokeWasm/PixelFont.h"
+#include "BespokeWasm/SdfFont.h"
 #include "BespokeWasm/ModuleCanvas.h"
 #include "BespokeWasm/WasmRuntimeState.h"
 
@@ -72,6 +73,9 @@ static void renderFontTestPanel()
       musicalLine,
    };
 
+   // The regression panel always exercises the 5x7 bitmap font, even when the
+   // rest of the UI draws with the SDF atlas.
+   renderer.fontFace(kPixelFontFaceName);
    renderer.fontSize(10.0f);
    const float glyphRowH = renderer.textHeight() + 4.0f;
    const int glyphRows = 6;
@@ -110,6 +114,7 @@ static void renderFontTestPanel()
          gy = fontTestBaselineFromTop(nextTop, renderer.textHeight());
       }
    }
+   renderer.fontFace("");
 }
 
 extern "C" {
@@ -253,15 +258,19 @@ EMSCRIPTEN_KEEPALIVE const unsigned char* bespoke_get_screenshot_pixels(int* out
    return state.screenshotPixels.empty() ? nullptr : state.screenshotPixels.data();
 }
 
-EMSCRIPTEN_KEEPALIVE void bespoke_set_render_test_mode(int enabled)
+EMSCRIPTEN_KEEPALIVE void bespoke_set_render_test_mode(int scene)
 {
    auto& state = runtimeState();
-   state.renderTestMode = enabled != 0;
+   state.renderTestMode = scene != 0;
+   state.renderTestScene = scene;
    if (!state.canvas)
       return;
 
    state.viewMode = 0;
-   state.canvas->setupCanonicalRenderTestScene();
+   if (scene == 2)
+      state.canvas->setupDrumRenderTestScene();
+   else
+      state.canvas->setupCanonicalRenderTestScene();
    state.oscillatorModuleId = state.canvas->findFirstModuleOfType("oscillator");
    state.gainModuleId = state.canvas->findFirstModuleOfType("gain");
    if (state.renderTestMode)
@@ -270,7 +279,8 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_render_test_mode(int enabled)
 
 EMSCRIPTEN_KEEPALIVE int bespoke_get_render_test_mode(void)
 {
-   return runtimeState().renderTestMode ? 1 : 0;
+   const auto& state = runtimeState();
+   return state.renderTestMode ? state.renderTestScene : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_set_font_test_visible(int visible)

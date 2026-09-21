@@ -71,6 +71,25 @@ namespace bespoke
          }
          virtual std::vector<std::string> stringPropertyNames() const { return {}; }
 
+         /**
+          * Serialized control under a world-space point ("" when none). Used by
+          * MIDI learn; the canvas falls back to the adapter's first control.
+          */
+         virtual std::string controlNameAt(float worldX, float worldY) const
+         {
+            (void)worldX;
+            (void)worldY;
+            return {};
+         }
+         /** UI range for `name`; false lets the canvas use its fallback table. */
+         virtual bool controlRange(const std::string& name, float& minValue, float& maxValue) const
+         {
+            (void)name;
+            (void)minValue;
+            (void)maxValue;
+            return false;
+         }
+
          virtual bool handleMouseDown(float worldX, float worldY) { return false; }
          virtual bool handleMouseDrag(float worldX, float worldY, float dx, float dy) { return false; }
          virtual void handleMouseUp() {}

@@ -27,6 +27,74 @@ namespace bespoke
       : Module(id, "scale", "Scale", ModuleCategory::Other)
       {
          setSize(180, 70);
+         fillEqualTemperament(mTuningTable);
+      }
+
+      void ScaleModule::setStringProperty(const std::string& name, const std::string& value)
+      {
+         if (name == "scl")
+            mScl = value;
+         else if (name == "kbm")
+            mKbm = value;
+         else if (name == "sclName")
+            mSclName = value;
+         else if (name == "kbmName")
+            mKbmName = value;
+         else
+            return;
+         if (name == "scl" || name == "kbm")
+            rebuildTuning();
+      }
+
+      std::string ScaleModule::getStringProperty(const std::string& name) const
+      {
+         if (name == "scl")
+            return mScl;
+         if (name == "kbm")
+            return mKbm;
+         if (name == "sclName")
+            return mSclName;
+         if (name == "kbmName")
+            return mKbmName;
+         if (name == "tuningError")
+            return mTuningError;
+         if (name == "tuningDescription")
+            return mTuningDescription;
+         return {};
+      }
+
+      std::vector<std::string> ScaleModule::stringPropertyNames() const
+      {
+         // Only non-empty values serialize, so 12-TET patches stay unchanged.
+         std::vector<std::string> names;
+         if (!mScl.empty())
+            names.insert(names.end(), { "scl", "sclName" });
+         if (!mKbm.empty())
+            names.insert(names.end(), { "kbm", "kbmName" });
+         return names;
+      }
+
+      void ScaleModule::rebuildTuning()
+      {
+         mCustomTuning = false;
+         mTuningDegrees = 12;
+         mTuningDescription.clear();
+         mTuningError.clear();
+         if (mScl.empty() && mKbm.empty())
+         {
+            fillEqualTemperament(mTuningTable);
+            return;
+         }
+         const TuningParseResult result = buildTuningTable(mScl, mKbm, mTuningTable);
+         if (!result.ok)
+         {
+            mTuningError = result.error;
+            printf("ScaleModule: tuning rejected: %s\n", result.error.c_str());
+            return;
+         }
+         mCustomTuning = true;
+         mTuningDegrees = result.scaleCount;
+         mTuningDescription = result.description;
       }
 
       void ScaleModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
@@ -81,9 +149,17 @@ namespace bespoke
             renderer.fill();
          }
 
-         // Label below keys
+         // Label below keys: the Scala file when one is loaded, else the hint.
+         char tuningLabel[48];
+         if (mCustomTuning)
+            snprintf(tuningLabel, sizeof(tuningLabel), "%.28s (%d)",
+                     mSclName.empty() ? "Scala" : mSclName.c_str(), mTuningDegrees);
+         else if (!mTuningError.empty())
+            snprintf(tuningLabel, sizeof(tuningLabel), "Bad .scl - 12-TET");
+         else
+            snprintf(tuningLabel, sizeof(tuningLabel), "Root / scale - drop .scl");
          drawText(renderer, screenX + 10 * scale, textBaselineFromTop(renderer, keyY + keyH + 4 * scale),
-                  "Root / scale", UITheme::kTextSecondary, 9.0f * scale);
+                  tuningLabel, mCustomTuning ? UITheme::kTextValue : UITheme::kTextSecondary, 9.0f * scale);
       }
 
       void ScaleModule::setControlValue(const std::string& name, float value)

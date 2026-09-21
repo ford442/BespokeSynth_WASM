@@ -95,6 +95,7 @@ namespace bespoke::wasm
       float renderTime = 0.0f;
       bool initialized = false;
       bool renderTestMode = false;
+      int renderTestScene = 0; // 1 = canonical synth voice, 2 = drum bus (?renderTest=2)
       bool fontTestVisible = false;
       bool webGLPreserveDrawingBuffer = false;
    };

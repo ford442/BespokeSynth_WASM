@@ -20,11 +20,11 @@ body {
 
 /* Header */
 #header {
-    height: 50px;
+    min-height: 50px;
     background: #252528;
     display: flex;
     align-items: center;
-    padding: 0 20px;
+    padding: 5px 20px;
     border-bottom: 1px solid #3a3a40;
     flex-shrink: 0;
 }
@@ -46,7 +46,16 @@ body {
 #header .controls {
     margin-left: auto;
     display: flex;
-    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px 10px;
+    min-width: 0;
+}
+
+/* Undo / redo glyph buttons */
+#undoBtn,
+#redoBtn {
+    padding: 8px 11px;
 }
 
 .autosave-toggle {
@@ -163,6 +172,121 @@ body {
     margin-top: 4px;
 }
 
+.midi-popover-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 6px;
+    font-size: 13px;
+    color: #dcdce4;
+}
+
+.midi-popover-row select {
+    max-width: 170px;
+}
+
+.midi-popover-hint {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: #a8a8b4;
+}
+
+/* Script side panel (?script=1) */
+.btn.active {
+    outline: 1px solid #6ee7b7;
+}
+
+.script-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(440px, 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    background: rgba(22, 23, 28, 0.97);
+    border-left: 1px solid #3a3a44;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+    z-index: 900;
+}
+
+.script-panel[hidden] {
+    display: none;
+}
+
+.script-panel-header,
+.script-panel-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.script-status {
+    margin-left: auto;
+    font-size: 12px;
+    color: #a8a8b4;
+}
+
+.script-status[data-status="running"] {
+    color: #6ee7b7;
+}
+
+.script-status[data-status="error"],
+.script-status[data-status="killed"] {
+    color: #ff8a80;
+}
+
+.script-close {
+    padding: 2px 10px;
+    background: #33333a;
+    color: #e0e0e5;
+}
+
+.script-editor {
+    flex: 1 1 55%;
+    min-height: 160px;
+    resize: none;
+    padding: 8px;
+    background: #111116;
+    color: #e8e8ec;
+    border: 1px solid #3a3a44;
+    border-radius: 4px;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    tab-size: 2;
+}
+
+.script-note {
+    font-size: 11px;
+    color: #8a8a96;
+}
+
+.script-log {
+    flex: 1 1 30%;
+    min-height: 80px;
+    overflow: auto;
+    margin: 0;
+    padding: 6px 8px;
+    background: #0d0d11;
+    border: 1px solid #2c2c34;
+    border-radius: 4px;
+    font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: #c8c8d0;
+    white-space: pre-wrap;
+}
+
+.script-log-error {
+    color: #ff8a80;
+}
+
+.script-log-system {
+    color: #8ab4f8;
+}
+
 /* Buttons */
 .btn {
     padding: 8px 16px;
@@ -248,6 +372,10 @@ body {
     height: 100%;
     display: block;
     cursor: crosshair;
+    /* Pointer Events own touch: no browser scroll/zoom, so drag, pinch, and long-press reach WASM. */
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 #canvas.sample-drop-active {
@@ -255,10 +383,9 @@ body {
     outline-offset: -8px;
 }
 
-/* ── Hybrid DOM text overlay ──────────────────────────────────────────────────
- * Absolutely positioned over the WebGPU canvas so we can use system /
- * variable fonts for crisp sub-pixel text while all heavy rendering
- * (knobs, shaders, cables) stays on the GPU.
+/* ── DOM overlay ───────────────────────────────────────────────────────────────
+ * Control labels are drawn on the GPU with the SDF font atlas (SdfFont), so this
+ * layer is empty. It stays as the mount point for a future accessibility tree.
  * pointer-events: none ensures every mouse/touch event reaches the canvas.
  * ──────────────────────────────────────────────────────────────────────────── */
 #gui-overlay {
@@ -267,36 +394,6 @@ body {
     pointer-events: none;
     overflow: hidden;
     z-index: 10;
-}
-
-/* Individual control label – one element per knob / slider */
-.gui-label {
-    position: absolute;
-    pointer-events: none;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 1px;
-    transform: translate(-50%, 0);  /* center horizontally on the knob */
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    font-size: 10px;
-    line-height: 1.2;
-    text-align: center;
-    white-space: nowrap;
-    user-select: none;
-}
-
-.gui-label .label-name {
-    color: rgba(235, 236, 242, 0.82);
-    font-weight: 500;
-    letter-spacing: 0.03em;
-}
-
-.gui-label .label-value {
-    color: rgba(140, 230, 255, 0.90);   /* matches UITheme::kTextValue */
-    font-weight: 600;
-    font-size: 9px;
-    letter-spacing: 0.04em;
 }
 
 /* Status Overlay */

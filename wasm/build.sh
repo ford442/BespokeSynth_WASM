@@ -104,6 +104,15 @@ if ! emcc --use-port=emdawnwebgpu:help >/dev/null 2>&1; then
     exit 1
 fi
 
+# Scala tunings compile against the vendored tuning-library submodule.
+if [ ! -f "$PROJECT_ROOT/libs/tuning-library/include/Tunings.h" ]; then
+    echo -e "${YELLOW}Initializing libs/tuning-library submodule...${NC}"
+    if ! git -C "$PROJECT_ROOT" submodule update --init libs/tuning-library; then
+        echo -e "${RED}Error: libs/tuning-library is missing.${NC} Run: git submodule update --init libs/tuning-library"
+        exit 1
+    fi
+fi
+
 echo -e "${YELLOW}Syncing pixel font shader data...${NC}"
 python3 "$SCRIPT_DIR/../scripts/sync_pixel_font_shader.py"
 
@@ -131,7 +140,9 @@ emcmake cmake "$SCRIPT_DIR" \
     -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
     -DBESPOKE_WASM_BUILD_FLAVOR="$BUILD_FLAVOR" \
     -DBESPOKE_WASM_WEBGPU=ON \
-    -DBESPOKE_WASM_SDL2_AUDIO=ON
+    -DBESPOKE_WASM_SDL2_AUDIO=ON \
+    -DBESPOKE_WASM_LTO="${BESPOKE_WASM_LTO:-ON}" \
+    -DBESPOKE_WASM_SIMD="${BESPOKE_WASM_SIMD:-ON}"
 
 # Build
 echo -e "${YELLOW}Building...${NC}"

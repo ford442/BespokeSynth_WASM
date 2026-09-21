@@ -3,12 +3,17 @@ import {
   switchRendererPreference,
   type RendererBackend,
 } from '../rendererMode';
-import { switchAudioPreference, type AudioBackendId } from '../audio/audioMode';
+import {
+  switchAudioPreference,
+  type AudioBackendChoice,
+  type AudioBackendId,
+} from '../audio/audioMode';
 import { setupMidiPanel } from './midiPanel';
+import type { LiveInstrument } from '../app/liveInstrument';
 
 export interface RendererPanelOptions {
   rendererBackend: RendererBackend;
-  audioBackendId: AudioBackendId;
+  audioBackendChoice: AudioBackendChoice;
   getModule: () => BespokeSynthModule | null;
   onScreenshot: () => void;
   onSavePatch: () => void;
@@ -17,6 +22,7 @@ export interface RendererPanelOptions {
   onExportWav?: () => void;
   onSharePatch?: () => void;
   onToggleInput?: () => void;
+  live?: LiveInstrument;
 }
 
 export function setupRendererPanel(options: RendererPanelOptions): void {
@@ -39,12 +45,25 @@ export function setupRendererPanel(options: RendererPanelOptions): void {
   const audioSelect = document.createElement('select');
   audioSelect.id = 'audioSelect';
   audioSelect.className = 'renderer-select';
+  // The tone POC (?audioWorkletPoc=1) is a diagnostic and deliberately not listed here.
   audioSelect.innerHTML = `
-    <option value="sdl">Audio: SDL2</option>
     <option value="worklet">Audio: Worklet</option>
+    <option value="sdl">Audio: SDL2</option>
   `;
-  audioSelect.value = options.audioBackendId;
-  audioSelect.title = 'Audio backend (reloads page). Worklet requires COOP/COEP.';
+  const choice = options.audioBackendChoice;
+  audioSelect.value = choice.backend;
+  if (choice.fallbackReason) {
+    const workletOption = audioSelect.querySelector<HTMLOptionElement>('option[value="worklet"]');
+    if (workletOption) {
+      workletOption.disabled = true;
+      workletOption.textContent = 'Audio: Worklet (unavailable)';
+    }
+    const sdlOption = audioSelect.querySelector<HTMLOptionElement>('option[value="sdl"]');
+    if (sdlOption) sdlOption.textContent = 'Audio: SDL2 (fallback)';
+    audioSelect.title = `AudioWorklet unavailable: ${choice.fallbackReason}. Using SDL2.`;
+  } else {
+    audioSelect.title = 'Audio backend (reloads page). Worklet is the default when the page is cross-origin isolated.';
+  }
   audioSelect.addEventListener('change', () => {
     switchAudioPreference(audioSelect.value as AudioBackendId);
   });
@@ -72,7 +91,24 @@ export function setupRendererPanel(options: RendererPanelOptions): void {
   screenshotBtn.title = 'Capture canvas PNG (Ctrl+Shift+S)';
   screenshotBtn.addEventListener('click', () => options.onScreenshot());
 
-  setupMidiPanel(headerControls, options.getModule);
+  setupMidiPanel(headerControls, options.getModule, options.live);
+
+  // Undo/redo mirror Ctrl+Z / Ctrl+Shift+Z for touch and mouse users.
+  const undoBtn = document.createElement('button');
+  undoBtn.id = 'undoBtn';
+  undoBtn.className = 'btn';
+  undoBtn.textContent = '↶';
+  undoBtn.title = 'Undo (Ctrl+Z)';
+  undoBtn.setAttribute('aria-label', 'Undo');
+  undoBtn.addEventListener('click', () => options.getModule()?._bespoke_undo?.());
+
+  const redoBtn = document.createElement('button');
+  redoBtn.id = 'redoBtn';
+  redoBtn.className = 'btn';
+  redoBtn.textContent = '↷';
+  redoBtn.title = 'Redo (Ctrl+Shift+Z)';
+  redoBtn.setAttribute('aria-label', 'Redo');
+  redoBtn.addEventListener('click', () => options.getModule()?._bespoke_redo?.());
 
   const saveBtn = document.createElement('button');
   saveBtn.id = 'savePatchBtn';
@@ -92,7 +128,7 @@ export function setupRendererPanel(options: RendererPanelOptions): void {
   sampleBtn.id = 'sampleBtn';
   sampleBtn.className = 'btn';
   sampleBtn.textContent = 'Sample';
-  sampleBtn.title = 'Import WAV/FLAC/MP3';
+  sampleBtn.title = 'Import WAV/FLAC/MP3, or a .scl/.kbm tuning for the Scale module';
   sampleBtn.addEventListener('click', () => options.onImportSample?.());
 
   const exportBtn = document.createElement('button');
@@ -117,6 +153,8 @@ export function setupRendererPanel(options: RendererPanelOptions): void {
   inputBtn.addEventListener('click', () => options.onToggleInput?.());
 
   headerControls.append(
+    undoBtn,
+    redoBtn,
     rendererSelect,
     audioSelect,
     debugSelect,

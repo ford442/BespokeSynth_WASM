@@ -15,13 +15,15 @@ import {
   type RendererBackend,
 } from '../rendererMode';
 import { readAudioHealth } from '../audio/audioHealth';
-import { resolveAudioBackend, switchAudioPreference, type AudioBackendId } from '../audio/audioMode';
+import { switchAudioPreference, type AudioBackendId } from '../audio/audioMode';
 import { runAudioWorkletPoc } from '../audio/workletPoc';
 import { downloadOfflineWav, renderOfflineWav } from '../samples/offlineExport';
 import { decodePatchFragment, writeShareUrl } from '../samples/patchShare';
 import { importAudioFile } from '../samples/sampleIo';
 import { collectSampleHashes } from '../samples/opfsStore';
 import { getLastKeyCodes } from './inputBridge';
+import { readCString, readJson, withCStrings } from './wasmStrings';
+import { loadTuningText, type TuningKind } from '../samples/tuningIo';
 
 export function installPublicApi(app: BespokeSynthApp): void {
   (window as unknown as Record<string, unknown>).__bespoke = {
@@ -67,11 +69,23 @@ export function installPublicApi(app: BespokeSynthApp): void {
     loadPatchFile: () => promptForPatchStateFile(app.getModule()),
     loadBundledLayout: (path: string) => loadBundledLayout(app.getModule(), path),
     getAudioHealth: () => readAudioHealth(app.getModule()),
-    getAudioBackend: () => resolveAudioBackend(),
+    getAudioBackend: () => app.getAudioBackendChoice().backend,
+    getAudioBackendChoice: () => app.getAudioBackendChoice(),
+    getAudioRingStats: () => app.getAudioRingStats(),
     setAudioBackend: (backend: AudioBackendId) => switchAudioPreference(backend),
     play: () => app.play(),
     stop: () => app.stop(),
     runAudioWorkletPoc: (opts?: { stallMs?: number; settleMs?: number }) => runAudioWorkletPoc(opts),
+    /** 'sdf' or 'pixel' (?debugFont=pixel, or the SDF atlas failed to load). */
+    getFontMode: () => (app.getModule()?._bespoke_get_font_mode?.() === 1 ? 'pixel' : 'sdf'),
+    /** Live analyzer FFT counters: CPU (render thread) vs WebGPU compute dispatches. */
+    getAnalyzerStats: () => {
+      const mod = app.getModule();
+      return {
+        cpuFftCount: mod?._bespoke_get_analyzer_cpu_fft_count?.() ?? 0,
+        gpuFftCount: mod?._bespoke_get_analyzer_gpu_fft_count?.() ?? 0,
+      };
+    },
     setRendererBackend: (backend: RendererBackend) => switchRendererPreference(backend),
     getRendererBackend: () => {
       const mod = app.getModule();
@@ -80,9 +94,11 @@ export function installPublicApi(app: BespokeSynthApp): void {
       }
       return resolveRendererBackend();
     },
-    setRenderTestMode: (enabled: boolean) =>
-      app.getModule()?._bespoke_set_render_test_mode?.(enabled ? 1 : 0),
-    getRenderTestMode: () => app.getModule()?._bespoke_get_render_test_mode?.() === 1,
+    /** true/1 = canonical scene, 2 = drum bus scene, false/0 = off. */
+    setRenderTestMode: (scene: boolean | number) =>
+      app.getModule()?._bespoke_set_render_test_mode?.(typeof scene === 'number' ? scene : scene ? 1 : 0),
+    getRenderTestMode: () => (app.getModule()?._bespoke_get_render_test_mode?.() ?? 0) > 0,
+    getRenderTestScene: () => app.getModule()?._bespoke_get_render_test_mode?.() ?? 0,
     setWebGLDebugMode: (mode: number) => app.getModule()?._bespoke_set_webgl_debug_mode?.(mode),
     setFontTestVisible: (visible: boolean) => {
       const mod = app.getModule();
@@ -95,6 +111,77 @@ export function installPublicApi(app: BespokeSynthApp): void {
     resetHostCounters: () => app.getModule()?._bespoke_reset_host_counters?.(),
     getHostFrameCount: () => app.getHostFrameCount(),
     getLastKeyCodes,
+    // --- Live instrument: undo, MIDI learn/out, QWERTY, tuning, scripts, touch ---
+    undo: () => (app.getModule()?._bespoke_undo?.() ?? 0) === 1,
+    redo: () => (app.getModule()?._bespoke_redo?.() ?? 0) === 1,
+    getUndoDepth: () => app.getModule()?._bespoke_get_undo_depth?.() ?? 0,
+    getRedoDepth: () => app.getModule()?._bespoke_get_redo_depth?.() ?? 0,
+    setControlValue: (moduleId: number, name: string, value: number) => {
+      const mod = app.getModule();
+      if (!mod) return;
+      withCStrings(mod, [name], (ptr) => mod._bespoke_set_control_value(moduleId, ptr, value));
+    },
+    getControlValue: (moduleId: number, name: string) => {
+      const mod = app.getModule();
+      if (!mod) return NaN;
+      return withCStrings(mod, [name], (ptr) => mod._bespoke_get_control_value(moduleId, ptr));
+    },
+    getModuleInfo: (moduleId: number) => {
+      const mod = app.getModule();
+      return mod ? readJson<Record<string, number | string>>(mod, mod._bespoke_get_module_info_json(moduleId), {}) : {};
+    },
+    getModules: () => {
+      const mod = app.getModule();
+      return mod ? readJson<Array<{ id: number; type: string }>>(mod, mod._bespoke_get_modules_json(), []) : [];
+    },
+    midiLearn: (moduleId: number, control = '') => {
+      const mod = app.getModule();
+      if (!mod) return false;
+      return withCStrings(mod, [control], (ptr) => mod._bespoke_midi_learn_arm(moduleId, ptr)) === 1;
+    },
+    cancelMidiLearn: () => app.getModule()?._bespoke_midi_learn_cancel?.(),
+    getMidiLearnTarget: () => {
+      const mod = app.getModule();
+      if (!mod) return null;
+      const moduleId = mod._bespoke_midi_learn_get_module();
+      return moduleId >= 0 ? { moduleId, control: readCString(mod, mod._bespoke_midi_learn_get_control()) } : null;
+    },
+    getMidiCcMap: () => {
+      const mod = app.getModule();
+      return mod ? readJson<unknown[]>(mod, mod._bespoke_get_midi_cc_map_json(), []) : [];
+    },
+    setMidiNoteChannel: (channel: number) => app.getModule()?._bespoke_set_midi_note_channel?.(channel),
+    getMidiNoteChannel: () => app.getModule()?._bespoke_get_midi_note_channel?.() ?? -1,
+    listMidiOutputs: () => app.live.midiOut.listOutputs(),
+    selectMidiOutput: (id: string | null) => app.live.midiOut.selectOutput(id),
+    getMidiOutLog: () => app.live.midiOut.getLog(),
+    clearMidiOutLog: () => app.live.midiOut.clearLog(),
+    setQwertyPiano: (enabled: boolean) => app.live.piano.setEnabled(enabled),
+    getQwertyPiano: () => app.live.piano.getState(),
+    loadTuning: (kind: TuningKind, text: string, name = '') => {
+      const mod = app.getModule();
+      return mod ? loadTuningText(mod, kind, text, name) : { ok: false, error: 'not ready' };
+    },
+    getNoteFrequency: (pitch: number) => app.getModule()?._bespoke_get_note_frequency?.(pitch) ?? 0,
+    runScript: (code?: string, moduleId?: number) => app.getScriptPanel()?.run(code, moduleId) ?? -1,
+    stopScript: () => app.getScriptPanel()?.stop(),
+    getScriptStatus: () => app.getScriptPanel()?.status() ?? 'unavailable',
+    getScriptLog: () => app.getScriptPanel()?.log() ?? [],
+    getSampleRate: () => app.getModule()?._bespoke_get_sample_rate?.() ?? 44100,
+    isSpawnMenuOpen: () => (app.getModule()?._bespoke_is_text_entry_active?.() ?? 0) === 1,
+    getTransportBeat: () => app.getModule()?._bespoke_get_transport_beat?.() ?? 0,
+    /** Latest output samples (analyzer ring), for pitch/level checks. */
+    getOutputWaveform: (count = 2048) => {
+      const mod = app.getModule();
+      if (!mod) return [];
+      const ptr = mod._malloc(count * 4);
+      try {
+        const copied = mod._bespoke_copy_output_waveform(ptr, count);
+        return Array.from(mod.HEAPF32.subarray(ptr >> 2, (ptr >> 2) + copied));
+      } finally {
+        mod._free(ptr);
+      }
+    },
     importSampleFile: (file: File) => {
       const mod = app.getModule();
       return mod ? importAudioFile(mod, file) : Promise.resolve(-1);

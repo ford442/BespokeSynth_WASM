@@ -274,7 +274,8 @@ Module._bespoke_mouse_down(x, y, button);
 ### WASM Bridge & Core (`wasm/src/`)
 - **`WasmBridge.cpp`** - C API implementation (exported functions)
 - **`WasmMain.cpp`** - WASM entry point and main loop
-- **`WebGPURenderer.cpp`** - GPU rendering (large file, ~2000 lines)
+- **`WebGPURenderer.cpp`** - GPU draw helpers (per-frame geometry)
+- **`WebGPURendererPipelines.cpp`** - Pipelines, bind group, SDF atlas texture, analyzer compute pass
 - **`WebGPUContext.cpp`** - WebGPU device initialization
 - **`SDL2AudioBackend.cpp`** - Audio callback and buffer management
 - **`Knob.cpp`** - Rotary control rendering and interaction
@@ -293,10 +294,16 @@ Module._bespoke_mouse_down(x, y, button);
 - **`.eslintrc.js`** - Linting rules
 
 ### Shaders (`wasm/shaders/`)
-- **`render2d.wgsl`** - All WebGPU shaders
+- **`render2d.wgsl`** - All WebGPU render shaders
   - Vertex and fragment shaders for UI controls
   - Knob, slider, button rendering
-  - Waveform and spectrum visualizations
+  - SDF text (`fs_sdf_text`) and 5x7 pixel text (`fs_pixel_text`)
+  - Live scope/spectrum (`fs_live_waveform`, `fs_live_spectrum`) reading GPU buffers
+- **`analyzer_fft.wgsl`** - Compute FFT for the docked analyzer (WebGPU only; WebGL2 uses `AudioAnalysis::computeSpectrum`)
+
+### Text
+- UI text uses an SDF atlas (`wasm/resource-pack/fonts/ui_font.bsdf`, loaded by `SdfFont`) on both backends. Re-bake with `scripts/bake_sdf_font.sh`.
+- `?debugFont=pixel` (or `fontFace("pixel")`, used by the font regression panel) keeps the 5x7 pixel font.
 
 ## Important Constraints & Gotchas
 
@@ -325,7 +332,7 @@ await window.__bespoke.captureScreenshot({ x, y, width, height }); // crop
 window.__bespoke.getRendererBackend();                // 'webgpu' | 'webgl'
 ```
 
-Render regression scene: `?renderTest=1` or `wasm/render_test.html`. See [docs/webgl-fallback.md](docs/webgl-fallback.md).
+Render regression scenes: `?renderTest=1` (synth voice) or `wasm/render_test.html`. `?renderTest=2` is the drum bus (drumseq → mixer → compressor). See [docs/webgl-fallback.md](docs/webgl-fallback.md).
 
 ### 2. Shader Language: WGSL
 
@@ -334,13 +341,13 @@ Shaders are in WebGPU Shading Language (WGSL), not GLSL. Syntax differs:
 - `let/var` instead of `uniform/varying`
 - No `#version` directives
 
-Edit `wasm/shaders/render2d.wgsl` directly. Shaders are compiled at runtime.
+Edit `wasm/shaders/*.wgsl` directly. `scripts/embed_shaders.cmake` embeds them into a generated header at build time (`WgslSources.inc`, included by `WebGPURendererPipelines.cpp`); Dawn compiles them at runtime. There is no WGSL string literal in the renderer `.cpp`.
 
 ### 3. Audio Threading Model
 
 - The WASM synth core runs on the **main thread**; rendering and module graph updates are driven by the TypeScript `requestAnimationFrame` loop in `src/app/renderLoop.ts`.
-- **SDL2 audio** (default backend) uses Emscripten's synchronous audio callback on the main thread.
-- **AudioWorklet** (`src/audio/workletRingBackend.ts`) runs the host-side ring buffer in a dedicated worklet thread with a SharedArrayBuffer when COOP/COEP are enabled; the WASM graph is still processed on the main thread when the worklet pulls samples.
+- **AudioWorklet** (`src/audio/workletRingBackend.ts`, default when `crossOriginIsolated`) plays a SharedArrayBuffer ring from a worklet thread. The WASM graph still runs on the main thread, which fills the ring up to an adaptive lookahead (`src/audio/lookahead.ts`).
+- **SDL2 audio** (fallback without COOP/COEP, or `?audio=sdl`) uses Emscripten's synchronous audio callback on the main thread.
 - Avoid blocking operations in audio processing paths.
 
 ### 4. WASM Module Instantiation
@@ -363,7 +370,17 @@ The WASM runtime has a virtual file system, not direct filesystem access:
 
 ### 6. Web MIDI
 
-Browser MIDI is implemented in `src/midi.ts` (device enumeration, permission handling) and wired through the header **MIDI** control (`src/ui/midiPanel.ts`). Note/CC events are forwarded to `_bespoke_midi_note_on`, `_bespoke_midi_note_off`, and `_bespoke_midi_cc` in the WASM bridge.
+Browser MIDI is implemented in `src/midi.ts` (device enumeration, permission handling, output + `?midiClock=1` clock) and wired through the header **MIDI** control (`src/ui/midiPanel.ts`: channel filter, output port, QWERTY piano toggle). Note/CC events are forwarded to `_bespoke_midi_note_on`, `_bespoke_midi_note_off`, and `_bespoke_midi_cc` in the WASM bridge. Shift-click a control for CC learn (maps persist in patch JSON).
+
+### 6b. Live instrument surfaces
+
+See [docs/wasm/live-instrument.md](docs/wasm/live-instrument.md). In short:
+- **QWERTY piano** (`src/app/qwertyPiano.ts`) keys off `KeyboardEvent.code` and feeds the same path as MIDI in.
+- **Undo/redo** is a structured command stack (`wasm/include/BespokeWasm/UndoStack.h`, `ModuleCanvas::undo/redo`). New canvas edits must go through `createModule`/`deleteModule`/`connectModules`/`setModuleControlValue` (or record a command) to be undoable. Automation writes pass `recordUndo=false`.
+- **Engine state is pre-sized on the UI thread** after every snapshot publish (`AudioGraphEngine::prepareRuntimeStates` via `ModuleCanvas::setSnapshotListener`). Don't add allocations to `processBlock`.
+- **Scala tunings** use `libs/tuning-library` (git submodule). Only `wasm/src/TuningTable.cpp` is built with `-fwasm-exceptions`, and audio reads `GraphMusicScale::noteFrequency`.
+- **Input** uses Pointer Events (`bespoke_pointer_*`) for mouse, touch, and pen. Pinch and long-press are recognized in `src/app/inputBridge.ts`.
+- **Script module** (`?script=1`) runs user JS in a sandboxed worker (`src/script/`). There is no `eval`/`Function` on the main thread.
 
 ### 7. VST Plugin Hosting Unavailable
 

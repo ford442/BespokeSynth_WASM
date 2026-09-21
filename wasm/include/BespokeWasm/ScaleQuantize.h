@@ -24,7 +24,8 @@ namespace bespoke
 
       inline int quantizeMidiPitch(int pitch, const GraphMusicScale& scale)
       {
-         if (scale.mode == kScaleModeChromatic)
+         // Scala tunings define their own degrees through the keyboard map.
+         if (scale.mode == kScaleModeChromatic || scale.customTuning)
             return pitch;
 
          static constexpr int kMajor[] = { 0, 2, 4, 5, 7, 9, 11 };

@@ -13,4 +13,10 @@ namespace bespoke::wasm::AudioAnalysis
    void pushSamples(const float* samples, int count);
    void copyLatest(float* destination, int count);
    void computeSpectrum(float* destination, int bins);
+
+   // Diagnostics for the live analyzer (render thread only). The WebGPU backend
+   // runs the FFT in analyzer_fft.wgsl, so cpuSpectrumCount() stays flat there.
+   unsigned int cpuSpectrumCount();
+   void noteGpuSpectrumDispatch();
+   unsigned int gpuSpectrumCount();
 }

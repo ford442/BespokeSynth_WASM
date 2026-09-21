@@ -3,6 +3,7 @@
  */
 
 #include "BespokeWasm/adapters/GainModuleAdapter.h"
+#include "BespokeWasm/DspSimd.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
 #include <new>
@@ -56,8 +57,7 @@ namespace bespoke
 
          const auto& params = *static_cast<const GainParams*>(paramsPtr);
          const float gain = clampFloat(params.gain, 0.0f, 1.0f);
-         for (int i = 0; i < context.numSamples; ++i)
-            buffer[i] *= gain;
+         dsp::scale(buffer, context.numSamples, gain);
       }
 
       BESPOKE_REGISTER_MODULE(GainModuleAdapter);

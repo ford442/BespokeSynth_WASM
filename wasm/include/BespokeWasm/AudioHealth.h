@@ -23,6 +23,7 @@ namespace bespoke::wasm
       int capacityFrames = 0;
       int backend = 0; // 0=sdl, 1=worklet, 2=poc
       uint64_t noteDropCount = 0;
+      uint64_t heapBytes = 0; // WASM linear memory size (== peak; memory never shrinks)
    };
 
    void audioHealthReset();

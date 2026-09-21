@@ -17,6 +17,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <map>
 
 namespace bespoke
 {
@@ -157,6 +158,53 @@ namespace bespoke
          }
       }
 
+      void ModuleCanvas::renderMidiOverlay(Renderer2D& renderer, int viewWidth, float canvasTop)
+      {
+         // CC badges under each mapped module, e.g. "CC74 cutoff".
+         const float badgeFont = 8.0f * mScale;
+         std::map<int, int> badgeRows;
+         for (const auto& binding : mMidiCcMap)
+         {
+            const Module* module = getModule(binding.moduleId);
+            if (!module)
+               continue;
+            const int row = badgeRows[binding.moduleId]++;
+            char badge[48];
+            snprintf(badge, sizeof(badge), "CC%d %.20s", binding.cc, binding.controlName.c_str());
+            const float x = (module->getX() + mOffsetX) * mScale;
+            const float y = (module->getY() + module->getHeight() + mOffsetY) * mScale + canvasTop +
+                            (2.0f + static_cast<float>(row) * 10.0f) * mScale;
+            drawText(renderer, x + 2.0f * mScale, textBaselineFromTop(y, badgeFont), badge,
+                     Color(0.45f, 0.80f, 0.95f, 0.8f), badgeFont);
+         }
+
+         if (mMidiLearnModuleId < 0)
+            return;
+         const Module* target = getModule(mMidiLearnModuleId);
+         if (!target)
+            return;
+         const float x = (target->getX() + mOffsetX) * mScale;
+         const float y = (target->getY() + mOffsetY) * mScale + canvasTop;
+         renderer.strokeColor(Color(1.0f, 0.62f, 0.15f, 1.0f));
+         renderer.strokeWidth(2.0f);
+         renderer.roundedRect(x - 3.0f, y - 3.0f, target->getWidth() * mScale + 6.0f,
+                              target->getHeight() * mScale + 6.0f, 5.0f);
+         renderer.stroke();
+
+         char banner[128];
+         snprintf(banner, sizeof(banner), "MIDI learn: %s > %s - move a controller (Esc cancels, Del clears)",
+                  target->getName().c_str(), mMidiLearnControl.c_str());
+         renderer.fontSize(11.0f);
+         const float bannerW = renderer.textWidth(banner) + 16.0f;
+         const float bannerX = std::max(6.0f, (static_cast<float>(viewWidth) - bannerW) * 0.5f);
+         const float bannerY = canvasTop + 6.0f;
+         renderer.fillColor(Color(0.25f, 0.16f, 0.05f, 0.92f));
+         renderer.roundedRect(bannerX, bannerY, bannerW, 20.0f, 4.0f);
+         renderer.fill();
+         drawText(renderer, bannerX + 8.0f, textBaselineFromTop(renderer, bannerY + 4.0f), banner,
+                  Color(1.0f, 0.78f, 0.45f, 1.0f), 11.0f);
+      }
+
       void ModuleCanvas::render(Renderer2D& renderer, int viewWidth, int viewHeight)
       {
          Lock lock(mMutex);
@@ -231,24 +279,39 @@ namespace bespoke
             module->render(renderer, mOffsetX, mOffsetY + canvasTop / mScale, mScale);
          }
 
+         renderMidiOverlay(renderer, viewWidth, canvasTop);
+
          // Render title bar on top
          renderTitleBar(renderer, viewWidth);
          renderSpawnMenu(renderer, viewWidth, viewHeight);
 
-         // Docked live analyzer: its data is copied from the audio callback's lock-free ring.
-         std::array<float, 256> waveform{};
-         std::array<float, AudioAnalysis::kSpectrumBins> spectrum{};
-         AudioAnalysis::copyLatest(waveform.data(), static_cast<int>(waveform.size()));
-         AudioAnalysis::computeSpectrum(spectrum.data(), static_cast<int>(spectrum.size()));
+         // Docked live analyzer, fed by the audio callback's lock-free ring. WebGPU runs the
+         // FFT in a compute pass (analyzer_fft.wgsl); other backends use the CPU path here.
          const float analyzerX = static_cast<float>(viewWidth) - 210.0f;
          const float analyzerY = static_cast<float>(viewHeight) - 135.0f;
          renderer.drawPanel(analyzerX, analyzerY, 200.0f, 105.0f, true);
          drawText(renderer, analyzerX + 8.0f, textBaselineFromTop(renderer, analyzerY + 5.0f),
                   "ANALYZER", UITheme::kTextSecondary, 9.0f);
-         renderer.drawWaveform(analyzerX + 8.0f, analyzerY + 20.0f, 184.0f, 34.0f,
-                               waveform.data(), static_cast<int>(waveform.size()), false);
-         renderer.drawSpectrum(analyzerX + 8.0f, analyzerY + 61.0f, 184.0f, 35.0f,
-                               spectrum.data(), static_cast<int>(spectrum.size()));
+
+         const float scopeX = analyzerX + 8.0f;
+         const float scopeY = analyzerY + 20.0f;
+         const float spectrumY = analyzerY + 61.0f;
+         const float analyzerW = 184.0f;
+         if (!renderer.drawLiveWaveform(scopeX, scopeY, analyzerW, 34.0f, UITheme::kAccentCyan))
+         {
+            std::array<float, 256> waveform{};
+            AudioAnalysis::copyLatest(waveform.data(), static_cast<int>(waveform.size()));
+            renderer.strokeColor(UITheme::kAccentCyan);
+            renderer.drawWaveform(scopeX, scopeY, analyzerW, 34.0f, waveform.data(),
+                                  static_cast<int>(waveform.size()), false);
+         }
+         if (!renderer.drawLiveSpectrum(scopeX, spectrumY, analyzerW, 35.0f))
+         {
+            std::array<float, AudioAnalysis::kSpectrumBins> spectrum{};
+            AudioAnalysis::computeSpectrum(spectrum.data(), static_cast<int>(spectrum.size()));
+            renderer.drawSpectrum(scopeX, spectrumY, analyzerW, 35.0f, spectrum.data(),
+                                  static_cast<int>(spectrum.size()));
+         }
 
          // Draw zoom indicator (right-aligned)
          renderer.fontSize(10.0f);

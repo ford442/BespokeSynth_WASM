@@ -75,6 +75,13 @@ namespace bespoke
          return false;
       }
 
+      std::string GainModule::controlNameAt(float worldX, float worldY) const
+      {
+         const float localX = worldX - mX;
+         const float localY = worldY - mY;
+         return localX >= 0.0f && localX <= mWidth && localY >= kTitleBarHeight ? "gain" : "";
+      }
+
       bool GainModule::handleMouseDrag(float worldX, float worldY, float dx, float dy)
       {
          (void)worldY;

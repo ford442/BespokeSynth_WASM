@@ -25,7 +25,6 @@ namespace bespoke
       struct Pipelines
       {
          WGPURenderPipeline solid;
-         WGPURenderPipeline textured;
          WGPURenderPipeline knob_highlight;
          WGPURenderPipeline wire_glow;
          WGPURenderPipeline vu_meter;
@@ -57,6 +56,20 @@ namespace bespoke
          WGPURenderPipeline fader_cap;
          WGPURenderPipeline mod_wheel;
          WGPURenderPipeline pixel_text;
+         WGPURenderPipeline sdf_text;
+         WGPURenderPipeline live_waveform;
+         WGPURenderPipeline live_spectrum;
+      };
+
+      // Mirrors `struct Uniforms` in render2d.wgsl (binding 0).
+      struct FrameUniforms
+      {
+         float viewSize[2] = { 0.0f, 0.0f };
+         float time = 0.0f;
+         float padding = 0.0f;
+         float atlasSize[2] = { 1.0f, 1.0f };
+         float sdfPxRange = 1.0f;
+         float analyzerBins = 0.0f;
       };
 
    /**
@@ -144,6 +157,9 @@ namespace bespoke
       void drawCircularScope(float x, float y, float w, float h) override;
       void drawEchoTrail(float x, float y, float w, float h) override;
 
+      bool drawLiveWaveform(float x, float y, float w, float h, const Color& traceColor) override;
+      bool drawLiveSpectrum(float x, float y, float w, float h) override;
+
    private:
       // Per-frame draw call record: all vertices are uploaded once at endFrame()
       struct DrawCall
@@ -153,8 +169,15 @@ namespace bespoke
          uint32_t vertexCount;
       };
 
+      // WebGPURendererPipelines.cpp
       void createPipelines();
+      void createTextAtlas();
+      void createAnalyzer();
       void createBuffers();
+      void dispatchAnalyzer();
+
+      bool sdfTextActive() const;
+      void pushQuad(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, const Color& color);
       void flushBatch();
       void setPipeline(WGPURenderPipeline pipeline);
       void pushVertex(float x, float y, float u, float v, const Color& color);
@@ -163,15 +186,29 @@ namespace bespoke
 
       WebGPUContext& mContext;
 
-      Pipelines mPipelines;
+      Pipelines mPipelines{};
       WGPURenderPipeline mCurrentPipeline = nullptr;
       WGPURenderPipeline mStrokePipeline = nullptr; // Kept separate for lines
 
       WGPUBuffer mVertexBuffer = nullptr;
       WGPUBuffer mUniformBuffer = nullptr;
       WGPUBindGroup mBindGroup = nullptr;
-      WGPUBindGroupLayout mBindGroupLayout = nullptr; // Cached layout used even when pipelines are null
-      WGPURenderPassEncoder mCurrentPass = nullptr;
+      WGPUBindGroupLayout mBindGroupLayout = nullptr; // Shared by every render pipeline
+      FrameUniforms mUniforms;
+
+      // SDF text atlas (SdfFont), bound at 1/2.
+      WGPUTexture mAtlasTexture = nullptr;
+      WGPUTextureView mAtlasView = nullptr;
+      WGPUSampler mAtlasSampler = nullptr;
+
+      // Live analyzer: newest samples in, spectrum out (analyzer_fft.wgsl), bound at 3/4.
+      WGPUBuffer mAnalysisSampleBuffer = nullptr;
+      WGPUBuffer mAnalysisSpectrumBuffer = nullptr;
+      WGPUBuffer mAnalyzerParamsBuffer = nullptr;
+      WGPUComputePipeline mAnalyzerPipeline = nullptr;
+      WGPUBindGroup mAnalyzerBindGroup = nullptr;
+      std::vector<float> mAnalyzerUpload;
+      bool mAnalyzerRequested = false;
 
       // All vertices accumulated for the entire frame; uploaded once at endFrame()
       std::vector<Vertex2D> mVertices;

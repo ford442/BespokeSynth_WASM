@@ -52,6 +52,17 @@ namespace bespoke
          /** Zero transport clock and drop queued MIDI (offline / determinism). */
          void resetClock();
 
+         /**
+          * UI thread, after each snapshot publish: create runtime state for new
+          * nodes and reset state of nodes that left the graph, so spawn/delete/
+          * undo never grow arenas inside processBlock. Assumes the audio graph
+          * is not running concurrently (main-thread audio; BESPOKE_WASM_THREADS=OFF).
+          */
+         void prepareRuntimeStates(const AudioGraphSnapshot& graph);
+
+         /** Transport position in beats at the end of the last processed block (0 when stopped). */
+         double beatPosition() const { return mPublishedBeat.load(std::memory_order_relaxed); }
+
          void processBlock(const AudioGraphSnapshot& graph,
                            float* const* output,
                            int numOutputChannels,
@@ -65,6 +76,8 @@ namespace bespoke
             int typeIndex = -1;
             uint32_t offset = 0;
             uint32_t size = 0;
+            /** Module left the graph; state was reset in place for a possible undo. */
+            bool dormant = false;
          };
 
          void* stateFor(const AudioGraphNode& node);
@@ -96,6 +109,7 @@ namespace bespoke
 
          double mAudioTimeSeconds = 0.0;
          double mBeatPosition = 0.0;
+         std::atomic<double> mPublishedBeat{ 0.0 };
       };
 
    } // namespace wasm

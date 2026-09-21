@@ -106,6 +106,10 @@ export interface BespokeSynthModule extends EmscriptenModule {
     // Renderer backend selection
     _bespoke_set_renderer_backend(backend: number): void;
     _bespoke_get_renderer_backend(): number;
+    /** 0 = SDF atlas (default), 1 = 5x7 pixel font. Call before bespoke_init. */
+    _bespoke_set_font_mode(mode: number): void;
+    /** 1 when text uses the pixel font (requested, or the SDF atlas failed to load). */
+    _bespoke_get_font_mode(): number;
     _bespoke_is_webgl2_supported(): number;
     _bespoke_get_webgl2_error(): number;
     _bespoke_set_webgl_preserve_drawing_buffer(enabled: number): void;
@@ -115,7 +119,9 @@ export interface BespokeSynthModule extends EmscriptenModule {
     // Screenshot / render-test capture
     _bespoke_capture_screenshot(outWidth: number, outHeight: number): number;
     _bespoke_get_screenshot_pixels(outByteLength: number): number;
-    _bespoke_set_render_test_mode(enabled: number): void;
+    /** 0 off, 1 canonical synth voice, 2 drum bus. */
+    _bespoke_set_render_test_mode(scene: number): void;
+    /** Active render-test scene id (0 when off). */
     _bespoke_get_render_test_mode(): number;
     _bespoke_set_font_test_visible(visible: number): void;
     _bespoke_get_font_test_visible(): number;
@@ -133,6 +139,58 @@ export interface BespokeSynthModule extends EmscriptenModule {
     _bespoke_get_offline_wav(outByteLength: number): number;
     _bespoke_get_offline_wav_size(): number;
     _bespoke_free_offline_render(): void;
+
+    // Pointer input (mouse/touch/pen). modifiers: 1 shift, 2 alt, 4 ctrl, 8 meta.
+    _bespoke_pointer_down(pointerId: number, x: number, y: number, button: number, modifiers: number): void;
+    _bespoke_pointer_move(pointerId: number, x: number, y: number): void;
+    _bespoke_pointer_up(pointerId: number, x: number, y: number, button: number): void;
+    _bespoke_pointer_cancel(pointerId: number): void;
+    _bespoke_long_press(x: number, y: number): void;
+    _bespoke_canvas_zoom(factor: number, centerX: number, centerY: number): void;
+    _bespoke_canvas_pan(dx: number, dy: number): void;
+    _bespoke_is_text_entry_active(): number;
+    /** JSON {id,type,x,y,width,height,screenX,screenY,scale}; "{}" when missing. */
+    _bespoke_get_module_info_json(moduleId: number): number;
+    /** JSON [{id,type}] */
+    _bespoke_get_modules_json(): number;
+
+    // MIDI channel filter + CC learn
+    _bespoke_set_midi_note_channel(channel: number): void;
+    _bespoke_get_midi_note_channel(): number;
+    _bespoke_midi_learn_arm(moduleId: number, controlName: number): number;
+    _bespoke_midi_learn_arm_at(x: number, y: number): number;
+    _bespoke_midi_learn_cancel(): void;
+    _bespoke_midi_learn_get_module(): number;
+    _bespoke_midi_learn_get_control(): number;
+    _bespoke_midi_cc_unbind(moduleId: number, controlName: number): number;
+    /** JSON [{channel,cc,moduleId,control,min,max}] */
+    _bespoke_get_midi_cc_map_json(): number;
+
+    // Undo / redo
+    _bespoke_undo(): number;
+    _bespoke_redo(): number;
+    _bespoke_get_undo_depth(): number;
+    _bespoke_get_redo_depth(): number;
+    _bespoke_clear_undo_history(): void;
+
+    // Scala tuning (kind: "scl" | "kbm")
+    _bespoke_scale_set_tuning(kind: number, text: number, name: number): number;
+    _bespoke_scale_get_tuning_error(): number;
+    _bespoke_get_note_frequency(pitch: number): number;
+
+    // Script module host (?script=1)
+    _bespoke_set_scripting_enabled(enabled: number): void;
+    _bespoke_script_note(moduleId: number, pitch: number, velocity: number, isNoteOn: number): number;
+    _bespoke_script_set_control(moduleId: number, controlName: number, value: number): number;
+    _bespoke_script_stopped(moduleId: number): void;
+    _bespoke_get_transport_beat(): number;
+    _bespoke_is_transport_playing(): number;
+    /** Copies the latest `count` output samples into a HEAPF32 buffer. */
+    _bespoke_copy_output_waveform(destination: number, count: number): number;
+    /** Scalar FFT runs on the render thread (CPU analyzer path). */
+    _bespoke_get_analyzer_cpu_fft_count(): number;
+    /** WebGPU compute FFT dispatches (analyzer_fft.wgsl). */
+    _bespoke_get_analyzer_gpu_fft_count(): number;
 }
 
 /**

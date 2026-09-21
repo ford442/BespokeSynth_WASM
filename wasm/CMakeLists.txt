@@ -63,6 +63,7 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs")             # For 'le
 include_directories("${BESPOKE_LIBS_DIR}/leathers")                      # ensure nested leathers headers are visible
 include_directories("${BESPOKE_LIBS_DIR}/nanovg")                        # allow includes like "nanovg/nanovg.h"
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../libs/nanovg_fix")
+include_directories("${BESPOKE_LIBS_DIR}/freeverb/freeverb")          # revmodel.hpp (reverb adapter)
 
 # Note: WebGPU headers are provided by Emscripten's emdawnwebgpu port
 # They are automatically included when using --use-port=emdawnwebgpu
@@ -73,6 +74,8 @@ option(BESPOKE_WASM_WEBGPU "Enable WebGPU rendering backend" ON)
 option(BESPOKE_WASM_SDL2_AUDIO "Enable SDL2 audio backend" ON)
 option(BESPOKE_WASM_THREADS "Enable threading support" OFF)
 option(BESPOKE_WASM_ASYNCIFY "Enable Asyncify support (off unless an async C++ stack is required)" OFF)
+option(BESPOKE_WASM_LTO "Link-time optimization for the Release flavor (slow link; disable for quick CI iteration)" ON)
+option(BESPOKE_WASM_SIMD "Compile with -msimd128 and enable wasm_simd128.h DSP kernels (scalar fallback when OFF)" ON)
 option(BESPOKE_WASM_LEGACY_PANELS "Compile Mixer/Effects/Sequencer demo panels (runtime: ?legacyPanels=1)" ON)
 set(BESPOKE_WASM_BUILD_FLAVOR "Release" CACHE STRING "Release, Debug, or Profile WASM build")
 set_property(CACHE BESPOKE_WASM_BUILD_FLAVOR PROPERTY STRINGS Release Debug Profile)
@@ -88,6 +91,8 @@ message(STATUS "  WebGPU: ${BESPOKE_WASM_WEBGPU}")
 message(STATUS "  SDL2 Audio: ${BESPOKE_WASM_SDL2_AUDIO}")
 message(STATUS "  Threads: ${BESPOKE_WASM_THREADS}")
 message(STATUS "  Asyncify: ${BESPOKE_WASM_ASYNCIFY}")
+message(STATUS "  LTO (Release only): ${BESPOKE_WASM_LTO}")
+message(STATUS "  SIMD128: ${BESPOKE_WASM_SIMD}")
 message(STATUS "  Build flavor: ${BESPOKE_WASM_BUILD_FLAVOR}")
 
 # Each adapter is one header + one source + one line here.
@@ -107,6 +112,19 @@ set(BESPOKE_WASM_ADAPTER_SOURCES
     ${BESPOKE_WASM_DIR}/src/adapters/SamplerModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/LooperModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/PulseToNoteModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/MixerModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/CompressorModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/ChorusModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/WaveshaperModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/ClockDividerModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/DrumSeqModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/ScriptModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/ScriptNoteQueue.cpp
+    # Shared by adapters above: generic slider UI + public-domain Freeverb (reverb adapter).
+    ${BESPOKE_WASM_DIR}/src/SliderPanelModule.cpp
+    ${BESPOKE_LIBS_DIR}/freeverb/src/allpass.cpp
+    ${BESPOKE_LIBS_DIR}/freeverb/src/comb.cpp
+    ${BESPOKE_LIBS_DIR}/freeverb/src/revmodel.cpp
 )
 
 # Collect WASM-specific sources
@@ -114,10 +132,15 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/WasmMain.cpp
     ${BESPOKE_WASM_DIR}/src/WebGPUContext.cpp
     ${BESPOKE_WASM_DIR}/src/WebGPURenderer.cpp
+    ${BESPOKE_WASM_DIR}/src/WebGPURendererWidgets.cpp
+    ${BESPOKE_WASM_DIR}/src/WebGPURendererPipelines.cpp
     ${BESPOKE_WASM_DIR}/src/WebGL2Context.cpp
     ${BESPOKE_WASM_DIR}/src/WebGL2Renderer.cpp
+    ${BESPOKE_WASM_DIR}/src/WebGL2RendererPath.cpp
+    ${BESPOKE_WASM_DIR}/src/WebGL2RendererWidgets.cpp
     ${BESPOKE_WASM_DIR}/src/WebGL2Shaders.cpp
     ${BESPOKE_WASM_DIR}/src/PixelFont.cpp
+    ${BESPOKE_WASM_DIR}/src/SdfFont.cpp
     ${BESPOKE_WASM_DIR}/src/SDL2AudioBackend.cpp
     ${BESPOKE_WASM_DIR}/src/AudioAnalysis.cpp
     ${BESPOKE_WASM_DIR}/src/AudioProcessPlan.cpp
@@ -138,6 +161,7 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/WasmBridgeAudio.cpp
     ${BESPOKE_WASM_DIR}/src/WasmBridgePatch.cpp
     ${BESPOKE_WASM_DIR}/src/WasmBridgeInput.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmBridgeLive.cpp
     ${BESPOKE_WASM_DIR}/src/WasmBridgeLegacyPanels.cpp
     ${BESPOKE_WASM_DIR}/src/Knob.cpp
     ${BESPOKE_WASM_DIR}/src/Module.cpp
@@ -162,6 +186,8 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/modules/SamplerModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/LooperModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/PulseToNoteModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/ScriptModule.cpp
+    ${BESPOKE_WASM_DIR}/src/TuningTable.cpp
 
     # --- JUCE module wrappers ---
     # WASM audio/core only. juce_graphics / juce_events are not compiled: nothing
@@ -200,10 +226,35 @@ set(CORE_SOURCES
     ${BESPOKE_SOURCE_DIR}/ModulationChain.cpp
 )
 
+# WGSL shaders live in wasm/shaders/*.wgsl and are embedded as string constants
+# at build time (WebGPURendererPipelines.cpp includes the generated header).
+set(BESPOKE_WASM_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+set(BESPOKE_WASM_WGSL_HEADER "${BESPOKE_WASM_GENERATED_DIR}/BespokeWasm/generated/WgslSources.inc")
+set(BESPOKE_WASM_WGSL_SHADERS
+    "kRender2DWgsl=${BESPOKE_WASM_DIR}/shaders/render2d.wgsl"
+    "kAnalyzerFftWgsl=${BESPOKE_WASM_DIR}/shaders/analyzer_fft.wgsl"
+)
+set(BESPOKE_WASM_WGSL_FILES
+    ${BESPOKE_WASM_DIR}/shaders/render2d.wgsl
+    ${BESPOKE_WASM_DIR}/shaders/analyzer_fft.wgsl
+)
+add_custom_command(
+    OUTPUT ${BESPOKE_WASM_WGSL_HEADER}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${BESPOKE_WASM_GENERATED_DIR}/BespokeWasm/generated
+    COMMAND ${CMAKE_COMMAND}
+        -DOUTPUT=${BESPOKE_WASM_WGSL_HEADER}
+        "-DSHADERS=${BESPOKE_WASM_WGSL_SHADERS}"
+        -P ${BESPOKE_WASM_DIR}/../scripts/embed_shaders.cmake
+    DEPENDS ${BESPOKE_WASM_WGSL_FILES} ${BESPOKE_WASM_DIR}/../scripts/embed_shaders.cmake
+    COMMENT "Embedding WGSL shaders"
+    VERBATIM
+)
+
 # Create the main WASM executable
 add_executable(BespokeSynthWASM
     ${WASM_SOURCES}
     ${CORE_SOURCES}
+    ${BESPOKE_WASM_WGSL_HEADER}
 )
 
 # Only paths not already covered by the global include_directories() calls
@@ -211,6 +262,7 @@ add_executable(BespokeSynthWASM
 # belong here — duplicating them just repeats identical -I flags on every TU.
 target_include_directories(BespokeSynthWASM PRIVATE
     ${BESPOKE_WASM_DIR}/src
+    ${BESPOKE_WASM_GENERATED_DIR}
     ${BESPOKE_WASM_DIR}/third_party/dr_libs
     ${BESPOKE_LIBS_DIR}/json/jsoncpp/include
 )
@@ -231,8 +283,25 @@ elseif(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Profile")
 else()
     # -flto enables cross-TU inlining/dead-code elimination at link time; only
     # worth its extra build time for the optimized production build.
-    target_compile_options(BespokeSynthWASM PRIVATE -O3 -flto)
+    target_compile_options(BespokeSynthWASM PRIVATE -O3)
+    if(BESPOKE_WASM_LTO)
+        target_compile_options(BespokeSynthWASM PRIVATE -flto)
+    endif()
 endif()
+
+# WASM SIMD (fixed-width 128-bit). Supported by every browser that ships
+# AudioWorklet + SharedArrayBuffer; Safari < 16.4 cannot instantiate the module.
+# BESPOKE_WASM_SIMD=1 selects the wasm_simd128.h kernels in DspSimd.h.
+if(BESPOKE_WASM_SIMD)
+    target_compile_options(BespokeSynthWASM PRIVATE -msimd128)
+    target_compile_definitions(BespokeSynthWASM PRIVATE BESPOKE_WASM_SIMD=1)
+endif()
+
+# Scala parsing (libs/tuning-library) reports bad user files by throwing
+# Tunings::TuningError. Only TuningTable.cpp catches, so only it pays for native
+# wasm exception handling; both targets must link the wasm-EH runtime.
+set_source_files_properties(${BESPOKE_WASM_DIR}/src/TuningTable.cpp PROPERTIES COMPILE_OPTIONS "-fwasm-exceptions")
+target_link_options(BespokeSynthWASM PRIVATE -fwasm-exceptions)
 
 # Build EXPORTED_FUNCTIONS from wasm/exports.txt (single manifest; see scripts/check-wasm-exports.sh).
 set(BESPOKE_WASM_EXPORT_SYMBOLS "")
@@ -259,11 +328,11 @@ set(EMSCRIPTEN_LINK_FLAGS
     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','allocateUTF8','stringToUTF8','lengthBytesUTF8','HEAPF32','HEAPU8','HEAP8','wasmMemory']"
     "-sEXPORTED_FUNCTIONS=[${BESPOKE_WASM_EXPORTED_FUNCTIONS}]"
     "-sALLOW_MEMORY_GROWTH=1"
-    # 128MB covers JUCE/nanovg static init plus the module graph and sample
-    # buffers for a typical patch without triggering a memory-growth
-    # reallocation (which pauses audio) on first load; ALLOW_MEMORY_GROWTH=1
-    # above still lets larger patches/samples grow past it.
-    "-sINITIAL_MEMORY=134217728"  # 128MB initial
+    # 64MB covers static init, the preload bundle, and the canonical patch
+    # graph (peak heap is reported as heapBytes in the audio health HUD).
+    # ALLOW_MEMORY_GROWTH=1 above lets sample-heavy patches grow past it; a
+    # growth step detaches HEAP views, which the TS host re-reads per block.
+    "-sINITIAL_MEMORY=67108864"  # 64MB initial
     "-sSTACK_SIZE=1048576"  # 1MB stack
     "--shell-file=${BESPOKE_WASM_DIR}/shell.html"
     "--preload-file=${BESPOKE_WASM_DIR}/resource-pack@/resource"
@@ -285,7 +354,13 @@ if(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Debug")
 elseif(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Profile")
     list(APPEND EMSCRIPTEN_LINK_FLAGS "-O2" "-g" "-sASSERTIONS=1")
 else()
-    list(APPEND EMSCRIPTEN_LINK_FLAGS "-O3" "-sASSERTIONS=0" "-flto")
+    list(APPEND EMSCRIPTEN_LINK_FLAGS "-O3" "-sASSERTIONS=0")
+    if(BESPOKE_WASM_LTO)
+        list(APPEND EMSCRIPTEN_LINK_FLAGS "-flto")
+    endif()
+endif()
+if(BESPOKE_WASM_SIMD)
+    list(APPEND EMSCRIPTEN_LINK_FLAGS "-msimd128")
 endif()
 
 # Add WebGPU support
@@ -318,9 +393,14 @@ endif()
 # Convert list to string for linking
 string(REPLACE ";" " " EMSCRIPTEN_LINK_FLAGS_STR "${EMSCRIPTEN_LINK_FLAGS}")
 
+# --preload-file packages resource-pack/ at link time; relink when it changes
+# (e.g. a re-baked fonts/ui_font.bsdf) so BespokeSynthWASM.data never goes stale.
+file(GLOB_RECURSE BESPOKE_WASM_RESOURCE_PACK_FILES CONFIGURE_DEPENDS "${BESPOKE_WASM_DIR}/resource-pack/*")
+
 set_target_properties(BespokeSynthWASM PROPERTIES
     SUFFIX ".html"
     LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS_STR}"
+    LINK_DEPENDS "${BESPOKE_WASM_RESOURCE_PACK_FILES}"
 )
 
 # Copy only the minimal WASM resource pack next to the binary (not full desktop resource/).
@@ -335,10 +415,19 @@ add_custom_command(TARGET BespokeSynthWASM POST_BUILD
 # Create a simple test target
 add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/tests/test_main.cpp
+    ${BESPOKE_WASM_DIR}/tests/test_basic.cpp
+    ${BESPOKE_WASM_DIR}/tests/test_graph_engine.cpp
+    ${BESPOKE_WASM_DIR}/tests/test_adapters.cpp
+    ${BESPOKE_WASM_DIR}/tests/test_patch_io.cpp
+    ${BESPOKE_WASM_DIR}/tests/test_graph_contract.cpp
+    ${BESPOKE_WASM_DIR}/tests/test_catalog_wave2.cpp
+    ${BESPOKE_WASM_DIR}/tests/test_dsp_tuning.cpp
+    ${BESPOKE_WASM_DIR}/tests/test_canvas.cpp
     ${BESPOKE_WASM_DIR}/tests/synth_globals_stub.cpp
     ${BESPOKE_WASM_DIR}/src/AudioProcessPlan.cpp
     ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
     ${BESPOKE_WASM_DIR}/src/AudioHealth.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioAnalysis.cpp
     ${BESPOKE_WASM_DIR}/src/SampleBuffer.cpp
     ${BESPOKE_WASM_DIR}/src/SampleStore.cpp
     ${BESPOKE_WASM_DIR}/src/InputAudioBus.cpp
@@ -361,9 +450,16 @@ add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/src/modules/SamplerModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/LooperModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/PulseToNoteModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/ScriptModule.cpp
+    ${BESPOKE_WASM_DIR}/src/TuningTable.cpp
+    ${BESPOKE_WASM_DIR}/src/ModuleCanvas.cpp
+    ${BESPOKE_WASM_DIR}/src/ModuleCanvasInput.cpp
+    ${BESPOKE_WASM_DIR}/src/ModuleCanvasRender.cpp
+    ${BESPOKE_WASM_DIR}/src/ModuleFactory.cpp
     ${BESPOKE_WASM_DIR}/src/ModuleCanvasHelpers.cpp
     ${BESPOKE_WASM_DIR}/src/WasmPatchState.cpp
     ${BESPOKE_WASM_DIR}/src/PixelFont.cpp
+    ${BESPOKE_WASM_DIR}/src/SdfFont.cpp
     ${BESPOKE_SOURCE_DIR}/BiquadFilter.cpp
     ${BESPOKE_SOURCE_DIR}/Oscillator.cpp
 )
@@ -376,6 +472,14 @@ target_include_directories(BespokeSynthWASM_test PRIVATE
 )
 
 target_compile_definitions(BespokeSynthWASM_test PRIVATE BESPOKE_WASM_RT_ASSERT=1)
+target_link_options(BespokeSynthWASM_test PRIVATE -fwasm-exceptions)
+
+# Unit tests exercise the same DSP kernels the app ships (SIMD vs scalar parity).
+if(BESPOKE_WASM_SIMD)
+    target_compile_options(BespokeSynthWASM_test PRIVATE -msimd128)
+    target_compile_definitions(BespokeSynthWASM_test PRIVATE BESPOKE_WASM_SIMD=1)
+    target_link_options(BespokeSynthWASM_test PRIVATE -msimd128)
+endif()
 
 target_sources(BespokeSynthWASM_test PRIVATE
     ${BESPOKE_WASM_DIR}/src/RtAllocGuard.cpp

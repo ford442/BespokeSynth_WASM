@@ -1,5 +1,6 @@
 import type { BespokeSynthModule } from '../../wasm/types/bespoke-synth';
 import { getSampleBlob, putSampleBlob, sha256Hex } from './opfsStore';
+import { importTuningFile, tuningKindForFile } from './tuningIo';
 
 function writeHeapBytes(module: BespokeSynthModule, bytes: Uint8Array): number {
   const ptr = module._malloc(bytes.byteLength);
@@ -85,6 +86,13 @@ export function installSampleDropTarget(
     const module = getModule();
     const file = event.dataTransfer?.files?.[0];
     if (!module || !file) return;
+    // .scl / .kbm share the drop target: they retune the Scale module.
+    if (tuningKindForFile(file.name)) {
+      void importTuningFile(module, file).then((result) =>
+        onStatus?.(result.ok ? `Tuning: ${file.name}` : `Tuning rejected: ${result.error}`),
+      );
+      return;
+    }
     void importAudioFile(module, file)
       .then((id) => onStatus?.(id >= 0 ? `Loaded ${file.name}` : `Could not decode ${file.name}`))
       .catch((error: unknown) => {
@@ -101,11 +109,15 @@ export function promptForAudioFile(module: BespokeSynthModule): Promise<number> 
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'audio/wav,audio/flac,audio/mpeg,audio/mp3,.wav,.flac,.mp3';
+    input.accept = 'audio/wav,audio/flac,audio/mpeg,audio/mp3,.wav,.flac,.mp3,.scl,.kbm';
     input.addEventListener('change', () => {
       const file = input.files?.[0];
       if (!file) {
         resolve(-1);
+        return;
+      }
+      if (tuningKindForFile(file.name)) {
+        void importTuningFile(module, file).then((result) => resolve(result.ok ? 0 : -1));
         return;
       }
       void importAudioFile(module, file).then(resolve).catch(() => resolve(-1));

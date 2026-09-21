@@ -6,16 +6,28 @@
 import type { BespokeSynthModule } from '../../wasm/types/bespoke-synth';
 import {
   createAudioRingBuffer,
+  ringFramesAvailable,
   ringFramesFree,
   ringReadStats,
   ringWriteInterleaved,
   IDX_RUNNING,
   type AudioRingBuffer,
 } from './ringBuffer';
-import { crossOriginIsolatedOk, sharedArrayBufferAvailable } from './audioMode';
+import { workletSupport } from './audioMode';
+import { LookaheadController } from './lookahead';
 
 function ringPlayerUrl(): string {
   return new URL('audio/ringPlayer.worklet.js', window.location.href).toString();
+}
+
+export interface WorkletRingStats {
+  /** Frames the producer currently keeps queued ahead of the worklet. */
+  lookaheadFrames: number;
+  /** Lookahead never decays below this once an underrun happened at a lower level. */
+  lookaheadFloorFrames: number;
+  depthFrames: number;
+  capacityFrames: number;
+  underrunFrames: number;
 }
 
 export interface WorkletRingBackend {
@@ -24,22 +36,11 @@ export interface WorkletRingBackend {
   dispose(): void;
   isRunning(): boolean;
   getContext(): AudioContext | null;
+  getStats(): WorkletRingStats | null;
 }
 
 export function canUseWorkletRingBackend(): { ok: boolean; reason?: string } {
-  if (typeof AudioWorkletNode === 'undefined') {
-    return { ok: false, reason: 'AudioWorkletNode unavailable' };
-  }
-  if (!sharedArrayBufferAvailable()) {
-    return { ok: false, reason: 'SharedArrayBuffer unavailable' };
-  }
-  if (!crossOriginIsolatedOk()) {
-    return {
-      ok: false,
-      reason: 'crossOriginIsolated is false (need COOP/COEP headers for SAB)',
-    };
-  }
-  return { ok: true };
+  return workletSupport();
 }
 
 export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRingBackend {
@@ -50,6 +51,7 @@ export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRin
   let producerTimer: number | null = null;
   let heapBufferPtr = 0;
   let heapBufferFrames = 0;
+  let lookahead: LookaheadController | null = null;
   const blockFrames = 128;
 
   const syncHealth = () => {
@@ -84,8 +86,14 @@ export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRin
 
   const produce = () => {
     if (!running || !ring || !module._bespoke_process_audio_block) return;
-    // Keep the ring reasonably full (aim > 25% capacity).
-    while (ringFramesFree(ring.header) >= blockFrames) {
+    const target = lookahead
+      ? lookahead.update(
+          ringReadStats(ring.header).underruns,
+          performance.now(),
+          document.visibilityState === 'hidden',
+        )
+      : ring.capacityFrames;
+    while (ringFramesAvailable(ring.header) < target && ringFramesFree(ring.header) >= blockFrames) {
       ensureHeapBuffer(blockFrames);
       module._bespoke_process_audio_block(heapBufferPtr, blockFrames);
       const heap = getHeapF32();
@@ -102,9 +110,17 @@ export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRin
       const gate = canUseWorkletRingBackend();
       if (!gate.ok) throw new Error(gate.reason || 'worklet backend unavailable');
 
-      ctx = new AudioContext();
-      const capacityFrames = Math.max(4096, Math.floor(ctx.sampleRate * 0.25));
-      ring = createAudioRingBuffer(capacityFrames, ctx.sampleRate);
+      ctx = new AudioContext({ latencyHint: 'interactive' });
+      const sr = ctx.sampleRate;
+      // Capacity is the growth ceiling (0.5 s); the live lookahead starts at ~50 ms.
+      const capacityFrames = Math.max(8192, Math.floor(sr * 0.5));
+      ring = createAudioRingBuffer(capacityFrames, sr);
+      lookahead = new LookaheadController(
+        Math.max(blockFrames * 4, Math.floor(sr * 0.02)),
+        capacityFrames - blockFrames,
+        Math.floor(sr * 0.05),
+        performance.now(),
+      );
 
       module._bespoke_set_external_audio?.(1);
       module._bespoke_set_external_sample_rate?.(ctx.sampleRate);
@@ -120,11 +136,10 @@ export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRin
       node.connect(ctx.destination);
       if (ctx.state === 'suspended') await ctx.resume();
 
-      Atomics.store(ring.header, IDX_RUNNING, 1);
+      // Prefill before the worklet starts consuming so the first quantum is not an underrun.
       running = true;
-
-      // Prefill before transport starts sounding.
       produce();
+      Atomics.store(ring.header, IDX_RUNNING, 1);
       producerTimer = window.setInterval(produce, 4);
     },
 
@@ -154,6 +169,7 @@ export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRin
         heapBufferFrames = 0;
       }
       ring = null;
+      lookahead = null;
       module._bespoke_set_external_audio?.(0);
       module._bespoke_set_audio_backend_id?.(0);
     },
@@ -164,6 +180,18 @@ export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRin
 
     getContext() {
       return ctx;
+    },
+
+    getStats() {
+      if (!ring) return null;
+      const stats = ringReadStats(ring.header);
+      return {
+        lookaheadFrames: lookahead?.target ?? stats.capacity,
+        lookaheadFloorFrames: lookahead?.floor ?? 0,
+        depthFrames: stats.depth,
+        capacityFrames: stats.capacity,
+        underrunFrames: stats.underruns,
+      };
     },
   };
 }

@@ -34,6 +34,8 @@ namespace bespoke
       float portSpacingFor(float labelFont, float scale);
 
       std::vector<ModuleTypeInfo> spawnMenuTypes(int category, const std::string& query);
+      /** Feature-flagged types (e.g. "script" without ?script=1) stay out of the spawn menu. */
+      void setSpawnMenuTypeHidden(const std::string& type, bool hidden);
 
    } // namespace wasm
 } // namespace bespoke

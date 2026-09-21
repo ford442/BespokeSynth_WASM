@@ -22,11 +22,20 @@ namespace bespoke
 {
    namespace wasm
    {
-      void ModuleCanvas::onMouseDown(float x, float y, int button)
+      void ModuleCanvas::onMouseDown(float x, float y, int button, int modifiers)
       {
          Lock lock(mMutex);
          mLastMouseX = x;
          mLastMouseY = y;
+
+         // Shift-click a control arms MIDI learn; any other click disarms it.
+         if (button == 0 && (modifiers & 1) != 0 && y >= kTitleBarHeight && !mSpawnMenuOpen)
+         {
+            if (armMidiLearnAt(x, y))
+               return;
+         }
+         if (mMidiLearnModuleId >= 0)
+            cancelMidiLearn();
 
          // The title-bar button is a convenient discoverable alternative to right-click.
          if (y < kTitleBarHeight)
@@ -152,9 +161,14 @@ namespace bespoke
          {
             for (auto& [id, module] : mModules)
             {
-               if (module->hitTest(worldX, worldY) && module->handleMouseDown(worldX, worldY))
+               if (!module->hitTest(worldX, worldY))
+                  continue;
+               // Snapshot before handleMouseDown: clicks (step toggles) change values immediately.
+               auto before = moduleControlMap(*module);
+               if (module->handleMouseDown(worldX, worldY))
                {
                   mControlModuleId = id;
+                  mGestureControls = std::move(before);
                   return;
                }
             }
@@ -166,6 +180,8 @@ namespace bespoke
             if (module->hitTitleBar(worldX, worldY))
             {
                mDraggedModuleId = id;
+               mGestureStartX = module->getX();
+               mGestureStartY = module->getY();
                return;
             }
          }
@@ -205,12 +221,48 @@ namespace bespoke
                mod->handleMouseUp();
             publishAudioGraphSnapshotLocked();
          }
+         commitGestureLocked();
          mControlModuleId = -1;
          mDraggedModuleId = -1;
          mIsPanning = false;
          mIsConnecting = false;
          mConnectSourceId = -1;
          mConnectSourcePort = -1;
+      }
+
+      void ModuleCanvas::cancelPointerInteraction()
+      {
+         Lock lock(mMutex);
+         if (mControlModuleId >= 0)
+         {
+            if (Module* mod = getModule(mControlModuleId))
+               mod->handleMouseUp();
+            publishAudioGraphSnapshotLocked();
+         }
+         // Value/position changes already happened; keep them undoable.
+         commitGestureLocked();
+         mControlModuleId = -1;
+         mDraggedModuleId = -1;
+         mIsPanning = false;
+         mIsConnecting = false;
+         mConnectSourceId = -1;
+         mConnectSourcePort = -1;
+      }
+
+      void ModuleCanvas::onLongPress(float x, float y)
+      {
+         Lock lock(mMutex);
+         if (y < kTitleBarHeight || mSpawnMenuOpen)
+            return;
+         const float worldX = screenToWorldX(x);
+         const float worldY = screenToWorldY(y - kTitleBarHeight);
+         for (const auto& [id, module] : mModules)
+         {
+            if (module->hitTest(worldX, worldY))
+               return;
+         }
+         cancelPointerInteraction();
+         openSpawnMenu(x, y);
       }
 
       void ModuleCanvas::onMouseMove(float x, float y, float prevX, float prevY)
@@ -282,6 +334,35 @@ namespace bespoke
          static const int kKeyDown = 40;
          static const int kKeySlash = 191;
          static const int kKeyK = 75;
+
+         static const int kKeyY = 89;
+         static const int kKeyZ = 90;
+
+         if (mMidiLearnModuleId >= 0)
+         {
+            if (keyCode == kKeyEscape)
+            {
+               cancelMidiLearn();
+               return;
+            }
+            if (keyCode == kKeyDelete || keyCode == kKeyBackspace)
+            {
+               // Forget the armed control's CC binding.
+               removeMidiCcBinding(mMidiLearnModuleId, mMidiLearnControl);
+               cancelMidiLearn();
+               return;
+            }
+         }
+
+         // Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo.
+         if (!mSpawnMenuOpen && (modifiers & (4 | 8)) != 0 && (keyCode == kKeyZ || keyCode == kKeyY))
+         {
+            if (keyCode == kKeyY || (modifiers & 1) != 0)
+               redo();
+            else
+               undo();
+            return;
+         }
 
          if (!mSpawnMenuOpen && ((keyCode == kKeySlash || keyCode == '/') || ((modifiers & 4) != 0 && keyCode == kKeyK)))
          {

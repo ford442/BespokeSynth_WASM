@@ -110,8 +110,34 @@ The adapter boundary is implemented in code:
    - `runtimeStateSize` / `initRuntimeState` / `destroyRuntimeState` / `processAudio` when the module owns DSP
    - `BESPOKE_REGISTER_MODULE(FooModuleAdapter);`
 3. Add one line to `BESPOKE_WASM_ADAPTER_SOURCES` in `wasm/CMakeLists.txt`.
-4. Add graph and/or adapter unit tests in `wasm/tests/test_main.cpp`.
+4. Add graph and/or adapter unit tests in `wasm/tests/` (pick the matching `test_*.cpp`, declare in `test_common.h`, call from `test_main.cpp`).
 5. Saved patches stay control-name JSON; bump `kPatchSchemaVersion` only when the on-disk map changes, and extend `migratePatchState()`.
+
+For a flat list of ranged controls, build the UI from a `SliderSpec` table (`SliderPanelModule`) and derive `controlDescriptors()` / `fillParams` from the same table (`controlDescriptorsFromSpecs`, `sliderSpecValue`). Multi-port audio, multi-output notes and pulse processors are covered in [wasm/audio.md](wasm/audio.md#per-port-routing).
+
+### Catalog wave 2 size record (2026-09)
+
+Measured Release (`-O3`, LTO, SIMD) `wasm/dist/BespokeSynthWASM.wasm`, gzip -9 as the compressed-equivalent:
+
+| Build | Raw bytes | gzip bytes |
+| --- | --- | --- |
+| Before wave 2 | 839,874 | 305,673 |
+| After wave 2 | 857,158 | 315,988 |
+| **Delta** | **+17,284** | **+10,315** |
+
+Leave-one-out line items (raw / gzip). LTO makes these non-additive:
+
+| Item | Raw | gzip |
+| --- | --- | --- |
+| `drumseq` (adapter + grid UI) | +6,245 | +1,940 |
+| `compressor` | +2,700 | +898 |
+| Freeverb in place of the Schroeder reverb | +2,764 | +810 |
+| `waveshaper` | +2,052 | +896 |
+| `mixer` | +1,799 | +703 |
+| `chorus` | +1,575 | +721 |
+| `clockdivider` | +997 | +400 |
+
+Retained modules: oscillator, noise, sampler, filter, gain, delay, adsr, lfo, reverb (freeverb), looper, stepsequencer, pulsetonote, transport, scale, output, **mixer, compressor, chorus, waveshaper, clockdivider, drumseq**. That is well inside the +250 KB compressed per ten DSP adapters budget.
 
 ## Issue Comment Summary
 

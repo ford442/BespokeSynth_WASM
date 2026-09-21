@@ -1,6 +1,6 @@
 # ADR: Python livecoding in the WASM port
 
-Status: accepted for the current WASM milestone. This is an investigation only; it does not add a scripting runtime.
+Status: accepted for the current WASM milestone. Python remains out of scope. The smaller JavaScript alternative below now ships behind `?script=1` (Script module, sandboxed worker). See [live-instrument.md](live-instrument.md#script-module-script1).
 
 ## Decision
 
@@ -11,7 +11,7 @@ Keep Python livecoding explicitly out of scope for the current WASM port. Re-eva
 | Option | Result | Why |
 |---|---|---|
 | Pyodide in a dedicated worker | Deferred | Best Python compatibility, but a large lazy download and a message-based control API are required. |
-| JavaScript scripting module | Deferred alternative | Smaller and browser-native, but incompatible with existing Python scripts. |
+| JavaScript scripting module | Shipped behind `?script=1` | Smaller and browser-native, but incompatible with existing Python scripts. Worker + frozen `bespoke` API; follows the security review below. |
 | No browser scripting | Chosen now | Avoids freezing a control/scheduling API before #63 and #71 establish it. |
 
 ## Size estimate

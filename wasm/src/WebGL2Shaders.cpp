@@ -690,5 +690,27 @@ void main() {
 )";
 }
 
+// SDF text: GLSL twin of fs_sdf_text in render2d.wgsl. vTexcoord is atlas UV;
+// coverage scales with screen pixels per atlas texel, so edges stay ~1px wide.
+const char* gl2SdfTextFragmentSrc()
+{
+   return R"(#version 300 es
+precision highp float;
+in vec2 vTexcoord;
+in vec4 vColor;
+out vec4 fragColor;
+uniform sampler2D uAtlas;
+uniform vec2 uAtlasSize;
+uniform float uSdfPxRange;
+void main() {
+    float d = texture(uAtlas, vTexcoord).r;
+    vec2 texelsPerPixel = fwidth(vTexcoord) * uAtlasSize;
+    float screenPxRange = max(uSdfPxRange / max(0.5 * (texelsPerPixel.x + texelsPerPixel.y), 1e-4), 1.0);
+    float alpha = clamp(screenPxRange * (d - 0.5) + 0.5, 0.0, 1.0);
+    fragColor = vec4(vColor.rgb, vColor.a * alpha);
+}
+)";
+}
+
 } // namespace wasm
 } // namespace bespoke

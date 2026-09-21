@@ -4,6 +4,7 @@
 
 #include "BespokeWasm/adapters/SamplerModuleAdapter.h"
 #include "BespokeWasm/SampleStore.h"
+#include "BespokeWasm/TuningTable.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
 #include <cmath>
@@ -20,9 +21,10 @@ namespace bespoke
             return std::max(0.0f, std::min(1.0f, value));
          }
 
-         float midiRate(int pitch, int root)
+         float midiRate(const float* noteFrequencies, int pitch, int root)
          {
-            return std::pow(2.0f, static_cast<float>(pitch - root) / 12.0f);
+            const float rootHz = noteFrequency(noteFrequencies, root);
+            return rootHz > 0.0f ? noteFrequency(noteFrequencies, pitch) / rootHz : 1.0f;
          }
 
          SamplerVoice* stealVoice(SamplerAdapterRuntimeState& state)
@@ -143,7 +145,7 @@ namespace bespoke
                   voice->pitch = note.pitch;
                   voice->velocity = std::max(0.0f, std::min(1.0f, note.velocity));
                   voice->position = static_cast<double>(params.start) * frames;
-                  voice->rate = midiRate(note.pitch, params.rootPitch);
+                  voice->rate = midiRate(context.noteFrequencies, note.pitch, params.rootPitch);
                   voice->age = ++state.ageCounter;
                }
                else if (SamplerVoice* voice = findVoice(state, note.pitch))

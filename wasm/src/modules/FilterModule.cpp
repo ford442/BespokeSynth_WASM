@@ -8,6 +8,7 @@
 #include "BespokeWasm/modules/WasmModules.h"
 #include "BespokeWasm/ModuleCanvasHelpers.h"
 #include "BespokeWasm/Theme.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -68,6 +69,21 @@ namespace bespoke
             renderer.line(curveX + t1 * curveW, curveY + curveH - y1 * curveH,
                           curveX + t2 * curveW, curveY + curveH - y2 * curveH);
          }
+      }
+
+      std::string FilterModule::controlNameAt(float worldX, float worldY) const
+      {
+         // Mirrors render(): type, cutoff, resonance text lines under the title bar.
+         const float lineFont = std::max(UITheme::kValueFontSize, UITheme::kLabelFontSize);
+         const float lineH = textLineSpacing(lineFont, 1.0f);
+         const float localY = worldY - mY - (kTitleBarHeight + 18.0f);
+         if (worldX < mX || worldX > mX + mWidth || localY < 0.0f)
+            return {};
+         const int line = static_cast<int>(localY / lineH);
+         if (line == 0)
+            return "type";
+         // Line 1 and the response curve below the text both mean cutoff.
+         return line == 2 ? "resonance" : "cutoff";
       }
 
       void FilterModule::setControlValue(const std::string& name, float value)

@@ -3,6 +3,7 @@
  */
 
 #include "BespokeWasm/adapters/DelayModuleAdapter.h"
+#include "BespokeWasm/DspSimd.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
 #include <cmath>
@@ -16,6 +17,9 @@ namespace bespoke
    {
       namespace
       {
+         // Upper bound on samples handled per vectorized span (stack scratch size).
+         constexpr size_t kDelayChunk = 64;
+
          float clampFloat(float value, float minValue, float maxValue)
          {
             return std::max(minValue, std::min(maxValue, value));
@@ -104,21 +108,50 @@ namespace bespoke
          const float mix = clampFloat(params.mix, 0.0f, 1.0f);
          const float delaySamples = delaySeconds * context.sampleRate;
 
-         for (int i = 0; i < context.numSamples; ++i)
+         // The delay time is constant across the block, so the read head trails
+         // the write head by a fixed offset and a fixed interpolation fraction.
+         float readPos = static_cast<float>(state.writeIndex) - delaySamples;
+         while (readPos < 0.0f)
+            readPos += static_cast<float>(capacity);
+         const float frac = readPos - std::floor(readPos);
+         size_t readIndex = static_cast<size_t>(readPos) % capacity;
+
+         // A span may only read samples written before it: readIndex + span must
+         // stay behind writeIndex, so span <= ceil(delaySamples) - 1.
+         const size_t maxSpan = std::min(
+            kDelayChunk, static_cast<size_t>(std::max(1.0f, std::ceil(delaySamples) - 1.0f)));
+
+         float delayed[kDelayChunk];
+         size_t pos = 0;
+         const size_t total = static_cast<size_t>(context.numSamples);
+         while (pos < total)
          {
-            const float input = buffer[i];
-            float readPos = static_cast<float>(state.writeIndex) - delaySamples;
-            while (readPos < 0.0f)
-               readPos += static_cast<float>(capacity);
+            // Contiguous span: no write wrap, and the read (i0..i0+span) does not wrap.
+            size_t span = std::min(maxSpan, total - pos);
+            span = std::min(span, capacity - state.writeIndex);
+            span = readIndex + 1 < capacity ? std::min(span, capacity - 1 - readIndex) : 0;
 
-            const size_t i0 = static_cast<size_t>(readPos) % capacity;
-            const size_t i1 = (i0 + 1) % capacity;
-            const float frac = readPos - std::floor(readPos);
-            const float delayed = state.buffer[i0] * (1.0f - frac) + state.buffer[i1] * frac;
+            float* io = buffer + pos;
+            if (span == 0)
+            {
+               const float input = io[0];
+               const float d = state.buffer[readIndex] * (1.0f - frac) +
+                               state.buffer[(readIndex + 1) % capacity] * frac;
+               state.buffer[state.writeIndex] = input + d * feedback;
+               io[0] = input * (1.0f - mix) + d * mix;
+               span = 1;
+            }
+            else
+            {
+               const int n = static_cast<int>(span);
+               dsp::lerpRead(delayed, state.buffer + readIndex, n, frac);
+               dsp::mix2(state.buffer + state.writeIndex, io, 1.0f, delayed, feedback, n);
+               dsp::mix2(io, io, 1.0f - mix, delayed, mix, n);
+            }
 
-            state.buffer[state.writeIndex] = input + delayed * feedback;
-            state.writeIndex = (state.writeIndex + 1) % capacity;
-            buffer[i] = input * (1.0f - mix) + delayed * mix;
+            state.writeIndex = (state.writeIndex + span) % capacity;
+            readIndex = (readIndex + span) % capacity;
+            pos += span;
          }
       }
 

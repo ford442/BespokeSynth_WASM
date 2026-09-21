@@ -54,6 +54,21 @@ export function isRenderTestRequested(search: string = window.location.search): 
   return params.get('renderTest') === '1' || params.has('renderTest');
 }
 
+/**
+ * Render-test scene id: 0 when absent, 2 for `?renderTest=2` (drum bus), otherwise 1
+ * (canonical synth voice — also for a bare `?renderTest`).
+ */
+export function getRenderTestScene(search: string = window.location.search): number {
+  const params = new URLSearchParams(search);
+  if (!params.has('renderTest')) return 0;
+  return params.get('renderTest') === '2' ? 2 : 1;
+}
+
+/** `?debugFont=pixel` keeps the 5x7 bitmap font instead of the SDF atlas. */
+export function isPixelFontRequested(search: string = window.location.search): boolean {
+  return new URLSearchParams(search).get('debugFont')?.toLowerCase() === 'pixel';
+}
+
 export function isLegacyPanelsRequested(search: string = window.location.search): boolean {
   const params = new URLSearchParams(search);
   return params.get('legacyPanels') === '1' || params.has('legacyPanels');

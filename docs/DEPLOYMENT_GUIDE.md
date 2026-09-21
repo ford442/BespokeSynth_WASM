@@ -101,6 +101,44 @@ rsync -avz wasm/build/BespokeSynthWASM.* user@test.1ink.us:/path/to/modular/wasm
 ### Option D: Web-based File Manager
 If your hosting provider has a web-based file manager, use it to upload the files.
 
+### Cross-Origin Isolation Headers (AudioWorklet)
+
+The default audio backend is an AudioWorklet fed through a `SharedArrayBuffer`. That backend needs the page to be **cross-origin isolated**. Send these headers on **every** response: HTML, JS bundle, `wasm/*`, and `audio/*.worklet.js`.
+
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+Cross-Origin-Resource-Policy: same-origin
+```
+
+Without them the app still runs, on the SDL2 fallback. The header shows *Audio: SDL2 (fallback)* and the status line explains why. To check: `crossOriginIsolated` in the DevTools console should be `true`, and `__bespoke.getAudioBackend()` should return `'worklet'`.
+
+**nginx**
+```nginx
+add_header Cross-Origin-Opener-Policy "same-origin" always;
+add_header Cross-Origin-Embedder-Policy "require-corp" always;
+add_header Cross-Origin-Resource-Policy "same-origin" always;
+```
+
+**Apache** (`.htaccess`, needs `mod_headers`)
+```apache
+Header always set Cross-Origin-Opener-Policy "same-origin"
+Header always set Cross-Origin-Embedder-Policy "require-corp"
+Header always set Cross-Origin-Resource-Policy "same-origin"
+```
+
+**Netlify / Cloudflare Pages** (`_headers` file at the publish root)
+```
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Resource-Policy: same-origin
+```
+
+**GitHub Pages** cannot set response headers, so it always runs on SDL2.
+
+`COEP: require-corp` blocks cross-origin images, fonts, and scripts that do not opt in with CORP/CORS. Host assets on the same origin. These headers do **not** turn on pthreads (`BESPOKE_WASM_THREADS` stays OFF).
+
 ## Step 5: Verify the Deployment
 
 ### Test in Browser
@@ -176,6 +214,8 @@ Check the file sizes match your build output.
 ## Additional Notes
 
 ### Browser Compatibility
+
+The Release `.wasm` uses WASM SIMD (`BESPOKE_WASM_SIMD=ON`). Chrome/Edge 91+, Firefox 89+, and Safari 16.4+ support it. Older Safari cannot instantiate the module; build with `BESPOKE_WASM_SIMD=OFF ./build.sh` if you must support it.
 
 WebGPU is required and supported in:
 - Chrome/Edge 113+ (enabled by default)

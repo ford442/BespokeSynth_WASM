@@ -7,10 +7,10 @@ export function testRenderer(): 'webgl' | 'webgpu' {
   return 'webgl';
 }
 
-export async function gotoApp(page: Page, query = ''): Promise<void> {
+export async function gotoApp(page: Page, query = '', basePath = '/'): Promise<void> {
   const renderer = testRenderer();
   const suffix = query ? `&${query}` : '';
-  await page.goto(`/?renderer=${renderer}${suffix}`);
+  await page.goto(`${basePath}?renderer=${renderer}${suffix}`);
   await expect(page).toHaveTitle(/BespokeSynth WASM/i, { timeout: 5000 });
   await expect(page.locator('#canvas')).toBeVisible({ timeout: 5000 });
 }

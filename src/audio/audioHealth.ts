@@ -13,6 +13,8 @@ export interface AudioHealth {
   maxQueueDepthFrames: number;
   capacityFrames: number;
   noteDropCount: number;
+  /** WASM linear memory size in bytes (peak; memory never shrinks). Absent on older builds. */
+  heapBytes?: number;
 }
 
 export function readAudioHealth(module: BespokeSynthModule | null): AudioHealth | null {

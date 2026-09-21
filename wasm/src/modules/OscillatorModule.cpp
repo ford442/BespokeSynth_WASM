@@ -112,6 +112,19 @@ namespace bespoke
          return false;
       }
 
+      std::string OscillatorModule::controlNameAt(float worldX, float worldY) const
+      {
+         const float localX = worldX - mX;
+         const float localY = worldY - mY;
+         if (localX < 10.0f || localX > mWidth - 10.0f)
+            return {};
+         if (localY >= kTitleBarHeight + 34.0f && localY <= kTitleBarHeight + 50.0f)
+            return "waveform";
+         if (localY >= kTitleBarHeight + 18.0f && localY <= kTitleBarHeight + 70.0f)
+            return "frequency";
+         return {};
+      }
+
       bool OscillatorModule::handleMouseDrag(float worldX, float worldY, float dx, float dy)
       {
          (void)worldX;

@@ -16,7 +16,7 @@ manifest_symbols() {
 }
 
 keepalive_symbols() {
-  rg -o 'EMSCRIPTEN_KEEPALIVE[[:space:]]+(?:const[[:space:]]+)?(?:unsigned[[:space:]]+)?(?:char\*|int|float|void)[[:space:]]+([a-zA-Z_][a-zA-Z0-9_]*)' \
+  rg -o 'EMSCRIPTEN_KEEPALIVE[[:space:]]+(?:const[[:space:]]+)?(?:unsigned[[:space:]]+)?(?:char\*|int|float|double|void)[[:space:]]+([a-zA-Z_][a-zA-Z0-9_]*)' \
     "$SRC_DIR" \
     | sed -E 's/.*[[:space:]]+([a-zA-Z_][a-zA-Z0-9_]*)/\1/' \
     | sort -u
@@ -27,7 +27,8 @@ mapfile -t keepalive < <(keepalive_symbols)
 
 missing=()
 for sym in "${keepalive[@]}"; do
-  if ! printf '%s\n' "${manifest[@]}" | grep -qx "$sym"; then
+  # Here-strings, not pipes: with pipefail, grep -q closing early SIGPIPEs printf.
+  if ! grep -qx "$sym" <<< "$(printf '%s\n' "${manifest[@]}")"; then
     missing+=("$sym")
   fi
 done
@@ -37,7 +38,7 @@ for sym in "${manifest[@]}"; do
   case "$sym" in
     main|malloc|free) continue ;;
   esac
-  if ! printf '%s\n' "${keepalive[@]}" | grep -qx "$sym"; then
+  if ! grep -qx "$sym" <<< "$(printf '%s\n' "${keepalive[@]}")"; then
     extra+=("$sym")
   fi
 done

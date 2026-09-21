@@ -8,6 +8,7 @@
 #pragma once
 
 #include "BespokeWasm/Module.h"
+#include "BespokeWasm/TuningTable.h"
 
 namespace bespoke
 {
@@ -24,6 +25,7 @@ namespace bespoke
          bool handleMouseDown(float worldX, float worldY) override;
          bool handleMouseDrag(float worldX, float worldY, float dx, float dy) override;
          void handleMouseUp() override;
+         std::string controlNameAt(float worldX, float worldY) const override;
 
       private:
          float mFrequency = 440.0f;
@@ -42,6 +44,7 @@ namespace bespoke
          bool handleMouseDown(float worldX, float worldY) override;
          bool handleMouseDrag(float worldX, float worldY, float dx, float dy) override;
          void handleMouseUp() override;
+         std::string controlNameAt(float worldX, float worldY) const override;
 
       private:
          float mGain = 0.7f;
@@ -67,6 +70,7 @@ namespace bespoke
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         std::string controlNameAt(float worldX, float worldY) const override;
 
       private:
          float mCutoff = 1000.0f;
@@ -227,6 +231,20 @@ namespace bespoke
          float mGate = 0.75f;
       };
 
+      class ScriptModule : public Module
+      {
+      public:
+         ScriptModule(int id);
+         void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
+         void setStringProperty(const std::string& name, const std::string& value) override;
+         std::string getStringProperty(const std::string& name) const override;
+         std::vector<std::string> stringPropertyNames() const override;
+
+      private:
+         std::string mScript;
+         std::string mStatus;
+      };
+
       class ScaleModule : public Module
       {
       public:
@@ -234,10 +252,29 @@ namespace bespoke
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         /** "scl"/"kbm" hold Scala text; "sclName"/"kbmName" the imported file names. */
+         void setStringProperty(const std::string& name, const std::string& value) override;
+         std::string getStringProperty(const std::string& name) const override;
+         std::vector<std::string> stringPropertyNames() const override;
+
+         bool hasCustomTuning() const { return mCustomTuning; }
+         const NoteFrequencyTable& tuningTable() const { return mTuningTable; }
+         const std::string& tuningError() const { return mTuningError; }
 
       private:
+         void rebuildTuning();
+
          int mRootNote = 0;
          int mScaleType = 0;
+         std::string mScl;
+         std::string mSclName;
+         std::string mKbm;
+         std::string mKbmName;
+         std::string mTuningDescription;
+         std::string mTuningError;
+         bool mCustomTuning = false;
+         int mTuningDegrees = 12;
+         NoteFrequencyTable mTuningTable{};
          static const char* const kNoteNames[];
          static const char* const kScaleNames[];
       };

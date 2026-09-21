@@ -2,6 +2,8 @@
 /**
  * Static file server for Playwright / local smoke tests.
  * Sends COOP/COEP so SharedArrayBuffer + AudioWorklet SAB ring can be tested.
+ * Paths under /no-coi/ are served without isolation headers, to exercise the
+ * SDL2 fallback a non-isolated production host would get.
  */
 const http = require('http');
 const fs = require('fs');
@@ -23,7 +25,9 @@ const TYPES = {
 };
 
 const server = http.createServer((req, res) => {
-  const urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
+  let urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
+  const isolated = !urlPath.startsWith('/no-coi/');
+  if (!isolated) urlPath = urlPath.slice('/no-coi'.length);
   let filePath = path.join(root, urlPath === '/' ? 'index.html' : urlPath);
   if (!filePath.startsWith(root)) {
     res.writeHead(403);
@@ -36,11 +40,13 @@ const server = http.createServer((req, res) => {
   const ext = path.extname(filePath);
   const headers = {
     'Content-Type': TYPES[ext] || 'application/octet-stream',
-    'Cross-Origin-Opener-Policy': 'same-origin',
-    'Cross-Origin-Embedder-Policy': 'require-corp',
-    'Cross-Origin-Resource-Policy': 'same-origin',
     'Cache-Control': 'no-store',
   };
+  if (isolated) {
+    headers['Cross-Origin-Opener-Policy'] = 'same-origin';
+    headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
+    headers['Cross-Origin-Resource-Policy'] = 'same-origin';
+  }
   fs.readFile(filePath, (err, data) => {
     if (err) {
       res.writeHead(404, headers);

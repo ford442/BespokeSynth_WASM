@@ -8,6 +8,10 @@
 #include <atomic>
 #include <cstdio>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/heap.h>
+#endif
+
 namespace bespoke::wasm
 {
    namespace
@@ -24,7 +28,7 @@ namespace bespoke::wasm
       std::atomic<int> gCapacityFrames{ 0 };
       std::atomic<int> gBackend{ 0 };
       std::atomic<uint64_t> gNoteDropCount{ 0 };
-      char gHealthJson[576];
+      char gHealthJson[640];
    }
 
    void audioHealthReset()
@@ -111,6 +115,10 @@ namespace bespoke::wasm
       snap.capacityFrames = gCapacityFrames.load();
       snap.backend = gBackend.load();
       snap.noteDropCount = gNoteDropCount.load();
+#ifdef __EMSCRIPTEN__
+      // Linear memory only grows, so the current size is the peak heap size.
+      snap.heapBytes = static_cast<uint64_t>(emscripten_get_heap_size());
+#endif
       return snap;
    }
 
@@ -122,7 +130,8 @@ namespace bespoke::wasm
          "{\"backend\":%d,\"callbackCount\":%llu,\"underrunCount\":%llu,"
          "\"externalUnderrunCount\":%llu,\"noteDropCount\":%llu,\"lastCallbackIntervalMs\":%.3f,"
          "\"lastProcessTimeMs\":%.3f,\"maxProcessTimeMs\":%.3f,\"cpuLoad\":%.4f,"
-         "\"queueDepthFrames\":%d,\"maxQueueDepthFrames\":%d,\"capacityFrames\":%d}",
+         "\"queueDepthFrames\":%d,\"maxQueueDepthFrames\":%d,\"capacityFrames\":%d,"
+         "\"heapBytes\":%llu}",
          snap.backend,
          static_cast<unsigned long long>(snap.callbackCount),
          static_cast<unsigned long long>(snap.underrunCount),
@@ -134,7 +143,8 @@ namespace bespoke::wasm
          snap.cpuLoad,
          snap.queueDepthFrames,
          snap.maxQueueDepthFrames,
-         snap.capacityFrames);
+         snap.capacityFrames,
+         static_cast<unsigned long long>(snap.heapBytes));
       return gHealthJson;
    }
 }

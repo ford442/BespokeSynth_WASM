@@ -8,6 +8,7 @@
 #pragma once
 
 #include "BespokeWasm/ModuleTypes.h"
+#include "BespokeWasm/TuningTable.h"
 #include <cstdint>
 #include <vector>
 
@@ -45,8 +46,12 @@ namespace bespoke
       template <typename T, int Capacity>
       struct SmallVec
       {
+         static constexpr int kCapacity = Capacity;
+
          T data[Capacity]{};
          int count = 0;
+
+         bool full() const { return count >= Capacity; }
 
          void clear() { count = 0; }
 
@@ -68,10 +73,12 @@ namespace bespoke
          int typeIndex = -1;
          WasmAudioRole audioRole = WasmAudioRole::None;
          int outBufferSlot = -1;
-         SmallVec<int, 4> inputBufferSlots;
+         SmallVec<int, 8> inputBufferSlots;
+         SmallVec<int, 8> inputBufferPorts; // dest input port index, parallel to inputBufferSlots
          SmallVec<int, 4> modulationSourceSlots;
          SmallVec<int, 4> noteSourceSlots;
          SmallVec<int, 4> noteSourceScratchSlots;
+         SmallVec<int, 4> noteSourcePortFilters; // parallel; -1 = any, else WasmNoteEvent::outputPort
          SmallVec<int, 4> pulseSourceSlots;
          SmallVec<int, 4> pulseSourceScratchSlots;
          bool hasNoteCable = false;
@@ -97,14 +104,27 @@ namespace bespoke
          std::vector<int> modulationSourceNodeIndices;
          std::vector<int> noteSourceNodeIndices;
          std::vector<EventSourcePlan> noteSourcePlans;
-         std::vector<int> pulseSourceNodeIndices;
+         std::vector<int> pulseSourceNodeIndices; // upstream-first (pulse processors after their sources)
+         std::vector<EventSourcePlan> pulseSourcePlans; // parallel to pulseSourceNodeIndices
          std::vector<int> nodeIndexByModuleId;
       };
 
       struct GraphMusicScale
       {
+         // Not an aggregate (the table needs filling); keeps `{ root, mode }` initialization.
+         GraphMusicScale(int rootNote = 0, int scaleMode = 6)
+         : root(rootNote)
+         , mode(scaleMode)
+         {
+            fillEqualTemperament(noteFrequency);
+         }
+
          int root = 0;
          int mode = 6; // chromatic (identity) unless Scale UI publishes another mode
+         /** true when a .scl/.kbm replaced 12-TET; mode quantization is then bypassed. */
+         bool customTuning = false;
+         /** MIDI note → Hz, parsed on the UI thread (12-TET unless customTuning). */
+         NoteFrequencyTable noteFrequency{};
       };
 
       struct AudioGraphSnapshot

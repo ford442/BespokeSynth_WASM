@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 
@@ -24,8 +25,59 @@ namespace bespoke
 {
    namespace wasm
    {
+      namespace
+      {
+         // Consecutive API/control edits on the same control within this window
+         // collapse into one undo step.
+         constexpr unsigned long long kUndoCoalesceMs = 400;
+
+         unsigned long long undoClockMs()
+         {
+            using namespace std::chrono;
+            return static_cast<unsigned long long>(
+            duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
+         }
+
+         struct NamedRange
+         {
+            const char* name;
+            float minValue;
+            float maxValue;
+         };
+
+         // Fallback ranges for MIDI learn on modules without a slider table.
+         constexpr NamedRange kFallbackControlRanges[] = {
+            { "cutoff", 20.0f, 20000.0f },
+            { "frequency", 20.0f, 20000.0f },
+            { "resonance", 0.0f, 1.0f },
+            { "gain", 0.0f, 1.0f },
+            { "volume", 0.0f, 1.0f },
+            { "level", 0.0f, 1.0f },
+            { "depth", 0.0f, 1.0f },
+            { "mix", 0.0f, 1.0f },
+            { "rate", 0.05f, 20.0f },
+            { "attack", 1.0f, 2000.0f },
+            { "decay", 1.0f, 2000.0f },
+            { "sustain", 0.0f, 1.0f },
+            { "release", 1.0f, 4000.0f },
+            { "time", 0.01f, 2.0f },
+            { "feedback", 0.0f, 0.95f },
+            { "room", 0.0f, 1.0f },
+            { "damping", 0.0f, 1.0f },
+            { "pitch", 0.0f, 127.0f },
+            { "gate", 0.05f, 1.0f },
+            { "bpm", 40.0f, 240.0f },
+            { "swing", 0.0f, 1.0f },
+            { "root", 0.0f, 11.0f },
+            { "waveform", 0.0f, 3.0f },
+            { "shape", 0.0f, 3.0f },
+            { "type", 0.0f, 2.0f },
+         };
+      }
+
       ModuleCanvas::ModuleCanvas()
       {
+         setSpawnMenuTypeHidden("script", true);
          // Create persistent Transport module
          auto transport = std::make_unique<TransportModule>(mNextModuleId++);
          transport->setPosition(20, 50);
@@ -47,14 +99,29 @@ namespace bespoke
       int ModuleCanvas::createModule(const std::string& type, float x, float y)
       {
          Lock lock(mMutex);
-         auto module = ModuleFactory::instance().createModule(type, mNextModuleId);
+         const int id = createModuleWithIdLocked(type, x, y, mNextModuleId);
+         if (id >= 0 && mUndoSuppressDepth == 0)
+         {
+            UndoCommand command;
+            command.kind = UndoCommand::Kind::AddModule;
+            command.module = captureModuleLocked(*mModules[id]);
+            recordLocked(std::move(command));
+         }
+         return id;
+      }
+
+      int ModuleCanvas::createModuleWithIdLocked(const std::string& type, float x, float y, int id)
+      {
+         if (id < 0 || mModules.count(id) != 0)
+            return -1;
+         auto module = ModuleFactory::instance().createModule(type, id);
          if (!module)
          {
             printf("ModuleCanvas: Unknown module type '%s'\n", type.c_str());
             return -1;
          }
 
-         int id = mNextModuleId++;
+         mNextModuleId = std::max(mNextModuleId, id + 1);
          module->setPosition(x, y);
          printf("ModuleCanvas: Created module '%s' (id=%d) at (%.1f, %.1f)\n",
                 type.c_str(), id, x, y);
@@ -73,7 +140,33 @@ namespace bespoke
             return;
          if (mScaleModule && moduleId == mScaleModule->getId())
             return;
+         auto it = mModules.find(moduleId);
+         if (it == mModules.end())
+            return;
 
+         if (mUndoSuppressDepth == 0)
+         {
+            UndoCommand command;
+            command.kind = UndoCommand::Kind::RemoveModule;
+            command.module = captureModuleLocked(*it->second);
+            for (const auto& conn : mConnections)
+            {
+               if (conn.sourceModuleId == moduleId || conn.destModuleId == moduleId)
+                  command.connections.push_back({ conn.sourceModuleId, conn.sourcePortIndex,
+                                                  conn.destModuleId, conn.destPortIndex });
+            }
+            for (const auto& binding : mMidiCcMap)
+            {
+               if (binding.moduleId == moduleId)
+                  command.bindings.push_back(binding);
+            }
+            recordLocked(std::move(command));
+         }
+         deleteModuleLocked(moduleId);
+      }
+
+      void ModuleCanvas::deleteModuleLocked(int moduleId)
+      {
          // Remove connections involving this module
          mConnections.erase(
          std::remove_if(mConnections.begin(), mConnections.end(),
@@ -82,6 +175,18 @@ namespace bespoke
                            return c.sourceModuleId == moduleId || c.destModuleId == moduleId;
                         }),
          mConnections.end());
+         mMidiCcMap.erase(std::remove_if(mMidiCcMap.begin(), mMidiCcMap.end(),
+                                         [moduleId](const MidiCcBinding& binding)
+                                         {
+                                            return binding.moduleId == moduleId;
+                                         }),
+                          mMidiCcMap.end());
+         if (mMidiLearnModuleId == moduleId)
+            cancelMidiLearn();
+         if (mDraggedModuleId == moduleId)
+            mDraggedModuleId = -1;
+         if (mControlModuleId == moduleId)
+            mControlModuleId = -1;
 
          mModules.erase(moduleId);
          printf("ModuleCanvas: Deleted module %d\n", moduleId);
@@ -110,13 +215,17 @@ namespace bespoke
          return -1;
       }
 
-      bool ModuleCanvas::setModuleControlValue(int moduleId, const std::string& name, float value)
+      bool ModuleCanvas::setModuleControlValue(int moduleId, const std::string& name, float value, bool recordUndo)
       {
          Lock lock(mMutex);
          auto it = mModules.find(moduleId);
          if (it == mModules.end())
             return false;
+         const float before = it->second->getControlValue(name);
          it->second->setControlValue(name, value);
+         const float after = it->second->getControlValue(name);
+         if (recordUndo && before != after)
+            recordLocked(UndoCommand::setControl(moduleId, name, before, after), true);
          publishAudioGraphSnapshotLocked();
          return true;
       }
@@ -155,6 +264,33 @@ namespace bespoke
       bool ModuleCanvas::applyMidiCc(int channel, int cc, float value)
       {
          Lock lock(mMutex);
+         if (mMidiLearnModuleId >= 0)
+         {
+            // Learn binds this exact channel+CC; one control per CC and one CC per control.
+            MidiCcBinding binding;
+            binding.channel = channel;
+            binding.cc = cc;
+            binding.moduleId = mMidiLearnModuleId;
+            binding.controlName = mMidiLearnControl;
+            controlRangeFor(binding.moduleId, binding.controlName, binding.min, binding.max);
+            mMidiCcMap.erase(std::remove_if(mMidiCcMap.begin(), mMidiCcMap.end(),
+                                            [&binding](const MidiCcBinding& existing)
+                                            {
+                                               const bool sameControl = existing.moduleId == binding.moduleId &&
+                                                                        existing.controlName == binding.controlName;
+                                               const bool sameSource = existing.cc == binding.cc &&
+                                                                       (existing.channel < 0 || existing.channel == binding.channel);
+                                               return sameControl || sameSource;
+                                            }),
+                             mMidiCcMap.end());
+            mMidiCcMap.push_back(binding);
+            // A learned map is user data: stop re-seeding defaults on spawn/delete.
+            mMidiMapFromPatch = true;
+            printf("ModuleCanvas: MIDI learn ch%d CC%d -> %d.%s\n", channel, cc, binding.moduleId,
+                   binding.controlName.c_str());
+            cancelMidiLearn();
+         }
+
          bool applied = false;
          forEachMatchingMidiCc(mMidiCcMap, channel, cc, value,
                                [&](int moduleId, const std::string& controlName, float scaled)
@@ -180,6 +316,145 @@ namespace bespoke
       {
          Lock lock(mMutex);
          mMidiNoteChannel = channel;
+      }
+
+      bool ModuleCanvas::armMidiLearn(int moduleId, const std::string& controlName)
+      {
+         Lock lock(mMutex);
+         auto it = mModules.find(moduleId);
+         if (it == mModules.end())
+            return false;
+         std::string name = controlName;
+         if (name.empty())
+         {
+            const auto names = WasmModuleAdapterRegistry::instance().serializableControlNames(it->second->getType());
+            if (const WasmModuleAdapter* adapter = WasmModuleAdapterRegistry::instance().find(it->second->getType()))
+            {
+               const auto descriptors = adapter->controlDescriptors();
+               if (!descriptors.empty())
+                  name = descriptors.front().name;
+            }
+            if (name.empty() && !names.empty())
+               name = names.front();
+         }
+         if (name.empty())
+            return false;
+         mMidiLearnModuleId = moduleId;
+         mMidiLearnControl = name;
+         printf("ModuleCanvas: MIDI learn armed for %d.%s\n", moduleId, name.c_str());
+         return true;
+      }
+
+      bool ModuleCanvas::armMidiLearnAt(float screenX, float screenY)
+      {
+         Lock lock(mMutex);
+         const float worldX = screenToWorldX(screenX);
+         const float worldY = screenToWorldY(screenY - kTitleBarHeight);
+         for (const auto& [id, module] : mModules)
+         {
+            if (!module->hitTest(worldX, worldY))
+               continue;
+            return armMidiLearn(id, module->controlNameAt(worldX, worldY));
+         }
+         return false;
+      }
+
+      void ModuleCanvas::cancelMidiLearn()
+      {
+         Lock lock(mMutex);
+         mMidiLearnModuleId = -1;
+         mMidiLearnControl.clear();
+      }
+
+      bool ModuleCanvas::isMidiLearnArmed() const
+      {
+         Lock lock(mMutex);
+         return mMidiLearnModuleId >= 0;
+      }
+
+      int ModuleCanvas::midiLearnModuleId() const
+      {
+         Lock lock(mMutex);
+         return mMidiLearnModuleId;
+      }
+
+      std::string ModuleCanvas::midiLearnControl() const
+      {
+         Lock lock(mMutex);
+         return mMidiLearnControl;
+      }
+
+      bool ModuleCanvas::removeMidiCcBinding(int moduleId, const std::string& controlName)
+      {
+         Lock lock(mMutex);
+         const size_t before = mMidiCcMap.size();
+         mMidiCcMap.erase(std::remove_if(mMidiCcMap.begin(), mMidiCcMap.end(),
+                                         [&](const MidiCcBinding& binding)
+                                         {
+                                            return binding.moduleId == moduleId &&
+                                                   (controlName.empty() || binding.controlName == controlName);
+                                         }),
+                          mMidiCcMap.end());
+         if (mMidiCcMap.size() == before)
+            return false;
+         mMidiMapFromPatch = true;
+         return true;
+      }
+
+      std::vector<MidiCcBinding> ModuleCanvas::midiCcMap() const
+      {
+         Lock lock(mMutex);
+         return mMidiCcMap;
+      }
+
+      void ModuleCanvas::controlRangeFor(int moduleId, const std::string& name, float& minValue, float& maxValue) const
+      {
+         Lock lock(mMutex);
+         minValue = 0.0f;
+         maxValue = 1.0f;
+         auto it = mModules.find(moduleId);
+         if (it != mModules.end() && it->second->controlRange(name, minValue, maxValue))
+            return;
+         for (const auto& range : kFallbackControlRanges)
+         {
+            if (name == range.name)
+            {
+               minValue = range.minValue;
+               maxValue = range.maxValue;
+               return;
+            }
+         }
+      }
+
+      void ModuleCanvas::setScriptingEnabled(bool enabled)
+      {
+         Lock lock(mMutex);
+         mScriptingEnabled = enabled;
+         setSpawnMenuTypeHidden("script", !enabled);
+      }
+
+      bool ModuleCanvas::isScriptingEnabled() const
+      {
+         Lock lock(mMutex);
+         return mScriptingEnabled;
+      }
+
+      bool ModuleCanvas::hasOutgoingConnection(int moduleId) const
+      {
+         Lock lock(mMutex);
+         return std::any_of(mConnections.begin(), mConnections.end(),
+                            [moduleId](const Connection& conn)
+                            {
+                               return conn.sourceModuleId == moduleId;
+                            });
+      }
+
+      void ModuleCanvas::setSnapshotListener(SnapshotListener listener)
+      {
+         Lock lock(mMutex);
+         mSnapshotListener = std::move(listener);
+         if (mSnapshotListener && mPublishedAudioGraph)
+            mSnapshotListener(*mPublishedAudioGraph);
       }
 
       void ModuleCanvas::seedDefaultMidiCcMapLocked()
@@ -209,17 +484,24 @@ namespace bespoke
       void ModuleCanvas::connectModules(int sourceId, int sourcePort, int destId, int destPort)
       {
          Lock lock(mMutex);
+         if (connectLocked(sourceId, sourcePort, destId, destPort))
+            recordLocked(UndoCommand::cable(UndoCommand::Kind::Connect,
+                                            { sourceId, sourcePort, destId, destPort }));
+      }
+
+      bool ModuleCanvas::connectLocked(int sourceId, int sourcePort, int destId, int destPort)
+      {
          if (!portsAreCompatible(sourceId, sourcePort, destId, destPort))
          {
             printf("ModuleCanvas: Rejected incompatible connection %d:%d -> %d:%d\n",
                    sourceId, sourcePort, destId, destPort);
-            return;
+            return false;
          }
          for (const auto& existing : mConnections)
          {
             if (existing.sourceModuleId == sourceId && existing.sourcePortIndex == sourcePort &&
                 existing.destModuleId == destId && existing.destPortIndex == destPort)
-               return;
+               return false;
          }
          Connection conn;
          conn.sourceModuleId = sourceId;
@@ -255,11 +537,21 @@ namespace bespoke
          mConnections.push_back(conn);
          printf("ModuleCanvas: Connected %d:%d -> %d:%d\n", sourceId, sourcePort, destId, destPort);
          publishAudioGraphSnapshotLocked();
+         return true;
       }
 
       void ModuleCanvas::disconnectModules(int sourceId, int destId)
       {
          Lock lock(mMutex);
+         UndoCommand group;
+         group.kind = UndoCommand::Kind::Group;
+         for (const auto& conn : mConnections)
+         {
+            if (conn.sourceModuleId == sourceId && conn.destModuleId == destId)
+               group.children.push_back(UndoCommand::cable(
+               UndoCommand::Kind::Disconnect,
+               { conn.sourceModuleId, conn.sourcePortIndex, conn.destModuleId, conn.destPortIndex }));
+         }
          mConnections.erase(
          std::remove_if(mConnections.begin(), mConnections.end(),
                         [sourceId, destId](const Connection& c)
@@ -267,6 +559,10 @@ namespace bespoke
                            return c.sourceModuleId == sourceId && c.destModuleId == destId;
                         }),
          mConnections.end());
+         if (group.children.size() == 1)
+            recordLocked(std::move(group.children.front()));
+         else if (!group.children.empty())
+            recordLocked(std::move(group));
          publishAudioGraphSnapshotLocked();
       }
 
@@ -283,6 +579,8 @@ namespace bespoke
          {
             snapshot.musicScale.root = static_cast<int>(mScaleModule->getControlValue("root"));
             snapshot.musicScale.mode = static_cast<int>(mScaleModule->getControlValue("type"));
+            snapshot.musicScale.customTuning = mScaleModule->hasCustomTuning();
+            snapshot.musicScale.noteFrequency = mScaleModule->tuningTable();
          }
          snapshot.nodes.clear();
          snapshot.connections.clear();
@@ -348,10 +646,10 @@ namespace bespoke
          AudioGraphSnapshot snapshot;
          buildAudioGraphSnapshotLocked(snapshot);
          compileAudioProcessPlan(snapshot, snapshot.processPlan);
-         std::atomic_store_explicit(
-         &mPublishedAudioGraph,
-         std::make_shared<const AudioGraphSnapshot>(std::move(snapshot)),
-         std::memory_order_release);
+         auto published = std::make_shared<const AudioGraphSnapshot>(std::move(snapshot));
+         if (mSnapshotListener)
+            mSnapshotListener(*published);
+         std::atomic_store_explicit(&mPublishedAudioGraph, std::move(published), std::memory_order_release);
       }
 
       bool ModuleCanvas::portsAreCompatible(int sourceId, int sourcePort, int destId, int destPort) const
@@ -425,6 +723,9 @@ namespace bespoke
             const float distanceY = screenY - py;
             if (distanceX * distanceX + distanceY * distanceY <= threshold * threshold)
             {
+               recordLocked(UndoCommand::cable(
+               UndoCommand::Kind::Disconnect,
+               { it->sourceModuleId, it->sourcePortIndex, it->destModuleId, it->destPortIndex }));
                mConnections.erase(it);
                return true;
             }
@@ -491,11 +792,19 @@ namespace bespoke
       bool ModuleCanvas::applyStateSnapshot(const StateSnapshot& snapshot)
       {
          Lock lock(mMutex);
+         UndoSuppressor suppress(mUndoSuppressDepth);
          std::unordered_map<int, int> idMap;
          mMidiMapFromPatch = true;
+         cancelMidiLearn();
 
          clearUserModules();
          setViewTransform(snapshot.offsetX, snapshot.offsetY, snapshot.scale);
+         if (mScaleModule)
+         {
+            // A patch without Scala extras is 12-TET.
+            for (const char* key : { "scl", "sclName", "kbm", "kbmName" })
+               mScaleModule->setStringProperty(key, "");
+         }
 
          if (mTransport)
          {
@@ -558,6 +867,7 @@ namespace bespoke
             mMidiCcMap.push_back(std::move(binding));
          }
 
+         mUndoStack.clear();
          publishAudioGraphSnapshotLocked();
          return true;
       }
@@ -602,6 +912,7 @@ namespace bespoke
       void ModuleCanvas::clearUserModules()
       {
          Lock lock(mMutex);
+         UndoSuppressor suppress(mUndoSuppressDepth);
          std::vector<int> toDelete;
          for (const auto& [id, module] : mModules)
          {
@@ -626,6 +937,8 @@ namespace bespoke
       void ModuleCanvas::setupCanonicalRenderTestScene()
       {
          Lock lock(mMutex);
+         UndoSuppressor suppress(mUndoSuppressDepth);
+         mUndoStack.clear();
          clearUserModules();
          setViewTransform(0.0f, 80.0f, 1.0f);
 
@@ -691,6 +1004,101 @@ namespace bespoke
          publishAudioGraphSnapshotLocked();
       }
 
+      void ModuleCanvas::setupDrumRenderTestScene()
+      {
+         Lock lock(mMutex);
+         UndoSuppressor suppress(mUndoSuppressDepth);
+         mUndoStack.clear();
+         clearUserModules();
+         setViewTransform(0.0f, 80.0f, 1.0f);
+
+         if (mTransport)
+         {
+            mTransport->setPosition(20.0f, 50.0f);
+            mTransport->setBPM(120.0f);
+            mTransport->setPlaying(false);
+            mTransport->setControlValue("swing", 0.0f);
+         }
+         if (mScaleModule)
+         {
+            mScaleModule->setPosition(290.0f, 50.0f);
+            mScaleModule->setControlValue("root", 0.0f);
+            mScaleModule->setControlValue("type", 0.0f);
+         }
+
+         const int drumsId = createModule("drumseq", 20.0f, 170.0f);
+         const int noiseId = createModule("noise", 20.0f, 340.0f);
+         const int kickId = createModule("oscillator", 290.0f, 160.0f);
+         const int snareId = createModule("adsr", 290.0f, 290.0f);
+         const int hatId = createModule("adsr", 290.0f, 420.0f);
+         const int mixerId = createModule("mixer", 500.0f, 190.0f);
+         const int compId = createModule("compressor", 690.0f, 190.0f);
+         const int outputId = createModule("output", 900.0f, 210.0f);
+
+         if (auto* drums = getModule(drumsId))
+         {
+            drums->setControlValue("kick", static_cast<float>(0x1111)); // four on the floor
+            drums->setControlValue("snare", static_cast<float>(0x1010));
+            drums->setControlValue("hat", static_cast<float>(0x4444)); // off-beats
+            drums->setControlValue("tom", 0.0f);
+            drums->setControlValue("kickpitch", 33.0f);
+            drums->setControlValue("gate", 0.4f);
+         }
+         if (auto* noise = getModule(noiseId))
+            noise->setControlValue("volume", 0.6f);
+         if (auto* kick = getModule(kickId))
+         {
+            kick->setControlValue("frequency", 55.0f);
+            kick->setControlValue("volume", 0.9f);
+            kick->setControlValue("waveform", 0.0f);
+         }
+         if (auto* snare = getModule(snareId))
+         {
+            snare->setControlValue("attack", 1.0f);
+            snare->setControlValue("decay", 90.0f);
+            snare->setControlValue("sustain", 0.0f);
+            snare->setControlValue("release", 40.0f);
+         }
+         if (auto* hat = getModule(hatId))
+         {
+            hat->setControlValue("attack", 1.0f);
+            hat->setControlValue("decay", 25.0f);
+            hat->setControlValue("sustain", 0.0f);
+            hat->setControlValue("release", 15.0f);
+         }
+         if (auto* mixer = getModule(mixerId))
+         {
+            mixer->setControlValue("level1", 0.9f);
+            mixer->setControlValue("level2", 0.6f);
+            mixer->setControlValue("level3", 0.35f);
+            mixer->setControlValue("master", 0.9f);
+         }
+         if (auto* comp = getModule(compId))
+         {
+            comp->setControlValue("threshold", -18.0f);
+            comp->setControlValue("ratio", 4.0f);
+            comp->setControlValue("makeup", 3.0f);
+         }
+
+         if (drumsId > 0)
+         {
+            connectModules(drumsId, 0, kickId, 0); // Kick → oscillator Pitch
+            connectModules(drumsId, 1, snareId, 1); // Snare → ADSR Gate
+            connectModules(drumsId, 2, hatId, 1); // Hat → ADSR Gate
+            if (mTransport)
+               connectModules(mTransport->getId(), 0, drumsId, 0);
+         }
+         connectModules(noiseId, 0, snareId, 0);
+         connectModules(noiseId, 0, hatId, 0);
+         connectModules(kickId, 0, mixerId, 0);
+         connectModules(snareId, 0, mixerId, 1);
+         connectModules(hatId, 0, mixerId, 2);
+         connectModules(mixerId, 0, compId, 0);
+         connectModules(compId, 0, outputId, 0);
+
+         publishAudioGraphSnapshotLocked();
+      }
+
       void ModuleCanvas::openSpawnMenu(float x, float y)
       {
          Lock lock(mMutex);
@@ -742,6 +1150,198 @@ namespace bespoke
          if (mTransport)
             mTransport->setBPM(bpm);
          publishAudioGraphSnapshotLocked();
+      }
+
+      UndoModuleState ModuleCanvas::captureModuleLocked(const Module& module) const
+      {
+         UndoModuleState state;
+         state.id = module.getId();
+         state.type = module.getType();
+         state.x = module.getX();
+         state.y = module.getY();
+         state.minimized = module.isMinimized();
+         state.enabled = module.isEnabled();
+         state.controls = moduleControlMap(module);
+         state.extras = moduleStringMap(module);
+         return state;
+      }
+
+      void ModuleCanvas::restoreModuleLocked(const UndoModuleState& state)
+      {
+         if (createModuleWithIdLocked(state.type, state.x, state.y, state.id) < 0)
+            return;
+         Module* module = mModules[state.id].get();
+         module->setMinimized(state.minimized);
+         module->setEnabled(state.enabled);
+         for (const auto& [name, value] : state.controls)
+            module->setControlValue(name, value);
+         for (const auto& [name, value] : state.extras)
+            module->setStringProperty(name, value);
+      }
+
+      void ModuleCanvas::recordLocked(UndoCommand command, bool coalesce)
+      {
+         if (mUndoSuppressDepth > 0)
+            return;
+         command.stamp = undoClockMs();
+         mUndoStack.push(std::move(command), coalesce ? kUndoCoalesceMs : 0);
+      }
+
+      void ModuleCanvas::applyCommandLocked(const UndoCommand& command, bool forward)
+      {
+         auto removeConnection = [this](const UndoConnection& c)
+         {
+            mConnections.erase(std::remove_if(mConnections.begin(), mConnections.end(),
+                                              [&c](const Connection& conn)
+                                              {
+                                                 return conn.sourceModuleId == c.sourceModuleId &&
+                                                        conn.sourcePortIndex == c.sourcePortIndex &&
+                                                        conn.destModuleId == c.destModuleId &&
+                                                        conn.destPortIndex == c.destPortIndex;
+                                              }),
+                               mConnections.end());
+         };
+
+         switch (command.kind)
+         {
+            case UndoCommand::Kind::AddModule:
+               if (forward)
+                  restoreModuleLocked(command.module);
+               else
+                  deleteModuleLocked(command.module.id);
+               break;
+            case UndoCommand::Kind::RemoveModule:
+               if (forward)
+               {
+                  deleteModuleLocked(command.module.id);
+                  break;
+               }
+               restoreModuleLocked(command.module);
+               for (const auto& c : command.connections)
+                  connectLocked(c.sourceModuleId, c.sourcePortIndex, c.destModuleId, c.destPortIndex);
+               for (const auto& binding : command.bindings)
+               {
+                  const bool present = std::any_of(mMidiCcMap.begin(), mMidiCcMap.end(),
+                                                   [&binding](const MidiCcBinding& existing)
+                                                   {
+                                                      return existing.moduleId == binding.moduleId &&
+                                                             existing.controlName == binding.controlName &&
+                                                             existing.cc == binding.cc;
+                                                   });
+                  if (!present)
+                     mMidiCcMap.push_back(binding);
+               }
+               break;
+            case UndoCommand::Kind::Connect:
+            case UndoCommand::Kind::Disconnect:
+            {
+               const bool add = (command.kind == UndoCommand::Kind::Connect) == forward;
+               const UndoConnection& c = command.connection;
+               if (add)
+                  connectLocked(c.sourceModuleId, c.sourcePortIndex, c.destModuleId, c.destPortIndex);
+               else
+                  removeConnection(c);
+               break;
+            }
+            case UndoCommand::Kind::SetControl:
+               if (Module* module = getModule(command.moduleId))
+                  module->setControlValue(command.control, forward ? command.after : command.before);
+               break;
+            case UndoCommand::Kind::MoveModule:
+               if (Module* module = getModule(command.moduleId))
+                  module->setPosition(forward ? command.toX : command.fromX, forward ? command.toY : command.fromY);
+               break;
+            case UndoCommand::Kind::Group:
+               if (forward)
+               {
+                  for (const auto& child : command.children)
+                     applyCommandLocked(child, true);
+               }
+               else
+               {
+                  for (auto it = command.children.rbegin(); it != command.children.rend(); ++it)
+                     applyCommandLocked(*it, false);
+               }
+               break;
+         }
+      }
+
+      bool ModuleCanvas::undo()
+      {
+         Lock lock(mMutex);
+         if (!mUndoStack.canUndo())
+            return false;
+         cancelPointerInteraction();
+         UndoSuppressor suppress(mUndoSuppressDepth);
+         UndoCommand command = mUndoStack.popUndo();
+         applyCommandLocked(command, false);
+         mUndoStack.pushRedo(std::move(command));
+         publishAudioGraphSnapshotLocked();
+         return true;
+      }
+
+      bool ModuleCanvas::redo()
+      {
+         Lock lock(mMutex);
+         if (!mUndoStack.canRedo())
+            return false;
+         cancelPointerInteraction();
+         UndoSuppressor suppress(mUndoSuppressDepth);
+         UndoCommand command = mUndoStack.popRedo();
+         applyCommandLocked(command, true);
+         mUndoStack.pushUndoKeepRedo(std::move(command));
+         publishAudioGraphSnapshotLocked();
+         return true;
+      }
+
+      int ModuleCanvas::undoDepth() const
+      {
+         Lock lock(mMutex);
+         return static_cast<int>(mUndoStack.undoDepth());
+      }
+
+      int ModuleCanvas::redoDepth() const
+      {
+         Lock lock(mMutex);
+         return static_cast<int>(mUndoStack.redoDepth());
+      }
+
+      void ModuleCanvas::clearUndoHistory()
+      {
+         Lock lock(mMutex);
+         mUndoStack.clear();
+      }
+
+      void ModuleCanvas::commitGestureLocked()
+      {
+         if (mControlModuleId >= 0)
+         {
+            if (Module* module = getModule(mControlModuleId))
+            {
+               UndoCommand group;
+               group.kind = UndoCommand::Kind::Group;
+               for (const auto& [name, after] : moduleControlMap(*module))
+               {
+                  auto before = mGestureControls.find(name);
+                  if (before != mGestureControls.end() && before->second != after)
+                     group.children.push_back(UndoCommand::setControl(mControlModuleId, name, before->second, after));
+               }
+               if (group.children.size() == 1)
+                  recordLocked(std::move(group.children.front()));
+               else if (!group.children.empty())
+                  recordLocked(std::move(group));
+            }
+         }
+         if (mDraggedModuleId >= 0)
+         {
+            if (Module* module = getModule(mDraggedModuleId))
+            {
+               if (module->getX() != mGestureStartX || module->getY() != mGestureStartY)
+                  recordLocked(UndoCommand::move(mDraggedModuleId, mGestureStartX, mGestureStartY,
+                                                 module->getX(), module->getY()));
+            }
+         }
+         mGestureControls.clear();
       }
 
    } // namespace wasm

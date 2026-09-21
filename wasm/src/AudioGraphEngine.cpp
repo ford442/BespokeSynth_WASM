@@ -76,6 +76,7 @@ namespace bespoke
       {
          mAudioTimeSeconds = 0.0;
          mBeatPosition = 0.0;
+         mPublishedBeat.store(0.0, std::memory_order_relaxed);
          mNoteWriteIndex.store(0, std::memory_order_relaxed);
          mNoteReadIndex.store(0, std::memory_order_relaxed);
          mMidiNoteCount = 0;
@@ -84,6 +85,39 @@ namespace bespoke
          mRuntimeSlots.clear();
          mSlotIndexByModuleId.clear();
          mRuntimeArena.clear();
+      }
+
+      void AudioGraphEngine::prepareRuntimeStates(const AudioGraphSnapshot& graph)
+      {
+         auto& registry = WasmModuleAdapterRegistry::instance();
+         for (auto& slot : mRuntimeSlots)
+         {
+            if (slot.size == 0 || slot.dormant)
+               continue;
+            const bool present = std::any_of(graph.nodes.begin(), graph.nodes.end(),
+                                             [&slot](const AudioGraphNode& node)
+                                             {
+                                                return node.id == slot.moduleId && node.typeIndex == slot.typeIndex;
+                                             });
+            if (present)
+               continue;
+            // Keep the arena bytes so an undo that restores this id reuses them.
+            const WasmModuleAdapter* adapter = registry.adapterAt(slot.typeIndex);
+            if (adapter && slot.offset + slot.size <= mRuntimeArena.size())
+            {
+               adapter->destroyRuntimeState(mRuntimeArena.data() + slot.offset);
+               adapter->initRuntimeState(mRuntimeArena.data() + slot.offset);
+            }
+            slot.dormant = true;
+         }
+
+         for (const auto& node : graph.nodes)
+         {
+            stateFor(node);
+            auto it = mSlotIndexByModuleId.find(node.id);
+            if (it != mSlotIndexByModuleId.end())
+               mRuntimeSlots[static_cast<size_t>(it->second)].dormant = false;
+         }
       }
 
       void AudioGraphEngine::destroySlot(RuntimeSlot& slot)
@@ -220,6 +254,7 @@ namespace bespoke
             if (!graph.transportPlaying)
             {
                mBeatPosition = 0.0;
+               mPublishedBeat.store(0.0, std::memory_order_relaxed);
                resetEventSourceState();
             }
             return;
@@ -244,6 +279,7 @@ namespace bespoke
                                       (static_cast<double>(sampleRate) * 60.0);
          const double beatEnd = beatStart + beatsPerBlock;
          mBeatPosition = beatEnd;
+         mPublishedBeat.store(beatEnd, std::memory_order_relaxed);
 
          auto& registry = WasmModuleAdapterRegistry::instance();
 
@@ -267,6 +303,29 @@ namespace bespoke
             const WasmModuleAdapter* adapter = registry.adapterAt(node.typeIndex);
             if (!adapter)
                continue;
+            const WasmPulseEvent* upstreamPulses = nullptr;
+            int upstreamPulseCount = 0;
+            if (pulseSlot < static_cast<int>(plan.pulseSourcePlans.size()))
+            {
+               const EventSourcePlan& sourcePlan = plan.pulseSourcePlans[static_cast<size_t>(pulseSlot)];
+               int mergedCount = 0;
+               for (int scratchSlot : sourcePlan.pulseSourceScratchSlots)
+               {
+                  // Plan order guarantees upstream slots were filled earlier this block.
+                  if (scratchSlot < 0 || scratchSlot >= pulseSlot)
+                     continue;
+                  const int count = scratch.pulseSourceCounts[static_cast<size_t>(scratchSlot)];
+                  const WasmPulseEvent* pulses = scratch.pulseSourceScratch[static_cast<size_t>(scratchSlot)].data();
+                  for (int i = 0; i < count && mergedCount < kMaxNoteEventsPerBlock; ++i)
+                     scratch.mergedPulses[static_cast<size_t>(mergedCount++)] = pulses[i];
+               }
+               if (mergedCount > 0)
+               {
+                  upstreamPulses = scratch.mergedPulses.data();
+                  upstreamPulseCount = mergedCount;
+               }
+            }
+
             int& pulseCount = scratch.pulseSourceCounts[static_cast<size_t>(pulseSlot)];
             pulseCount = 0;
             adapter->emitPulsesForBeatRange(
@@ -276,7 +335,9 @@ namespace bespoke
             beatEnd,
             scratch.pulseSourceScratch[static_cast<size_t>(pulseSlot)].data(),
             kMaxNoteEventsPerBlock,
-            pulseCount);
+            pulseCount,
+            upstreamPulses,
+            upstreamPulseCount);
          }
 
          scratch.noteSourceCounts.fill(0);
@@ -326,7 +387,8 @@ namespace bespoke
             noteCount,
             sourcePulses,
             sourcePulseCount);
-            quantizeNotes(scratch.noteSourceScratch[static_cast<size_t>(seqSlot)].data(), noteCount);
+            if (adapter->quantizesNotesToScale())
+               quantizeNotes(scratch.noteSourceScratch[static_cast<size_t>(seqSlot)].data(), noteCount);
          }
 
          quantizeNotes(scratch.midiNoteScratch.data(), mMidiNoteCount);
@@ -369,13 +431,21 @@ namespace bespoke
             if (step.outBufferSlot >= 0)
                std::memset(buffer, 0, static_cast<size_t>(numSamples) * sizeof(float));
 
-            for (int inputSlot : step.inputBufferSlots)
+            const WasmModuleAdapter* stepAdapter = registry.adapterAt(step.typeIndex);
+            const bool sumInputs = !stepAdapter || stepAdapter->sumsAudioInputs();
+            std::array<WasmAudioInput, decltype(step.inputBufferSlots)::kCapacity> audioInputs{};
+            int audioInputCount = 0;
+            for (int inputIndex = 0; inputIndex < step.inputBufferSlots.size(); ++inputIndex)
             {
-               const float* source = audioSlotBuffer(inputSlot, numSamples);
+               const float* source = audioSlotBuffer(step.inputBufferSlots.data[inputIndex], numSamples);
                if (!source)
                   continue;
-               for (int i = 0; i < numSamples; ++i)
-                  buffer[i] += source[i];
+               audioInputs[static_cast<size_t>(audioInputCount++)] = { source, step.inputBufferPorts.data[inputIndex] };
+               if (sumInputs)
+               {
+                  for (int i = 0; i < numSamples; ++i)
+                     buffer[i] += source[i];
+               }
             }
 
             const WasmNoteEvent* moduleNotes = nullptr;
@@ -383,8 +453,10 @@ namespace bespoke
             if (step.hasNoteCable)
             {
                int mergedCount = 0;
-               for (int scratchSlot : step.noteSourceScratchSlots)
+               for (int cable = 0; cable < step.noteSourceScratchSlots.size(); ++cable)
                {
+                  const int scratchSlot = step.noteSourceScratchSlots.data[cable];
+                  const int portFilter = step.noteSourcePortFilters.data[cable];
                   if (scratchSlot < 0 || scratchSlot >= kMaxEventSources)
                      continue;
                   const int count = scratch.noteSourceCounts[static_cast<size_t>(scratchSlot)];
@@ -392,7 +464,11 @@ namespace bespoke
                      continue;
                   const WasmNoteEvent* sourceNotes = scratch.noteSourceScratch[static_cast<size_t>(scratchSlot)].data();
                   for (int noteIndex = 0; noteIndex < count && mergedCount < kMaxNoteEventsPerBlock; ++noteIndex)
+                  {
+                     if (portFilter >= 0 && sourceNotes[noteIndex].outputPort != portFilter)
+                        continue;
                      scratch.mergedNotes[static_cast<size_t>(mergedCount++)] = sourceNotes[noteIndex];
+                  }
                }
                if (mergedCount > 0)
                {
@@ -437,9 +513,12 @@ namespace bespoke
             context.beatEnd = beatEnd;
             context.bpm = graph.transportBPM;
             context.inputAudio = mInputScratch.data();
+            context.noteFrequencies = graph.musicScale.noteFrequency.data();
             context.hasNoteCable = step.hasNoteCable;
             context.hasPulseCable = step.hasPulseCable;
             context.hasAudioInput = step.inputBufferSlots.count > 0;
+            context.audioInputs = audioInputCount > 0 ? audioInputs.data() : nullptr;
+            context.audioInputCount = audioInputCount;
             if (moduleNotes && moduleNoteCount > 0)
             {
                context.notes = moduleNotes;
@@ -465,8 +544,8 @@ namespace bespoke
                context.modulationBuffer = mSummedModulation.data();
             }
 
-            if (const WasmModuleAdapter* adapter = registry.adapterAt(step.typeIndex))
-               adapter->processAudio(stateFor(node), graph.paramsFor(node), buffer, context);
+            if (stepAdapter)
+               stepAdapter->processAudio(stateFor(node), graph.paramsFor(node), buffer, context);
          }
 
          const float* outBuffer = audioSlotBuffer(plan.outputBufferSlot, numSamples);

@@ -26,6 +26,9 @@ copy_if_exists "userdata_original/savestate/wasm-starter.bsk"
 copy_if_exists "userdata_original/layouts/blank.json"
 copy_if_exists "userdata_original/userdata_version.txt"
 
+# UI text atlas (SDF, baked from resource/frabk.ttf + iosevka fallback).
+"$ROOT/scripts/bake_sdf_font.sh" "$DEST/fonts/ui_font.bsdf"
+
 cat > "$DEST/README.md" << 'EOF'
 # WASM resource pack (minimal preload)
 

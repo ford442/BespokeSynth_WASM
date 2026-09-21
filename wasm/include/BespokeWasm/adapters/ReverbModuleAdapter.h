@@ -1,5 +1,8 @@
 /**
- * BespokeSynth WASM - Schroeder reverb adapter
+ * BespokeSynth WASM - Reverb adapter (Jezar's Freeverb from libs/freeverb)
+ *
+ * The runtime state (a `revmodel`, ~110 KB of comb/allpass buffers) is private to
+ * the adapter source so freeverb headers stay out of every other translation unit.
  *
  * Copyright (C) 2024
  * Licensed under GNU GPL v3
@@ -20,23 +23,6 @@ namespace bespoke
          float roomSize = 0.7f;
          float damping = 0.3f;
          float mix = 0.35f;
-      };
-
-      struct ReverbAdapterRuntimeState
-      {
-         static constexpr int kCombCount = 4;
-         static constexpr int kAllpassCount = 2;
-         static constexpr int kMaxComb = 2048;
-         static constexpr int kMaxAllpass = 612;
-
-         float comb[kCombCount][kMaxComb]{};
-         int combIndex[kCombCount]{};
-         float combFilter[kCombCount]{};
-         int combSize[kCombCount]{};
-         float allpass[kAllpassCount][kMaxAllpass]{};
-         int allpassIndex[kAllpassCount]{};
-         int allpassSize[kAllpassCount]{};
-         float lastSampleRate = 0.0f;
       };
 
       class ReverbModule : public Module
@@ -69,7 +55,7 @@ namespace bespoke
          size_t paramsSize() const override { return sizeof(ReverbParams); }
          void fillParams(const WasmControlMap& controls, void* dst) const override;
 
-         size_t runtimeStateSize() const override { return sizeof(ReverbAdapterRuntimeState); }
+         size_t runtimeStateSize() const override;
          void initRuntimeState(void* runtimeState) const override;
          void destroyRuntimeState(void* runtimeState) const override;
          void processAudio(void* runtimeState,

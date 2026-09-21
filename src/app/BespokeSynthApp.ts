@@ -3,8 +3,10 @@ import {
   publishRendererBreadcrumbs,
   captureCanvasScreenshot,
   downloadScreenshot,
+  getRenderTestScene,
   isRenderTestRequested,
   isLegacyPanelsRequested,
+  isPixelFontRequested,
   resolveRendererBackend,
   type CaptureScreenshotOptions,
   type RendererBackend,
@@ -18,9 +20,11 @@ import {
 } from '../patchState';
 import { PatchStorage, PATCH_DEFAULT_AUTOSAVE_NAME } from '../patchStorage';
 import {
-  resolveAudioBackend,
+  resolveAudioBackendChoice,
+  persistUrlAudioPreference,
   isAudioWorkletPocRequested,
   isDebugRequested,
+  type AudioBackendChoice,
   type AudioBackendId,
 } from '../audio/audioMode';
 import { runAudioWorkletPoc } from '../audio/workletPoc';
@@ -28,6 +32,7 @@ import {
   canUseWorkletRingBackend,
   createWorkletRingBackend,
   type WorkletRingBackend,
+  type WorkletRingStats,
 } from '../audio/workletRingBackend';
 import { bespokeWindow } from './browserWindow';
 import { loadWasmModule } from './wasmLoader';
@@ -39,7 +44,7 @@ import {
   showReadyState,
 } from './initProgress';
 import { installInputBridge } from './inputBridge';
-import { startRenderLoop, syncControlOverlays, type RenderLoopHandle } from './renderLoop';
+import { startRenderLoop, type RenderLoopHandle } from './renderLoop';
 import {
   createPatchStatusHelpers,
   setupPatchPanel,
@@ -59,6 +64,8 @@ import {
 import { decodePatchFragment, writeShareUrl } from '../samples/patchShare';
 import { downloadOfflineWav } from '../samples/offlineExport';
 import { startInputCapture, type InputCaptureHandle } from '../audio/inputCapture';
+import { LiveInstrument } from './liveInstrument';
+import { setupScriptPanel, type ScriptPanelHandle } from '../ui/scriptPanel';
 
 export class BespokeSynthApp {
   private canvas: HTMLCanvasElement | null = null;
@@ -74,8 +81,6 @@ export class BespokeSynthApp {
   private autoSaveNamePrompted = false;
   private refreshPatchList: (() => Promise<unknown>) | null = null;
   private readonly initProgress = new InitProgressController();
-  private guiOverlay: HTMLElement | null = null;
-  private readonly labelElements = new Map<number, HTMLElement>();
   private rendererBackend: RendererBackend = resolveRendererBackend();
   private rendererFallbackReason: string | null = null;
   // Logical (CSS) canvas size in step with canvas.width/height, which is
@@ -83,13 +88,28 @@ export class BespokeSynthApp {
   // The WASM side does all layout/hit-testing math in logical pixels.
   private cssWidth = 800;
   private cssHeight = 600;
-  private audioBackendId: AudioBackendId = resolveAudioBackend();
+  private readonly audioBackendChoice: AudioBackendChoice = resolveAudioBackendChoice();
+  private audioBackendId: AudioBackendId = this.audioBackendChoice.backend;
   private workletRing: WorkletRingBackend | null = null;
   private readonly patchStatusHelpers = createPatchStatusHelpers();
   private inputCapture: InputCaptureHandle | null = null;
+  readonly live = new LiveInstrument(() => this.module);
+  private scriptPanel: ScriptPanelHandle | null = null;
 
   getModule(): BespokeSynthModule | null {
     return this.module;
+  }
+
+  getScriptPanel(): ScriptPanelHandle | null {
+    return this.scriptPanel;
+  }
+
+  getAudioBackendChoice(): AudioBackendChoice {
+    return this.audioBackendChoice;
+  }
+
+  getAudioRingStats(): WorkletRingStats | null {
+    return this.workletRing?.getStats() ?? null;
   }
 
   getHostFrameCount(): number {
@@ -107,6 +127,7 @@ export class BespokeSynthApp {
   async init(): Promise<void> {
     this.initProgress.markInitStart();
     console.log('Initializing BespokeSynth WASM...');
+    persistUrlAudioPreference();
 
     this.canvas = document.getElementById('canvas') as HTMLCanvasElement;
     if (!this.canvas) {
@@ -115,6 +136,10 @@ export class BespokeSynthApp {
 
     this.resizeCanvas();
     window.addEventListener('resize', () => this.resizeCanvas());
+    // The header wraps when controls overflow, which resizes the canvas area without a window resize.
+    if (typeof ResizeObserver === 'function' && this.canvas.parentElement) {
+      new ResizeObserver(() => this.resizeCanvas()).observe(this.canvas.parentElement);
+    }
 
     this.initProgress.setInitSteps(
       this.rendererBackend === 'webgl' ? WEBGL2_INIT_STEPS : WEBGPU_INIT_STEPS,
@@ -124,7 +149,7 @@ export class BespokeSynthApp {
 
     setupRendererPanel({
       rendererBackend: this.rendererBackend,
-      audioBackendId: this.audioBackendId,
+      audioBackendChoice: this.audioBackendChoice,
       getModule: () => this.module,
       onScreenshot: () => void this.captureScreenshot(),
       onSavePatch: () => {
@@ -136,7 +161,7 @@ export class BespokeSynthApp {
       onImportSample: () => {
         if (!this.module) return;
         void promptForAudioFile(this.module).then((id) => {
-          this.patchStatusHelpers.showPatchStatus(id >= 0 ? 'Sample loaded' : 'Sample import failed');
+          this.patchStatusHelpers.showPatchStatus(id >= 0 ? 'Imported' : 'Import failed');
         });
       },
       onExportWav: () => {
@@ -150,6 +175,7 @@ export class BespokeSynthApp {
       onToggleInput: () => {
         void this.toggleInputCapture();
       },
+      live: this.live,
     });
 
     const controls = document.querySelector('#header .controls');
@@ -167,13 +193,17 @@ export class BespokeSynthApp {
         showPatchStatus: (message, durationMs) => this.patchStatusHelpers.showPatchStatus(message, durationMs),
       });
       this.refreshPatchList = patchBindings.refreshPatchList;
+      this.scriptPanel = setupScriptPanel(controls, () => this.module, this.live);
     }
 
     setupKeyboardShortcuts(this.rendererBackend, () => void this.captureScreenshot());
 
     if (isDebugRequested()) {
       setupFloatingRendererToggle(this.rendererBackend);
-      setupAudioHealthHud(() => this.module);
+      setupAudioHealthHud(
+        () => this.module,
+        () => this.getAudioRingStats(),
+      );
     }
 
     const statusSubheader = document.querySelector('#status .status-subheader');
@@ -193,6 +223,8 @@ export class BespokeSynthApp {
 
       const backendCode = this.rendererBackend === 'webgl' ? 1 : 0;
       this.module._bespoke_set_renderer_backend?.(backendCode);
+      // Persists across the WebGL2 retry: the font mode lives outside the renderer.
+      this.module._bespoke_set_font_mode?.(isPixelFontRequested() ? 1 : 0);
       this.module._bespoke_set_webgl_preserve_drawing_buffer?.(
         this.shouldPreserveWebGLDrawingBuffer() ? 1 : 0,
       );
@@ -262,18 +294,15 @@ export class BespokeSynthApp {
   private startHostLoop(): void {
     if (!this.canvas || !this.module || this.renderLoop) return;
 
-    this.guiOverlay = document.getElementById('gui-overlay');
     installInputBridge(this.canvas, this.module, {
       onPlay: () => void this.startPlayback(),
       onStop: () => this.stopPlayback(),
+      piano: this.live.piano,
     });
 
     this.renderLoop = startRenderLoop({
       module: this.module,
       canvas: this.canvas,
-      syncOverlay: (module) => {
-        syncControlOverlays(module, this.guiOverlay, this.labelElements);
-      },
     });
 
     installSampleDropTarget(this.canvas, () => this.module, (message) => {
@@ -447,9 +476,13 @@ export class BespokeSynthApp {
   private applyPostInitOptions(): void {
     if (!this.module) return;
 
-    if (isRenderTestRequested()) {
-      this.module._bespoke_set_render_test_mode?.(1);
-      console.log('Render test mode: canonical scene loaded (?renderTest=1)');
+    this.scriptPanel?.attach(this.module);
+    if (this.live.enableClockIfRequested()) console.log('MIDI clock out enabled (?midiClock=1)');
+
+    const renderTestScene = getRenderTestScene();
+    if (renderTestScene > 0) {
+      this.module._bespoke_set_render_test_mode?.(renderTestScene);
+      console.log(`Render test mode: scene ${renderTestScene} loaded (?renderTest=${renderTestScene})`);
     }
 
     if (new URLSearchParams(window.location.search).get('patch') === 'starter') {
@@ -469,15 +502,15 @@ export class BespokeSynthApp {
     if (rendererSelect) rendererSelect.value = activeBackend;
 
     this.module._bespoke_set_audio_backend_id?.(this.audioBackendId === 'worklet' ? 1 : 0);
-    if (this.audioBackendId === 'worklet') {
-      const gate = canUseWorkletRingBackend();
-      console.log(
-        gate.ok
-          ? 'Audio backend: worklet (SAB ring) — starts on Play'
-          : `Audio backend: worklet requested but unavailable (${gate.reason}); Play will fall back to SDL2`,
-      );
+    const choice = this.audioBackendChoice;
+    if (choice.backend === 'worklet') {
+      console.log(`Audio backend: worklet (SAB ring, ${choice.source}) — starts on Play`);
+    } else if (choice.fallbackReason) {
+      const message = `Audio: SDL2 fallback — AudioWorklet unavailable: ${choice.fallbackReason}`;
+      console.warn(message);
+      this.patchStatusHelpers.showPatchStatus(message, 8000);
     } else {
-      console.log('Audio backend: SDL2 (default)');
+      console.log(`Audio backend: SDL2 (${choice.source})`);
     }
 
     if (isAudioWorkletPocRequested()) {

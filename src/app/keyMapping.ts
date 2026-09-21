@@ -16,3 +16,11 @@ export function keyboardEventToWasmKeyCode(e: KeyboardEvent): number {
   if (e.key.length === 1) return e.key.toUpperCase().charCodeAt(0);
   return e.keyCode || e.which || 0;
 }
+
+/** True when the event target takes text (the canvas must not see those keys). */
+export function isEditableTarget(target: EventTarget | null): boolean {
+  if (!target || typeof (target as Element).tagName !== 'string') return false;
+  const element = target as HTMLElement;
+  const tag = element.tagName.toUpperCase();
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || element.isContentEditable === true;
+}

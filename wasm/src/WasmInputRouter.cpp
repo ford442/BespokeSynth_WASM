@@ -19,6 +19,7 @@ namespace bespoke::wasm
       int mouseX = 0;
       int mouseY = 0;
       bool mouseDown = false;
+      int activePointer = -1;
 
       const char* panelName(int index)
       {
@@ -33,6 +34,35 @@ namespace bespoke::wasm
          const int previous = state.currentPanel;
          state.currentPanel = index;
          std::printf("DEBUG [Panel Switch] From:%s To:%s\n", panelName(previous), panelName(index));
+      }
+
+      void routeMouseDownWithModifiers(int x, int y, int button, int modifiers)
+      {
+         auto& state = runtimeState();
+         mouseDown = true;
+         mouseX = x;
+         mouseY = y;
+         if (state.viewMode == 0 && state.canvas)
+         {
+            state.canvas->onMouseDown(static_cast<float>(x), static_cast<float>(y), button, modifiers);
+            return;
+         }
+         if (y >= 70 && y <= 105)
+            for (int index = 0; index < kPanelCount; ++index)
+               if (x >= 20 + index * 155 && x <= 170 + index * 155)
+               {
+                  selectPanel(state, index);
+                  return;
+               }
+         for (size_t index = 0; index < state.knobs.size(); ++index)
+         {
+            const float knobX = kKnobStartX + index * kKnobSpacing;
+            if (state.knobs[index]->hitTest(static_cast<float>(x), static_cast<float>(y), knobX, kKnobStartY, kKnobSize))
+            {
+               state.knobs[index]->onMouseDown(static_cast<float>(x), static_cast<float>(y), knobX, kKnobStartY, kKnobSize);
+               break;
+            }
+         }
       }
    }
 
@@ -57,31 +87,49 @@ namespace bespoke::wasm
 
    void routeMouseDown(int x, int y, int button)
    {
-      auto& state = runtimeState();
-      mouseDown = true;
-      mouseX = x;
-      mouseY = y;
-      if (state.viewMode == 0 && state.canvas)
-      {
-         state.canvas->onMouseDown(static_cast<float>(x), static_cast<float>(y), button);
+      routeMouseDownWithModifiers(x, y, button, 0);
+   }
+
+   void routePointerDown(int pointerId, int x, int y, int button, int modifiers)
+   {
+      if (activePointer >= 0 && activePointer != pointerId)
          return;
-      }
-      if (y >= 70 && y <= 105)
-         for (int index = 0; index < kPanelCount; ++index)
-            if (x >= 20 + index * 155 && x <= 170 + index * 155)
-            {
-               selectPanel(state, index);
-               return;
-            }
-      for (size_t index = 0; index < state.knobs.size(); ++index)
-      {
-         const float knobX = kKnobStartX + index * kKnobSpacing;
-         if (state.knobs[index]->hitTest(static_cast<float>(x), static_cast<float>(y), knobX, kKnobStartY, kKnobSize))
-         {
-            state.knobs[index]->onMouseDown(static_cast<float>(x), static_cast<float>(y), knobX, kKnobStartY, kKnobSize);
-            break;
-         }
-      }
+      activePointer = pointerId;
+      routeMouseDownWithModifiers(x, y, button, modifiers);
+   }
+
+   void routePointerMove(int pointerId, int x, int y)
+   {
+      // Hover (no pointer down) still updates the cursor position for "/" spawn.
+      if (activePointer >= 0 && activePointer != pointerId)
+         return;
+      routeMouseMove(x, y);
+   }
+
+   void routePointerUp(int pointerId, int x, int y, int button)
+   {
+      if (activePointer != pointerId)
+         return;
+      activePointer = -1;
+      routeMouseUp(x, y, button);
+   }
+
+   void routePointerCancel(int pointerId)
+   {
+      if (activePointer != pointerId)
+         return;
+      activePointer = -1;
+      mouseDown = false;
+      auto& state = runtimeState();
+      if (state.canvas)
+         state.canvas->cancelPointerInteraction();
+      for (auto& knob : state.knobs)
+         knob->onMouseUp();
+   }
+
+   int activePointerId()
+   {
+      return activePointer;
    }
 
    void routeMouseUp(int x, int y, int button)

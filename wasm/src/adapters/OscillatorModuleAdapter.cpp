@@ -3,6 +3,8 @@
  */
 
 #include "BespokeWasm/adapters/OscillatorModuleAdapter.h"
+#include "BespokeWasm/DspSimd.h"
+#include "BespokeWasm/TuningTable.h"
 #include "BespokeWasm/VoiceAllocator.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
@@ -16,6 +18,8 @@ namespace bespoke
       namespace
       {
          constexpr float kTwoPi = 6.28318530717958647692f;
+         // Voices render into a stack scratch chunk, then mix with a SIMD accumulate.
+         constexpr int kVoiceChunk = 64;
 
          float clampFloat(float value, float minValue, float maxValue)
          {
@@ -42,11 +46,6 @@ namespace bespoke
             const OscillatorType type = waveformType(waveform);
             state.oscillatorType = type;
             state.oscillator.SetType(type);
-         }
-
-         float midiFrequency(int pitch)
-         {
-            return 440.0f * std::pow(2.0f, (pitch - 69) / 12.0f);
          }
 
          float renderSample(OscillatorAdapterRuntimeState& state, float& phase, float frequency, float sampleRate)
@@ -125,7 +124,7 @@ namespace bespoke
                   voice->gated = true;
                   voice->pitch = note.pitch;
                   voice->velocity = clampFloat(note.velocity, 0.0f, 1.0f);
-                  voice->frequency = midiFrequency(note.pitch);
+                  voice->frequency = noteFrequency(context.noteFrequencies, note.pitch);
                   state.hasReceivedNote = true;
                }
                else if (OscillatorVoice* voice =
@@ -142,7 +141,8 @@ namespace bespoke
          if (!useVoices)
          {
             for (int i = 0; i < context.numSamples; ++i)
-               buffer[i] = renderSample(state, state.freeRunPhase, params.frequency, context.sampleRate) * volume;
+               buffer[i] = renderSample(state, state.freeRunPhase, params.frequency, context.sampleRate);
+            dsp::scale(buffer, context.numSamples, volume);
             return;
          }
 
@@ -172,8 +172,14 @@ namespace bespoke
             if (!voice.gated)
                continue;
             const float level = voice.velocity * volume;
-            for (int i = 0; i < context.numSamples; ++i)
-               buffer[i] += renderSample(state, voice.phase, voice.frequency, context.sampleRate) * level;
+            float scratch[kVoiceChunk];
+            for (int start = 0; start < context.numSamples; start += kVoiceChunk)
+            {
+               const int count = std::min(kVoiceChunk, context.numSamples - start);
+               for (int i = 0; i < count; ++i)
+                  scratch[i] = renderSample(state, voice.phase, voice.frequency, context.sampleRate);
+               dsp::accumulateScaled(buffer + start, scratch, count, level);
+            }
          }
       }
 

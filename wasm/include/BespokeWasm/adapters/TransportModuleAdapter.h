@@ -40,7 +40,9 @@ namespace bespoke
                                      double beatEnd,
                                      WasmPulseEvent* outPulses,
                                      int maxPulses,
-                                     int& outCount) const override;
+                                     int& outCount,
+                                     const WasmPulseEvent* inputPulses,
+                                     int inputPulseCount) const override;
       };
 
    } // namespace wasm

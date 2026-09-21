@@ -5,9 +5,11 @@
  * Licensed under GNU GPL v3
  */
 
+#include "BespokeWasm/ScriptNoteQueue.h"
 #include "BespokeWasm/WasmBridge.h"
 #include "BespokeWasm/WasmBridgeInternal.h"
 #include "BespokeWasm/Renderer2D.h"
+#include "BespokeWasm/SdfFont.h"
 #include "BespokeWasm/WebGPUContext.h"
 #include "BespokeWasm/WebGL2Context.h"
 #include "BespokeWasm/SDL2AudioBackend.h"
@@ -96,6 +98,13 @@ namespace bespoke
          state.audioGraphEngine = std::make_unique<AudioGraphEngine>();
          state.audioGraphEngine->prepareForBlock(std::max(bufferSize, 2048), 128, 32);
          prepareWasmAudioScratch(std::max(bufferSize, 2048));
+         // Size engine runtime state on every publish (spawn/delete/undo), so
+         // processBlock never grows an arena inside the audio callback.
+         state.canvas->setSnapshotListener([](const AudioGraphSnapshot& graph)
+                                           {
+                                              if (auto* engine = runtimeState().audioGraphEngine.get())
+                                                 engine->prepareRuntimeStates(graph);
+                                           });
 
          const int oscId = state.canvas->createModule("oscillator", 100, 150);
          const int filterId = state.canvas->createModule("filter", 300, 155);
@@ -131,6 +140,9 @@ namespace bespoke
                lfo->setControlValue("depth", 0.35f);
             }
          }
+
+         // The default patch is the starting point, not an undoable edit.
+         state.canvas->clearUndoHistory();
 
          state.initState = InitState::FullyInitialized;
          state.initialized = true;
@@ -327,6 +339,7 @@ EMSCRIPTEN_KEEPALIVE void bespoke_shutdown(void)
    state.knobs.clear();
    state.canvas.reset();
    state.audioGraphEngine.reset();
+   resetScriptNoteQueues();
    state.renderer.reset();
    state.context.reset();
    state.webGL2Context.reset();
@@ -369,6 +382,17 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_renderer_backend(int backend)
    auto& state = runtimeState();
    if (state.initState == InitState::NotStarted)
       state.rendererBackend = (backend == 1) ? RendererBackendType::WebGL2 : RendererBackendType::WebGPU;
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_font_mode(int mode)
+{
+   if (runtimeState().initState == InitState::NotStarted)
+      setUiFontMode(mode == 1 ? UiFontMode::Pixel : UiFontMode::Sdf);
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_font_mode(void)
+{
+   return useSdfTextForFace(nullptr) ? 0 : 1;
 }
 
 EMSCRIPTEN_KEEPALIVE int bespoke_is_webgl2_supported(void)

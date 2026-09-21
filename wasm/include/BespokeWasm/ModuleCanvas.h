@@ -13,7 +13,9 @@
 #include "BespokeWasm/Module.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include "BespokeWasm/Renderer2D.h"
+#include "BespokeWasm/UndoStack.h"
 #include <atomic>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -75,13 +77,50 @@ namespace bespoke
          Module* getModule(int moduleId);
          int findFirstModuleOfType(const std::string& type) const;
          int getModuleCount() const { return static_cast<int>(mModules.size()); }
-         bool setModuleControlValue(int moduleId, const std::string& name, float value);
+         /** recordUndo=false for MIDI CC / script automation (not user edits). */
+         bool setModuleControlValue(int moduleId, const std::string& name, float value, bool recordUndo = true);
          bool getModuleControlValue(int moduleId, const std::string& name, float& value) const;
          bool setModuleStringProperty(int moduleId, const std::string& name, const std::string& value);
          bool getModuleStringProperty(int moduleId, const std::string& name, std::string& value) const;
          bool applyMidiCc(int channel, int cc, float value);
          int midiNoteChannel() const;
          void setMidiNoteChannel(int channel);
+
+         /**
+          * MIDI learn: the next CC (any channel) binds to this control. Arming
+          * with an empty name picks the module's first serialized control.
+          */
+         bool armMidiLearn(int moduleId, const std::string& controlName);
+         /** Shift-click entry point: arms the control under a screen point. */
+         bool armMidiLearnAt(float screenX, float screenY);
+         void cancelMidiLearn();
+         bool isMidiLearnArmed() const;
+         int midiLearnModuleId() const;
+         std::string midiLearnControl() const;
+         bool removeMidiCcBinding(int moduleId, const std::string& controlName);
+         std::vector<MidiCcBinding> midiCcMap() const;
+         /** UI range of a control (module override, else a name-based fallback, else 0..1). */
+         void controlRangeFor(int moduleId, const std::string& name, float& minValue, float& maxValue) const;
+
+         // Undo / redo: structured commands (UndoStack.h), 50 steps.
+         bool undo();
+         bool redo();
+         int undoDepth() const;
+         int redoDepth() const;
+         void clearUndoHistory();
+
+         /** Script modules are hidden from the spawn menu unless ?script=1 enabled them. */
+         void setScriptingEnabled(bool enabled);
+         bool isScriptingEnabled() const;
+         bool hasOutgoingConnection(int moduleId) const;
+
+         /**
+          * Called on the UI thread after every snapshot publish, before audio can
+          * observe it. The runtime uses it to pre-size engine state so structural
+          * edits (spawn, undo) never allocate inside the audio callback.
+          */
+         using SnapshotListener = std::function<void(const AudioGraphSnapshot&)>;
+         void setSnapshotListener(SnapshotListener listener);
 
          void connectModules(int sourceId, int sourcePort, int destId, int destPort);
          void disconnectModules(int sourceId, int destId);
@@ -110,8 +149,14 @@ namespace bespoke
          void renderTitleBar(Renderer2D& renderer, int viewWidth);
          void renderSpawnMenu(Renderer2D& renderer, int viewWidth, int viewHeight);
 
-         void onMouseDown(float x, float y, int button);
+         void onMouseDown(float x, float y, int button) { onMouseDown(x, y, button, 0); }
+         /** modifiers: 1 shift, 2 alt, 4 ctrl, 8 meta (same bits as key events). */
+         void onMouseDown(float x, float y, int button, int modifiers);
          void onMouseUp(float x, float y, int button);
+         /** Touch long-press: opens the spawn menu on empty canvas. */
+         void onLongPress(float x, float y);
+         /** Abandon the active drag/cable/pan without committing (e.g. a second finger landed). */
+         void cancelPointerInteraction();
          void onMouseMove(float x, float y, float prevX, float prevY);
          void onMouseWheel(float deltaX, float deltaY, float mouseX, float mouseY);
          void onKeyDown(int keyCode, int modifiers);
@@ -121,6 +166,8 @@ namespace bespoke
          void clearUserModules();
          void setViewTransform(float offsetX, float offsetY, float scale);
          void setupCanonicalRenderTestScene();
+         /** ?renderTest=2: transport → drumseq → kick/snare/hat → mixer → compressor → output. */
+         void setupDrumRenderTestScene();
 
          bool isSpawnMenuOpen() const { return mSpawnMenuOpen; }
          void openSpawnMenu(float x, float y);
@@ -138,6 +185,28 @@ namespace bespoke
 
       private:
          using Lock = std::lock_guard<std::recursive_mutex>;
+
+         /** Scoped: edits inside (patch load, scenes, undo itself) are not recorded. */
+         struct UndoSuppressor
+         {
+            explicit UndoSuppressor(int& depth)
+            : mDepth(depth)
+            {
+               ++mDepth;
+            }
+            ~UndoSuppressor() { --mDepth; }
+            int& mDepth;
+         };
+
+         int createModuleWithIdLocked(const std::string& type, float x, float y, int id);
+         bool connectLocked(int sourceId, int sourcePort, int destId, int destPort);
+         void deleteModuleLocked(int moduleId);
+         UndoModuleState captureModuleLocked(const Module& module) const;
+         void restoreModuleLocked(const UndoModuleState& state);
+         void recordLocked(UndoCommand command, bool coalesce = false);
+         void applyCommandLocked(const UndoCommand& command, bool forward);
+         void commitGestureLocked();
+         void renderMidiOverlay(Renderer2D& renderer, int viewWidth, float canvasTop);
 
          float screenToWorldX(float screenX) const;
          float screenToWorldY(float screenY) const;
@@ -182,6 +251,17 @@ namespace bespoke
          std::vector<MidiCcBinding> mMidiCcMap;
          int mMidiNoteChannel = -1;
          bool mMidiMapFromPatch = false;
+
+         UndoStack mUndoStack;
+         int mUndoSuppressDepth = 0;
+         // Gesture capture (committed as one undo step on mouse-up).
+         std::map<std::string, float> mGestureControls;
+         float mGestureStartX = 0.0f, mGestureStartY = 0.0f;
+
+         int mMidiLearnModuleId = -1;
+         std::string mMidiLearnControl;
+         bool mScriptingEnabled = false;
+         SnapshotListener mSnapshotListener;
 
          mutable std::shared_ptr<const AudioGraphSnapshot> mPublishedAudioGraph;
 

@@ -148,12 +148,34 @@ namespace bespoke
          return std::max(15.0f * scale, textLineSpacing(labelFont, scale));
       }
 
+      namespace
+      {
+         std::vector<std::string>& hiddenSpawnTypes()
+         {
+            static std::vector<std::string> hidden;
+            return hidden;
+         }
+      }
+
+      void setSpawnMenuTypeHidden(const std::string& type, bool hidden)
+      {
+         auto& list = hiddenSpawnTypes();
+         auto it = std::find(list.begin(), list.end(), type);
+         if (hidden && it == list.end())
+            list.push_back(type);
+         else if (!hidden && it != list.end())
+            list.erase(it);
+      }
+
       std::vector<ModuleTypeInfo> spawnMenuTypes(int category, const std::string& query)
       {
          std::vector<ModuleTypeInfo> result;
+         const auto& hidden = hiddenSpawnTypes();
          for (const auto& type : WasmModuleAdapterRegistry::instance().registeredTypes())
          {
             if (type.type == "transport" || type.type == "scale")
+               continue;
+            if (std::find(hidden.begin(), hidden.end(), type.type) != hidden.end())
                continue;
             if (category >= 0 && static_cast<int>(type.category) != category)
                continue;

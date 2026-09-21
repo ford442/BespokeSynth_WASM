@@ -47,12 +47,21 @@ namespace bespoke
          float velocity = 0.0f;
          bool isNoteOn = false;
          int channel = 0;
+         /** Ordinal among the source's Note outputs (multi-output sources like drumseq). */
+         int outputPort = 0;
       };
 
       struct WasmPulseEvent
       {
          double timeBeats = 0.0;
          float strength = 1.0f;
+      };
+
+      /** One incoming audio cable, tagged with the destination input port index. */
+      struct WasmAudioInput
+      {
+         const float* buffer = nullptr;
+         int port = 0;
       };
 
       struct WasmAudioProcessContext
@@ -65,10 +74,14 @@ namespace bespoke
          float bpm = 120.0f;
          const float* modulationBuffer = nullptr;
          const float* inputAudio = nullptr;
+         const WasmAudioInput* audioInputs = nullptr;
+         int audioInputCount = 0;
          const WasmNoteEvent* notes = nullptr;
          int noteCount = 0;
          const WasmPulseEvent* pulses = nullptr;
          int pulseCount = 0;
+         /** MIDI note → Hz from the Scale module (128 entries); null means 12-TET. */
+         const float* noteFrequencies = nullptr;
          bool hasNoteCable = false;
          bool hasPulseCable = false;
          bool hasAudioInput = false;
@@ -78,6 +91,22 @@ namespace bespoke
       {
          auto it = controls.find(name);
          return it != controls.end() ? it->second : fallback;
+      }
+
+      /** dst[i] += every cable into input `port`. Returns false when that port has no cable. */
+      inline bool accumulateAudioInputPort(const WasmAudioProcessContext& context, int port, float* dst)
+      {
+         bool any = false;
+         for (int c = 0; c < context.audioInputCount; ++c)
+         {
+            const WasmAudioInput& input = context.audioInputs[c];
+            if (input.port != port || !input.buffer)
+               continue;
+            for (int i = 0; i < context.numSamples; ++i)
+               dst[i] += input.buffer[i];
+            any = true;
+         }
+         return any;
       }
 
       class WasmModuleAdapter
@@ -90,6 +119,13 @@ namespace bespoke
          virtual ModuleCategory category() const = 0;
          virtual bool isSingleton() const { return false; }
          virtual WasmAudioRole audioRole() const { return WasmAudioRole::None; }
+         /**
+          * true: the engine sums every audio cable into `buffer` before processAudio.
+          * false: `buffer` arrives zeroed and the adapter reads context.audioInputs per port.
+          */
+         virtual bool sumsAudioInputs() const { return true; }
+         /** NoteSource output is snapped to the graph Scale unless this returns false. */
+         virtual bool quantizesNotesToScale() const { return true; }
 
          virtual std::vector<WasmControlDescriptor> controlDescriptors() const = 0;
          virtual std::vector<PortDescriptor> inputPorts() const { return {}; }
@@ -155,7 +191,9 @@ namespace bespoke
                                              double beatEnd,
                                              WasmPulseEvent* outPulses,
                                              int maxPulses,
-                                             int& outCount) const
+                                             int& outCount,
+                                             const WasmPulseEvent* inputPulses = nullptr,
+                                             int inputPulseCount = 0) const
          {
             (void)runtimeState;
             (void)params;
@@ -163,6 +201,8 @@ namespace bespoke
             (void)beatEnd;
             (void)outPulses;
             (void)maxPulses;
+            (void)inputPulses;
+            (void)inputPulseCount;
             outCount = 0;
          }
       };

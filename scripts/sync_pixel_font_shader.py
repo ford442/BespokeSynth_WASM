@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync pixel_font_glyphs.inc into WebGPURenderer.cpp and render2d.wgsl."""
+"""Sync pixel_font_glyphs.inc into render2d.wgsl (embedded into the WASM binary at build time)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 INC = ROOT / "wasm/include/BespokeWasm/pixel_font_glyphs.inc"
-WGSL_CPP = ROOT / "wasm/src/WebGPURenderer.cpp"
 WGSL_REF = ROOT / "wasm/shaders/render2d.wgsl"
 
 BEGIN = "// @pixel-font-glyph-data-begin"
@@ -75,7 +74,7 @@ def main() -> int:
 
     block = format_wgsl_block(values)
 
-    for path in (WGSL_CPP, WGSL_REF):
+    for path in (WGSL_REF,):
         original = path.read_text(encoding="utf-8")
         updated = replace_block(original, block)
         if updated != original:

@@ -1,7 +1,9 @@
 /**
- * BespokeSynth WASM - Schroeder reverb adapter + canvas UI
+ * BespokeSynth WASM - Freeverb reverb adapter + canvas UI
  *
- * Demonstrates the self-contained adapter pattern: one header, one source.
+ * DSP is libs/freeverb (public domain, Jezar at Dreampoint), the same kernel
+ * the desktop FreeverbEffect wraps. The desktop effect class itself is not
+ * compiled (IDrawableModule closure).
  */
 
 #include "BespokeWasm/adapters/ReverbModuleAdapter.h"
@@ -12,6 +14,8 @@
 #include <cstdio>
 #include <cstring>
 #include <new>
+
+#include "revmodel.hpp"
 
 namespace bespoke
 {
@@ -24,10 +28,20 @@ namespace bespoke
             return std::max(minValue, std::min(maxValue, value));
          }
 
-         // Comb lengths at 44.1 kHz (Freeverb-style tunings, first four).
-         constexpr int kCombTunings441[] = { 1116, 1188, 1277, 1356 };
-         constexpr int kAllpassTunings441[] = { 556, 441 };
+         constexpr int kChunk = 64;
       }
+
+      /**
+       * revmodel points its combs/allpasses at its own member buffers, so it must
+       * not be byte-moved. The engine's runtime arena can reallocate when a module
+       * is added; `boundTo` detects that and the model is rebuilt in place (the
+       * tail restarts, nothing dangles).
+       */
+      struct ReverbAdapterRuntimeState
+      {
+         revmodel model;
+         const void* boundTo = nullptr;
+      };
 
       ReverbModule::ReverbModule(int id)
       : Module(id, "reverb", "Reverb", ModuleCategory::AudioEffect)
@@ -117,9 +131,15 @@ namespace bespoke
          params->mix = wasmControlValue(controls, "mix", 0.35f);
       }
 
+      size_t ReverbModuleAdapter::runtimeStateSize() const
+      {
+         return sizeof(ReverbAdapterRuntimeState);
+      }
+
       void ReverbModuleAdapter::initRuntimeState(void* runtimeState) const
       {
-         new (runtimeState) ReverbAdapterRuntimeState();
+         auto* state = new (runtimeState) ReverbAdapterRuntimeState();
+         state->boundTo = state;
       }
 
       void ReverbModuleAdapter::destroyRuntimeState(void* runtimeState) const
@@ -135,62 +155,43 @@ namespace bespoke
          if (!runtimeState || !paramsPtr || !buffer)
             return;
 
-         auto& state = *static_cast<ReverbAdapterRuntimeState*>(runtimeState);
-         const auto& params = *static_cast<const ReverbParams*>(paramsPtr);
-         const float sampleRate = std::max(1.0f, context.sampleRate);
-         const float rateScale = sampleRate / 44100.0f;
-
-         if (state.lastSampleRate != sampleRate)
+         auto* state = static_cast<ReverbAdapterRuntimeState*>(runtimeState);
+         if (state->boundTo != state)
          {
-            std::memset(&state, 0, sizeof(state));
-            for (int i = 0; i < ReverbAdapterRuntimeState::kCombCount; ++i)
-            {
-               const int size = std::max(16, std::min(ReverbAdapterRuntimeState::kMaxComb,
-                                                      static_cast<int>(kCombTunings441[i] * rateScale)));
-               state.combSize[i] = size;
-            }
-            for (int i = 0; i < ReverbAdapterRuntimeState::kAllpassCount; ++i)
-            {
-               const int size = std::max(16, std::min(ReverbAdapterRuntimeState::kMaxAllpass,
-                                                      static_cast<int>(kAllpassTunings441[i] * rateScale)));
-               state.allpassSize[i] = size;
-            }
-            state.lastSampleRate = sampleRate;
+            // Relocated by an arena grow: the old object's pointers are stale, so
+            // construct over it without running its destructor (it owns nothing).
+            state = new (runtimeState) ReverbAdapterRuntimeState();
+            state->boundTo = state;
          }
-
+         const auto& params = *static_cast<const ReverbParams*>(paramsPtr);
          const float room = clampFloat(params.roomSize, 0.0f, 1.0f);
          const float damp = clampFloat(params.damping, 0.0f, 1.0f);
          const float mix = clampFloat(params.mix, 0.0f, 1.0f);
-         const float feedback = 0.28f + room * 0.56f;
 
-         for (int n = 0; n < context.numSamples; ++n)
+         // Freeverb's own mapping: room → comb feedback 0.7..0.98, damp → 0..0.4 (setdamp takes %).
+         revmodel& model = state->model;
+         model.setroomsize(offsetroom + room * scaleroom);
+         model.setdamp(damp * 100.0f);
+         model.setwidth(100.0f);
+         model.setwet(1.0f);
+         model.setdry(0.0f);
+         model.update();
+
+         // Mono graph: the same signal feeds both inputs (freeverb sums L+R, so the input is
+         // doubled) and the decorrelated outputs are averaged. The 0.5 undoes the doubling;
+         // with scalewet that puts 100% wet at roughly 0.7x the input RMS on white noise.
+         const float wetGain = mix * scalewet * 0.5f;
+         const float dryGain = 1.0f - mix;
+         float in[kChunk];
+         float outL[kChunk];
+         float outR[kChunk];
+         for (int start = 0; start < context.numSamples; start += kChunk)
          {
-            const float input = buffer[n];
-            float acc = 0.0f;
-            for (int c = 0; c < ReverbAdapterRuntimeState::kCombCount; ++c)
-            {
-               const int size = std::max(1, state.combSize[c]);
-               int& index = state.combIndex[c];
-               float output = state.comb[c][index];
-               state.combFilter[c] = output * (1.0f - damp) + state.combFilter[c] * damp;
-               state.comb[c][index] = input + state.combFilter[c] * feedback;
-               index = (index + 1) % size;
-               acc += output;
-            }
-            acc *= 0.25f;
-
-            for (int a = 0; a < ReverbAdapterRuntimeState::kAllpassCount; ++a)
-            {
-               const int size = std::max(1, state.allpassSize[a]);
-               int& index = state.allpassIndex[a];
-               const float bufOut = state.allpass[a][index];
-               const float ret = acc + bufOut * 0.5f;
-               state.allpass[a][index] = acc + bufOut * -0.5f;
-               index = (index + 1) % size;
-               acc = ret;
-            }
-
-            buffer[n] = input * (1.0f - mix) + acc * mix;
+            const int count = std::min(kChunk, context.numSamples - start);
+            std::memcpy(in, buffer + start, static_cast<size_t>(count) * sizeof(float));
+            model.processreplace(in, in, outL, outR, count, 1);
+            for (int i = 0; i < count; ++i)
+               buffer[start + i] = in[i] * dryGain + (outL[i] + outR[i]) * 0.5f * wetGain;
          }
       }
 

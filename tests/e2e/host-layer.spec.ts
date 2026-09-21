@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { gotoApp, waitForBespokeReady } from './helpers';
 
 test.describe('Host layer single path', () => {
-  test('one mousedown produces exactly one WASM mouse_down call', async ({ page }) => {
+  test('one pointerdown produces exactly one WASM pointer-down call', async ({ page }) => {
     await gotoApp(page);
     await waitForBespokeReady(page);
 
@@ -19,9 +19,24 @@ test.describe('Host layer single path', () => {
       if (!canvas) throw new Error('canvas missing');
 
       const rect = canvas.getBoundingClientRect();
+      // Mouse input arrives as Pointer Events (mouse/touch/pen share one path).
       canvas.dispatchEvent(
-        new MouseEvent('mousedown', {
+        new PointerEvent('pointerdown', {
           bubbles: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+          isPrimary: true,
+          clientX: rect.left + 40,
+          clientY: rect.top + 40,
+          button: 0,
+        }),
+      );
+      canvas.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+          isPrimary: true,
           clientX: rect.left + 40,
           clientY: rect.top + 40,
           button: 0,

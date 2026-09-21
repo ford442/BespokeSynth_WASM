@@ -265,6 +265,8 @@ The `Knob` class supports multiple visual styles:
 | `BESPOKE_WASM_SDL2_AUDIO` | ON | Enable SDL2 audio backend |
 | `BESPOKE_WASM_THREADS` | OFF | Enable threading (experimental) |
 | `BESPOKE_WASM_ASYNCIFY` | OFF | Enable Asyncify only for a future async C++ call stack |
+| `BESPOKE_WASM_SIMD` | ON | `-msimd128` + SIMD DSP kernels (`DspSimd.h`); scalar fallback when OFF |
+| `BESPOKE_WASM_LTO` | ON | `-flto` for the Release flavor; OFF shortens link time |
 | `BESPOKE_WASM_BUILD_FLAVOR` | Release | Release, Debug, or Profile flags and assertions |
 
 ### Build-size comparison

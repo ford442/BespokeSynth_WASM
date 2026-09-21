@@ -43,6 +43,7 @@ const char* gl2FaderCapFragmentSrc();
 
 const char* gl2PixelTextFragmentPrefix();
 const char* gl2PixelTextFragmentSuffix();
+const char* gl2SdfTextFragmentSrc();
 
 } // namespace wasm
 } // namespace bespoke

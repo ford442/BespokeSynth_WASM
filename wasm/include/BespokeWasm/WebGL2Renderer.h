@@ -21,6 +21,7 @@ enum class GLPipelineKind
 {
    Solid,
    PixelText,
+   SdfText,
    KnobHighlight,
    DialTicks,
    WireGlow,
@@ -143,6 +144,9 @@ private:
       GLint uTime = -1;
    };
 
+   bool sdfTextActive() const;
+   void createTextAtlas();
+
    struct DrawCall
    {
       GLPipelineKind pipeline;
@@ -182,6 +186,7 @@ private:
 
    GLuint mVertexBuffer = 0;
    GLuint mVertexArray = 0;
+   GLuint mAtlasTexture = 0; ///< SdfFont atlas (R8), bound to unit 0 for SdfText
 
    GLPipelineKind mCurrentPipeline = GLPipelineKind::Solid;
 

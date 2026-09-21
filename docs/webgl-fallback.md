@@ -105,21 +105,30 @@ Canonical scene for PNG diffing:
 ```
 
 ```js
-Module._bespoke_set_render_test_mode(1);
-Module._bespoke_get_render_test_mode(); // 1 when active
+Module._bespoke_set_render_test_mode(1);   // 2 = drum bus scene (?renderTest=2)
+Module._bespoke_get_render_test_mode();    // active scene id, 0 when off
+window.__bespoke.getRenderTestScene();     // same, from the public API
 ```
+
+`?renderTest=2` loads the second fixture: drumseq → kick/snare/hat → mixer → compressor → output.
 
 Opens `wasm/render_test.html` for quick links. Modules placed at fixed positions with known control values and cable colors.
 
-## Pixel Font / Label Fixes
+## Text: SDF atlas + pixel font
 
-Both backends share `PixelFont.cpp` and `pixel_font_glyphs.inc`:
+UI text on both backends draws from one SDF atlas (`SdfFont`, `wasm/resource-pack/fonts/ui_font.bsdf`).
+WebGPU samples it in `fs_sdf_text` and WebGL2 in `gl2SdfTextFragmentSrc()`, both as an R8 texture.
+Layout and `textWidth()` share `SdfFont::layout`/`textWidth` and use the pixel font's baseline
+convention (`kPixelFontBaselineRatio`, `textHeight() == fontSize`).
+
+The 5x7 pixel font remains for `?debugFont=pixel`, for the font regression panel (`fontFace("pixel")`),
+and as the fallback when the atlas fails to load. Both backends share `PixelFont.cpp` and `pixel_font_glyphs.inc`:
 
 - ASCII 32–126 coverage with corrected lowercase glyphs (no shuffled/copied uppercase patterns)
 - Extended glyphs: musical sharp/flat (UTF-8 U+266F/U+266D) and arrow symbols
 - No forced uppercasing in `text()`
 - Per-glyph `textWidth()` with narrower space advance and improved baseline metrics
-- WGSL reference shader kept in sync via `npm run sync:font`
+- `wasm/shaders/render2d.wgsl` glyph table kept in sync via `npm run sync:font` (embedded at build time)
 
 Visual regression overlay:
 
@@ -138,10 +147,12 @@ Pipelines wired into `WebGL2Renderer` mirror the WebGPU `drawKnob`, `drawSlider`
 
 1. Prototype in `wasm/src/WebGL2Renderer.cpp` when Playwright or manual screenshots need visible pixels.
 2. Keep uniform/state names aligned with the WebGPU equivalents in `WebGPURenderer.cpp`.
-3. Port final logic to the embedded WGSL in `WebGPURenderer.cpp` and `wasm/shaders/render2d.wgsl`.
+3. Port final logic to `wasm/shaders/render2d.wgsl` (embedded at build time by `scripts/embed_shaders.cmake`).
 4. Smoke both `?renderer=webgl` and `?renderer=webgpu` when the environment supports WebGPU.
 
 Important differences:
+
+- The docked analyzer runs its FFT in a WebGPU compute pass (`analyzer_fft.wgsl`) and draws from GPU buffers (`drawLiveWaveform`/`drawLiveSpectrum`). WebGL2 keeps the CPU path (`AudioAnalysis::computeSpectrum`). `__bespoke.getAnalyzerStats()` reports `cpuFftCount`/`gpuFftCount`.
 
 - WebGPU uses specialized WGSL fragment shaders for knobs, sliders, and spectrum views; WebGL2 uses simplified solid-color geometry plus a subset of GLSL effects.
 - WebGPU remains the source of truth for deployment-quality output.

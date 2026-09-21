@@ -34,6 +34,83 @@ namespace bespoke
                   return false;
             }
          }
+
+         /** -1 when the source has at most one Note output (no filtering), else the Note ordinal. */
+         int noteOutputOrdinal(const WasmModuleAdapter* adapter, int sourcePortIndex)
+         {
+            if (!adapter)
+               return -1;
+            int noteOutputs = 0;
+            int ordinal = -1;
+            const auto outputs = adapter->outputPorts();
+            for (int i = 0; i < static_cast<int>(outputs.size()); ++i)
+            {
+               if (outputs[static_cast<size_t>(i)].type != PortType::Note)
+                  continue;
+               if (i == sourcePortIndex)
+                  ordinal = noteOutputs;
+               ++noteOutputs;
+            }
+            return noteOutputs > 1 ? ordinal : -1;
+         }
+
+         /**
+          * Order pulse sources so pulse processors (e.g. clockdivider) run after the sources feeding
+          * them. Nodes caught in a pulse cycle keep their original relative order; the edge that
+          * closes the cycle is ignored by the engine (it only reads earlier scratch slots).
+          */
+         std::vector<int> orderPulseSources(const AudioGraphSnapshot& snapshot,
+                                            const std::vector<int>& nodeIndices,
+                                            const std::unordered_map<int, std::vector<std::pair<int, int>>>& pulseInputsByDest)
+         {
+            std::unordered_map<int, int> positionByModuleId;
+            for (int i = 0; i < static_cast<int>(nodeIndices.size()); ++i)
+               positionByModuleId[snapshot.nodes[static_cast<size_t>(nodeIndices[static_cast<size_t>(i)])].id] = i;
+
+            std::vector<int> indegree(nodeIndices.size(), 0);
+            std::vector<std::vector<int>> children(nodeIndices.size());
+            for (int i = 0; i < static_cast<int>(nodeIndices.size()); ++i)
+            {
+               const int moduleId = snapshot.nodes[static_cast<size_t>(nodeIndices[static_cast<size_t>(i)])].id;
+               auto inputs = pulseInputsByDest.find(moduleId);
+               if (inputs == pulseInputsByDest.end())
+                  continue;
+               for (const auto& [sourceId, sourcePort] : inputs->second)
+               {
+                  (void)sourcePort;
+                  auto src = positionByModuleId.find(sourceId);
+                  if (src == positionByModuleId.end() || src->second == i)
+                     continue;
+                  children[static_cast<size_t>(src->second)].push_back(i);
+                  ++indegree[static_cast<size_t>(i)];
+               }
+            }
+
+            std::vector<int> ordered;
+            std::vector<bool> placed(nodeIndices.size(), false);
+            ordered.reserve(nodeIndices.size());
+            bool progress = true;
+            while (progress)
+            {
+               progress = false;
+               for (int i = 0; i < static_cast<int>(nodeIndices.size()); ++i)
+               {
+                  if (placed[static_cast<size_t>(i)] || indegree[static_cast<size_t>(i)] != 0)
+                     continue;
+                  placed[static_cast<size_t>(i)] = true;
+                  ordered.push_back(nodeIndices[static_cast<size_t>(i)]);
+                  for (int child : children[static_cast<size_t>(i)])
+                     --indegree[static_cast<size_t>(child)];
+                  progress = true;
+               }
+            }
+            for (int i = 0; i < static_cast<int>(nodeIndices.size()); ++i)
+            {
+               if (!placed[static_cast<size_t>(i)])
+                  ordered.push_back(nodeIndices[static_cast<size_t>(i)]);
+            }
+            return ordered;
+         }
       }
 
       void compileAudioProcessPlan(const AudioGraphSnapshot& snapshot, AudioProcessPlan& plan)
@@ -56,10 +133,11 @@ namespace bespoke
                plan.nodeIndexByModuleId[static_cast<size_t>(id)] = static_cast<int>(i);
          }
 
-         std::unordered_map<int, std::vector<int>> audioInputsByDest;
+         // (source module id, port) pairs: dest input port for audio, source output port for note/pulse.
+         std::unordered_map<int, std::vector<std::pair<int, int>>> audioInputsByDest;
          std::unordered_map<int, std::vector<int>> modulationInputsByDest;
-         std::unordered_map<int, std::vector<int>> noteInputsByDest;
-         std::unordered_map<int, std::vector<int>> pulseInputsByDest;
+         std::unordered_map<int, std::vector<std::pair<int, int>>> noteInputsByDest;
+         std::unordered_map<int, std::vector<std::pair<int, int>>> pulseInputsByDest;
          std::unordered_map<int, std::vector<int>> audioChildrenBySource;
          std::unordered_map<int, int> indegree;
          std::unordered_set<int> audioModuleIds;
@@ -95,7 +173,7 @@ namespace bespoke
             if (conn.sourcePortType == PortType::Audio && conn.destPortType == PortType::Audio &&
                 audioModuleIds.count(conn.sourceModuleId) && audioModuleIds.count(conn.destModuleId))
             {
-               audioInputsByDest[conn.destModuleId].push_back(conn.sourceModuleId);
+               audioInputsByDest[conn.destModuleId].push_back({ conn.sourceModuleId, conn.destPortIndex });
                audioChildrenBySource[conn.sourceModuleId].push_back(conn.destModuleId);
                ++indegree[conn.destModuleId];
             }
@@ -106,11 +184,11 @@ namespace bespoke
             }
             else if (conn.sourcePortType == PortType::Note && conn.destPortType == PortType::Note)
             {
-               noteInputsByDest[conn.destModuleId].push_back(conn.sourceModuleId);
+               noteInputsByDest[conn.destModuleId].push_back({ conn.sourceModuleId, conn.sourcePortIndex });
             }
             else if (conn.sourcePortType == PortType::Pulse && conn.destPortType == PortType::Pulse)
             {
-               pulseInputsByDest[conn.destModuleId].push_back(conn.sourceModuleId);
+               pulseInputsByDest[conn.destModuleId].push_back({ conn.sourceModuleId, conn.sourcePortIndex });
             }
          }
 
@@ -191,6 +269,8 @@ namespace bespoke
 
          plan.modulationSlotCount = nextModSlot;
 
+         plan.pulseSourceNodeIndices = orderPulseSources(snapshot, plan.pulseSourceNodeIndices, pulseInputsByDest);
+
          std::unordered_map<int, int> pulseScratchByModuleId;
          for (int scratch = 0; scratch < static_cast<int>(plan.pulseSourceNodeIndices.size()); ++scratch)
          {
@@ -204,13 +284,30 @@ namespace bespoke
             if (pulseInputs == pulseInputsByDest.end())
                return;
             hasPulseCable = true;
-            for (int sourceId : pulseInputs->second)
+            for (const auto& [sourceId, sourcePort] : pulseInputs->second)
             {
+               (void)sourcePort;
                auto it = pulseScratchByModuleId.find(sourceId);
                if (it != pulseScratchByModuleId.end())
                   slots.push_back(it->second);
             }
          };
+
+         plan.pulseSourcePlans.resize(plan.pulseSourceNodeIndices.size());
+         for (int scratch = 0; scratch < static_cast<int>(plan.pulseSourceNodeIndices.size()); ++scratch)
+         {
+            EventSourcePlan& sourcePlan = plan.pulseSourcePlans[static_cast<size_t>(scratch)];
+            sourcePlan.nodeIndex = plan.pulseSourceNodeIndices[static_cast<size_t>(scratch)];
+            const int destId = snapshot.nodes[static_cast<size_t>(sourcePlan.nodeIndex)].id;
+            SmallVec<int, 4> upstream;
+            fillPulseScratchSlots(upstream, sourcePlan.hasPulseCable, destId);
+            // Only sources evaluated earlier this block can feed this one (cycles are cut here).
+            for (int slot : upstream)
+            {
+               if (slot < scratch)
+                  sourcePlan.pulseSourceScratchSlots.push_back(slot);
+            }
+         }
 
          for (auto& sourcePlan : plan.noteSourcePlans)
          {
@@ -238,11 +335,14 @@ namespace bespoke
             const auto audioInputs = audioInputsByDest.find(moduleId);
             if (audioInputs != audioInputsByDest.end())
             {
-               for (int sourceId : audioInputs->second)
+               for (const auto& [sourceId, destPort] : audioInputs->second)
                {
                   auto slotIt = audioSlotByModuleId.find(sourceId);
-                  if (slotIt != audioSlotByModuleId.end())
+                  if (slotIt != audioSlotByModuleId.end() && !step.inputBufferSlots.full())
+                  {
                      step.inputBufferSlots.push_back(slotIt->second);
+                     step.inputBufferPorts.push_back(destPort);
+                  }
                }
             }
 
@@ -261,8 +361,10 @@ namespace bespoke
             if (noteInputs != noteInputsByDest.end())
             {
                step.hasNoteCable = true;
-               for (int sourceId : noteInputs->second)
+               for (const auto& [sourceId, sourcePort] : noteInputs->second)
                {
+                  if (sourceId < 0 || sourceId >= static_cast<int>(plan.nodeIndexByModuleId.size()))
+                     continue;
                   const int sourceNodeIndex = plan.nodeIndexByModuleId[static_cast<size_t>(sourceId)];
                   if (sourceNodeIndex < 0)
                      continue;
@@ -271,7 +373,13 @@ namespace bespoke
                   {
                      if (plan.noteSourceNodeIndices[static_cast<size_t>(scratch)] == sourceNodeIndex)
                      {
-                        step.noteSourceScratchSlots.push_back(scratch);
+                        if (!step.noteSourceScratchSlots.full())
+                        {
+                           const auto& sourceNode = snapshot.nodes[static_cast<size_t>(sourceNodeIndex)];
+                           step.noteSourceScratchSlots.push_back(scratch);
+                           step.noteSourcePortFilters.push_back(
+                           noteOutputOrdinal(registry.adapterAt(sourceNode.typeIndex), sourcePort));
+                        }
                         break;
                      }
                   }
@@ -282,8 +390,11 @@ namespace bespoke
             const auto pulseInputs = pulseInputsByDest.find(moduleId);
             if (pulseInputs != pulseInputsByDest.end())
             {
-               for (int sourceId : pulseInputs->second)
+               for (const auto& [sourceId, sourcePort] : pulseInputs->second)
                {
+                  (void)sourcePort;
+                  if (sourceId < 0 || sourceId >= static_cast<int>(plan.nodeIndexByModuleId.size()))
+                     continue;
                   const int sourceNodeIndex = plan.nodeIndexByModuleId[static_cast<size_t>(sourceId)];
                   if (sourceNodeIndex >= 0)
                      step.pulseSourceSlots.push_back(sourceNodeIndex);
@@ -311,8 +422,9 @@ namespace bespoke
 
             if (audioInputs != audioInputsByDest.end())
             {
-               for (int sourceId : audioInputs->second)
+               for (const auto& [sourceId, destPort] : audioInputs->second)
                {
+                  (void)destPort;
                   auto slotIt = audioSlotByModuleId.find(sourceId);
                   if (slotIt != audioSlotByModuleId.end())
                      releaseSlot(slotIt->second);

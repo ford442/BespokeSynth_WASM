@@ -154,6 +154,27 @@ public:
    virtual void drawCircularScope(float x, float y, float w, float h) = 0;
    virtual void drawEchoTrail(float x, float y, float w, float h) = 0;
 
+   // Live output analyzer (AudioAnalysis ring). A backend that analyses on the GPU
+   // draws straight from its own buffers and returns true; otherwise it returns
+   // false and the caller falls back to drawWaveform/drawSpectrum with CPU data.
+   virtual bool drawLiveWaveform(float x, float y, float w, float h, const Color& traceColor)
+   {
+      (void)x;
+      (void)y;
+      (void)w;
+      (void)h;
+      (void)traceColor;
+      return false;
+   }
+   virtual bool drawLiveSpectrum(float x, float y, float w, float h)
+   {
+      (void)x;
+      (void)y;
+      (void)w;
+      (void)h;
+      return false;
+   }
+
    virtual void setDebugMode(WebGLDebugMode mode) { (void)mode; }
    virtual WebGLDebugMode getDebugMode() const { return WebGLDebugMode::Normal; }
 };
