@@ -4,7 +4,7 @@ This file contains instructions for AI agents working on the BespokeSynth WASM p
 
 ## 1. Project Overview
 
-**BespokeSynth** is a software modular synthesizer designed for live-patching and personalized workflow construction. This repository specifically focuses on the **WebAssembly (WASM) port** of Bespoke Synth, which runs in web browsers using **WebGPU** for rendering and **SDL2** for audio.
+**BespokeSynth** is a software modular synthesizer designed for live-patching and personalized workflow construction. This repository specifically focuses on the **WebAssembly (WASM) port** of Bespoke Synth, which runs in web browsers using **WebGPU** (with a WebGL2 fallback) for rendering and an **AudioWorklet** (SDL2 fallback) for audio.
 
 ### Dual Build Architecture
 
@@ -14,10 +14,10 @@ This project maintains TWO distinct build targets:
 |--------|--------------|------------|
 | **Framework** | JUCE | Emscripten |
 | **Graphics** | OpenGL via NanoVG | WebGPU (custom renderer) |
-| **Audio** | JUCE Audio | SDL2 Audio Backend |
+| **Audio** | JUCE Audio | AudioWorklet SAB ring (default), SDL2 fallback |
 | **Build System** | CMake + Ninja | Emscripten + CMake |
-| **Entry Point** | `Source/MainComponent.cpp` | `wasm/src/WasmMain.cpp` |
-| **Module Count** | 370+ modules | Subset (demo architecture) |
+| **Entry Point** | `Source/MainComponent.cpp` | `src/app/BespokeSynthApp.ts` drives the `WasmBridge*.cpp` C API (`main()` is a no-op, `INVOKE_RUN=0`) |
+| **Module Count** | 370+ modules | ~20 adapter-backed modules (`wasm/src/adapters/`) |
 
 **Important**: The WASM build is architecturally distinct from the Desktop build. Changes to `Source/` do not automatically apply to WASM - always verify WASM compatibility.
 
@@ -28,7 +28,7 @@ This project maintains TWO distinct build targets:
 - **Build System**: CMake 3.16+
 - **WASM Toolchain**: Emscripten SDK 6.0.3+ (pinned in `.emscripten-version`) with `emdawnwebgpu` port
 - **Graphics API**: WebGPU (via WGSL shaders)
-- **Audio**: SDL2
+- **Audio**: AudioWorklet + SharedArrayBuffer ring (default), SDL2 fallback
 - **Frontend**: TypeScript 5.3+, Webpack 5
 - **Shaders**: WGSL (WebGPU Shading Language)
 
@@ -58,25 +58,24 @@ BespokeSynth_WASM/
 │   ├── CMakeLists.txt           # Emscripten build configuration
 │   ├── build.sh                 # Build script
 │   ├── shell.html               # Emscripten HTML template
+│   ├── exports.txt              # EXPORTED_FUNCTIONS manifest (every KEEPALIVE symbol)
 │   ├── src/                     # WASM C++ sources
-│   │   ├── WasmMain.cpp         # Entry point
-│   │   ├── WasmBridge.cpp       # JS/C++ bridge (main API)
+│   │   ├── WasmMain.cpp         # No-op main (TS owns the loop)
+│   │   ├── WasmBridge{Init,Audio,Input,Render,Patch,Live,LegacyPanels}.cpp  # C API, split by area
+│   │   ├── ModuleCanvas*.cpp    # Module graph, rendering, input, undo
+│   │   ├── AudioGraphEngine.cpp # RT graph processing (precompiled AudioProcessPlan)
+│   │   ├── adapters/            # Per-module WasmModuleAdapter DSP + metadata
+│   │   ├── modules/             # Per-module canvas UI
 │   │   ├── WebGPUContext.cpp    # WebGPU device management
-│   │   ├── WebGPURenderer.cpp   # 2D rendering implementation
-│   │   ├── SDL2AudioBackend.cpp # Audio callback handling
-│   │   └── Knob.cpp             # UI control implementation
-│   ├── include/BespokeWasm/     # WASM headers
-│   │   ├── WasmBridge.h
-│   │   ├── WebGPUContext.h
-│   │   ├── WebGPURenderer.h
-│   │   ├── SDL2AudioBackend.h
-│   │   └── Knob.h
-│   ├── shaders/                 # WGSL shader source
-│   │   └── render2d.wgsl        # 40+ specialized shaders
+│   │   ├── WebGPURenderer*.cpp  # WebGPU 2D renderer (draw, pipelines, widgets)
+│   │   ├── WebGL2*.cpp          # WebGL2 fallback renderer
+│   │   └── SDL2AudioBackend.cpp # SDL2 fallback audio
+│   ├── include/BespokeWasm/     # WASM headers (WasmBridge.h, Renderer2D.h, WasmModuleAdapter.h, ...)
+│   ├── shaders/                 # render2d.wgsl, analyzer_fft.wgsl, GLSL for WebGL2
+│   ├── resource-pack/           # Minimal Emscripten preload set
 │   ├── types/                   # TypeScript definitions
 │   │   └── bespoke-synth.d.ts
-│   └── tests/                   # Test files
-│       └── test_main.cpp
+│   └── tests/                   # C++ unit tests (BespokeSynthWASM_test)
 │
 ├── libs/                        # Third-party dependencies
 │   ├── JUCE/                    # JUCE framework
@@ -85,13 +84,17 @@ BespokeSynth_WASM/
 │   └── ...                      # Other libraries
 │
 ├── src/                         # TypeScript frontend
-│   ├── index.ts                 # Main app entry
-│   ├── index.html               # HTML template
-│   └── styles.css               # Styles
+│   ├── index.ts                 # Thin entry
+│   ├── app/                     # BespokeSynthApp, wasmLoader, inputBridge, renderLoop, publicApi
+│   ├── audio/                   # AudioWorklet ring backend, lookahead, health
+│   ├── ui/                      # Header panels (MIDI, patch, renderer, script)
+│   ├── samples/ script/         # Sample I/O + OPFS, sandboxed script worker
+│   └── index.html, styles.css
+├── tests/                       # Playwright e2e (tests/e2e) and Node unit tests (tests/unit)
+├── docs/                        # docs/wasm/ is canonical for WASM
 │
 ├── resource/                    # Runtime resources (fonts, presets, etc.)
-├── scripts/                     # Build/util scripts
-│   └── prebuild.js              # Cross-platform prebuild
+├── scripts/                     # prebuild.js, embed_shaders.cmake, check-*.sh, bake_sdf_font.sh
 ├── CMakeLists.txt               # Root CMake config (desktop)
 ├── package.json                 # NPM configuration
 ├── tsconfig.json                # TypeScript config
@@ -119,7 +122,7 @@ BespokeSynth_WASM/
 # Build WASM only (requires Emscripten)
 ./wasm/build.sh
 
-# Or via npm
+# Or via npm (also build:wasm:debug / build:wasm:profile)
 npm run build:wasm
 
 # Full build (WASM + TypeScript + Webpack)
@@ -157,7 +160,7 @@ npm run serve
 
 ```bash
 npm run build           # Full production build
-npm run build:wasm      # WASM only
+npm run build:wasm      # WASM only (Release; :debug / :profile variants)
 npm run build:ts        # TypeScript compilation
 npm run build:webpack   # Webpack bundling
 npm run build:web-only  # TypeScript + Webpack only
@@ -166,6 +169,11 @@ npm run clean           # Clean build artifacts
 npm run clean:all       # Clean including node_modules
 npm run lint            # ESLint
 npm run type-check      # TypeScript check (no emit)
+npm run test:unit       # C++ unit tests (node wasm/build/release/BespokeSynthWASM_test.js)
+npm run test:unit:js    # Node TS unit tests in tests/unit
+npm run test:exports    # Check KEEPALIVE symbols vs wasm/exports.txt
+npm run test:clang-format
+npm run test:e2e        # Playwright (needs dist/)
 ```
 
 ## 5. Code Style Guidelines
@@ -223,7 +231,7 @@ namespace bespoke {
 
 ### WASM Bridge API (C/C++ → JavaScript)
 
-The `WasmBridge.cpp` exposes a C API using `EMSCRIPTEN_KEEPALIVE`:
+`WasmBridge.h` declares a C API using `EMSCRIPTEN_KEEPALIVE`, implemented across `wasm/src/WasmBridge*.cpp`. **Every new exported symbol must be added to `wasm/exports.txt`** (CMake builds `EXPORTED_FUNCTIONS` from it; `npm run test:exports` enforces it). Representative subset:
 
 ```cpp
 // Initialization
@@ -302,7 +310,7 @@ If WebGPU init fails and the user did not force `?renderer=webgpu`, `src/index.t
 
 ### Screenshots for agents & CI
 
-Prefer WebGL2 for reliable canvas readback (`preserveDrawingBuffer` is enabled). WebGPU uses GPU texture readback via `bespoke_capture_screenshot()` + `bespoke_get_screenshot_pixels()`.
+Prefer WebGL2 for reliable canvas readback (`preserveDrawingBuffer` is enabled for explicit `?renderer=webgl`/render-test flows, not for automatic fallback). WebGPU uses GPU texture readback via `bespoke_capture_screenshot()` + `bespoke_get_screenshot_pixels()`.
 
 ```js
 // After the app is ready
@@ -335,7 +343,7 @@ Module._bespoke_set_render_test_mode(1);
 
 Harness page: `wasm/render_test.html`. Floating renderer FAB appears with `?debug=1`.
 
-See [docs/webgl-fallback.md](../docs/webgl-fallback.md) for debug modes, screenshot workflow, and WGSL→GLSL porting notes.
+See [docs/webgl-fallback.md](docs/webgl-fallback.md) for debug modes, screenshot workflow, and WGSL→GLSL porting notes.
 
 ### WebGPU Renderer
 
@@ -350,7 +358,7 @@ The WebGPU renderer implements a NanoVG-like API for 2D UI rendering:
 
 ### Shader Pipeline
 
-Shaders are written in WGSL (WebGPU Shading Language) and located in `wasm/shaders/render2d.wgsl`:
+Shaders are written in WGSL and located in `wasm/shaders/render2d.wgsl` (plus `analyzer_fft.wgsl` compute). `scripts/embed_shaders.cmake` embeds them into a generated `WgslSources.inc` at build time:
 
 - `vs_main` - Vertex shader for 2D rendering
 - `fs_solid` - Solid color fragment shader
@@ -363,11 +371,15 @@ Shaders are written in WGSL (WebGPU Shading Language) and located in `wasm/shade
 
 ### Audio System
 
-- **Backend**: SDL2 Audio
-- **Callback**: Thread-safe audio callback with atomic flags
+- **Backend**: AudioWorklet (`src/audio/workletRingBackend.ts`, default when `crossOriginIsolated`) plays a SharedArrayBuffer ring filled from the main thread; SDL2 is the fallback (`?audio=sdl` or no COOP/COEP)
+- **Graph**: `AudioGraphEngine` runs a precompiled process plan; adapters own POD param blocks and runtime-state slots. Do not allocate in `processBlock`
 - **Sample Rate**: Typically 44100 Hz
 - **Buffer Size**: Configurable (default 512 samples)
-- **Thread Safety**: Use `std::atomic<bool>` flags for synchronization
+- See `docs/wasm/audio.md`
+
+### Modules (Adapters)
+
+Each WASM module is a `WasmModuleAdapter` (`wasm/include/BespokeWasm/WasmModuleAdapter.h`) that declares ports/controls and self-registers with `BESPOKE_REGISTER_MODULE`. Adding a module = one header in `include/BespokeWasm/adapters/`, one source in `src/adapters/`, and one line in `wasm/CMakeLists.txt`. See `docs/wasm/module-porting.md`.
 
 ## 7. Testing Strategy
 
@@ -380,12 +392,9 @@ Shaders are written in WGSL (WebGPU Shading Language) and located in `wasm/shade
 
 ### Test Files
 
-- `wasm/tests/test_main.cpp` - Basic WASM test harness covering:
-  - Math operations
-  - Memory allocation
-  - String operations
-  - Vector operations
-  - Audio buffer simulation
+- `wasm/tests/*.cpp` - C++ unit tests (adapters, canvas, graph engine/contract, patch I/O, DSP tuning) built as `BespokeSynthWASM_test`; run with `npm run test:unit` after `npm run build:wasm`
+- `tests/unit/*.test.ts` - Node unit tests (`npm run test:unit:js`)
+- `tests/e2e/*.spec.ts` - Playwright e2e (`npm run test:e2e`, see Cursor notes below)
 
 ### Expected Console Output (Successful Init)
 
@@ -394,7 +403,6 @@ BespokeSynth WASM: Initializing (width×height, 44100Hz, 512 samples)
 WasmBridge: starting async WebGPU initialization
 WebGPUContext: Adapter found, requesting device
 WebGPUContext: Device acquired
-WebGPURenderer: Initialization complete
 SDL2AudioBackend: Initializing SDL audio...
 BespokeSynth WASM: Initialization complete
 ```
@@ -402,7 +410,7 @@ BespokeSynth WASM: Initialization complete
 ## 8. Security Considerations
 
 - The WASM virtual file system is sandboxed
-- Use IndexedDB for persistent storage (not yet implemented)
+- Patch metadata persists in IndexedDB (`src/patchStorage.ts`); sample bytes in OPFS keyed by content hash
 - Audio requires user interaction to start (browser policy)
 - WebGPU requires secure context (HTTPS or localhost)
 - COOP/COEP headers required for SharedArrayBuffer (configured in webpack)
@@ -442,34 +450,34 @@ Always use `WGPU_DEPTH_SLICE_UNDEFINED` for 2D rendering operations.
 ### Adding New UI Controls
 
 1. Add control class in `wasm/src/` (follow `Knob.cpp` pattern)
-2. Add rendering methods to `WebGPURenderer`
+2. Add rendering methods to `Renderer2D` and implement in both `WebGPURenderer` and `WebGL2Renderer`
 3. Add shader variants in `wasm/shaders/render2d.wgsl` if needed
 4. Expose to JavaScript via `WasmBridge`
 
 ### Adding Shaders
 
 1. Edit `wasm/shaders/render2d.wgsl`
-2. Embed shader string in `WebGPURenderer.cpp`
-3. Create pipeline in `createPipelines()`
-4. Add rendering method that uses the pipeline
+2. It is embedded automatically at build time (`scripts/embed_shaders.cmake` → `WgslSources.inc`); there are no WGSL string literals in the `.cpp`
+3. Create the pipeline in `WebGPURendererPipelines.cpp`
+4. Add rendering method that uses the pipeline (and a WebGL2 equivalent in `wasm/shaders/*.frag` / `WebGL2Shaders.cpp`)
 
 ## 11. CI/CD
 
-The project uses Azure Pipelines (`azure-pipelines.yml`) with build matrices for:
-- macOS (x64/arm64 universal binary)
-- Windows (x64)
-- Linux (x64)
-- Code formatting checks
+**WASM**: GitHub Actions (`.github/workflows/wasm-ci.yml`) builds WASM, then runs `test:exports`, `test:unit`, `test:clang-format`, `build:web-only`, `type-check`, `lint`, and `test:e2e -- --project=chromium`.
+
+**Desktop**: Azure Pipelines (`azure-pipelines.yml`) with build matrices for macOS (universal), Windows (x64), Linux (x64), and formatting checks.
 
 ## 12. Pre-Commit Checklist
 
 Before submitting changes:
 
-- [ ] Read relevant sections of `CONTRIBUTING.md` and `DEVELOPER_CONTEXT.md`
+- [ ] Read relevant sections of `docs/CONTRIBUTING.md` and `docs/wasm/README.md`
 - [ ] Run `./wasm/build.sh` - build completes successfully
 - [ ] Check WebGPU callback signatures (5-argument format)
 - [ ] Verify depthSlice usage: `WGPU_DEPTH_SLICE_UNDEFINED` for 2D
-- [ ] Run `clang-format` on modified C++ files
+- [ ] Run `clang-format` on modified C++ files (`npm run test:clang-format`)
+- [ ] New `EMSCRIPTEN_KEEPALIVE` symbols listed in `wasm/exports.txt` (`npm run test:exports`)
+- [ ] `npm run test:unit` passes
 - [ ] Test in a WebGPU-capable browser
 - [ ] Check initialization state tracking is maintained
 
@@ -480,8 +488,8 @@ Before submitting changes:
 | `docs/wasm/README.md` | Canonical WASM contributor entry point, architecture, roadmap, and debugging links |
 | `wasm/README.md` | Current build options and renderer/runtime reference |
 | `docs/DEVELOPER_CONTEXT.md` | Desktop architecture; links to canonical WASM docs |
-| `CONTRIBUTING.md` | General contribution guidelines |
-| `CODE_OF_CONDUCT.md` | Community guidelines |
+| `docs/CONTRIBUTING.md` | General contribution guidelines |
+| `docs/CODE_OF_CONDUCT.md` | Community guidelines |
 
 ## 14. License
 
@@ -498,7 +506,7 @@ These notes cover non-obvious gotchas discovered while setting up this environme
 ### Emscripten toolchain (important)
 - The pinned `.emscripten-version` is **6.0.3**. WASM sources require `--use-port=emdawnwebgpu` and the modern Dawn WebGPU API (`WGPUStringView`, `WGPURequest*CallbackInfo`, `userdata1/2`). Emscripten 3.1.50 and older fail at compile with `clang++: error: unknown argument: '--use-port=emdawnwebgpu'`.
 - `wasm/build.sh` discovers emsdk via `EMSDK`, repo-local `emsdk/`, `$HOME/emsdk`, or an activated `emcc` on `PATH`. If `emcc` is missing, install/activate the pinned version and `source emsdk_env.sh`.
-- `npm run build:wasm` writes `wasm/dist/{BespokeSynthWASM.js,.wasm,.data}` (+ `resource/`). It is required before the web app can initialize (no WASM artifacts are committed). The `.data` preload bundle (~32 MB) is large but expected.
+- `npm run build:wasm` writes `wasm/dist/{BespokeSynthWASM.js,.wasm,.data}` (+ `resource/`). It is required before the web app can initialize (no WASM artifacts are committed). The `.data` preload bundle is small (~100 KB, from `wasm/resource-pack/`), not the full desktop `resource/`.
 
 ### npm install
 - CI uses `npm ci` with the committed `package-lock.json`. Locally, `npm install` is fine when the lockfile is unchanged.
