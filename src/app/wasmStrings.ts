@@ -2,7 +2,7 @@ import type { BespokeSynthModule } from '../../wasm/types/bespoke-synth';
 
 /** Calls `fn` with heap copies of `values` as C strings, freeing them afterwards. */
 export function withCStrings<T>(module: BespokeSynthModule, values: string[], fn: (...ptrs: number[]) => T): T {
-  const ptrs = values.map((value) => module.allocateUTF8(value));
+  const ptrs = values.map((value) => module.stringToNewUTF8(value));
   try {
     return fn(...ptrs);
   } finally {

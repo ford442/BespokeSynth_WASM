@@ -15,9 +15,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm install                 # Install dependencies (run once)
 npm run build              # Full build: WASM + TypeScript + Webpack
-npm run build:web-only     # Rebuild TypeScript only (faster iteration)
+npm run build:web-only     # Rebuild the web bundle only, no WASM (faster iteration)
 npm run dev                # Start dev server at http://localhost:8080
-npm run serve              # Serve dist/ directory on port 8000
+npm run serve              # Serve dist/ on port 8000 with COOP/COEP (AudioWorklet works)
 npm run lint               # Run ESLint on TypeScript
 npm run type-check         # Run TypeScript type checker
 npm run clean              # Remove dist/, build outputs
@@ -359,6 +359,11 @@ The WASM module is loaded **asynchronously**. TypeScript must wait for:
 
 Check `src/index.ts` for error handling around module initialization.
 
+### 4b. Heap and host strings
+
+- The heap starts at 64 MB and may grow to the `-sMAXIMUM_MEMORY` cap (2 GiB, `wasm/CMakeLists.txt`). Growth replaces `Module.HEAP*`/`wasmMemory.buffer`, so read views after any call that can allocate rather than caching them.
+- Pass strings to C with `module.stringToNewUTF8(str)` and `module._free(ptr)` (`withCStrings` in `src/app/wasmStrings.ts`). `allocateUTF8` is deprecated and no longer exported. The typed surface lives in `wasm/types/bespoke-synth.d.ts`; heap views come from `@types/emscripten`.
+
 ### 5. File System Sandboxing
 
 The WASM runtime has a virtual file system, not direct filesystem access:
@@ -411,7 +416,7 @@ Configured in `.eslintrc.js`. Rules enforce strict mode, no unused variables, co
 
 ```bash
 npm run type-check      # Dry-run type checker (no emit)
-npm run build:ts        # Compile and emit to dist/
+npm run build:webpack   # ts-loader type-checks while bundling; no tsc emit
 ```
 
 Configured in `tsconfig.json` with strict mode enabled. No implicit `any` types allowed.
@@ -461,17 +466,14 @@ Output appears in browser console.
 
 ```
 npm run build
-  ├─ prebuild (scripts/prebuild.js if exists)
-  ├─ build:wasm (cd wasm && ./build.sh)
+  ├─ build:wasm (cd wasm && ./build.sh)   # the only WASM compile
   │  ├─ emcmake cmake ..
   │  ├─ cmake --build . --parallel 55
   │  └─ Copy outputs to wasm/dist/
-  ├─ build:ts (tsc)
-  │  └─ Emit .js and .d.ts to dist/
   └─ build:webpack (webpack --mode production)
      ├─ Load src/index.ts as entry
-     ├─ Compile TypeScript via ts-loader
-     ├─ Copy wasm/dist → dist/wasm
+     ├─ Compile TypeScript via ts-loader (type errors fail the build)
+     ├─ Copy wasm/dist → dist/wasm, src/audio/processors → dist/audio
      ├─ Apply HtmlWebpackPlugin
      └─ Output dist/bundle.[hash].js
 ```

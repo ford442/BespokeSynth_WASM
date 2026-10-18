@@ -75,7 +75,8 @@ The prefill runs before the worklet's `running` flag is set, so the first quantu
 | --- | --- | --- |
 | `BESPOKE_WASM_SIMD` | ON | `-msimd128` + `BESPOKE_WASM_SIMD=1`: `wasm/include/BespokeWasm/DspSimd.h` kernels (gain, oscillator voice mix, delay read/mix, FFT butterflies/window/magnitude). Scalar fallback when OFF. |
 | `BESPOKE_WASM_LTO` | ON | `-flto` on the Release flavor. Turn OFF for faster CI iteration. |
-| `INITIAL_MEMORY` | 64 MB | Grows on demand. Peak heap is `heapBytes` in the health JSON/HUD. The canonical patch does not grow past 64 MB. |
+| `INITIAL_MEMORY` | 64 MB | Grows on demand up to `MAXIMUM_MEMORY`. Peak heap is `heapBytes` in the health JSON/HUD. The canonical patch does not grow past 64 MB. |
+| `MAXIMUM_MEMORY` | 2 GiB | Growth cap (browser target only). A runaway patch fails its allocation instead of exhausting the tab; it is also the largest heap whose pointers stay below 2^31, which the TS host's `ptr >> 2` view indexing relies on. |
 
 `build.sh` forwards `BESPOKE_WASM_SIMD` / `BESPOKE_WASM_LTO` from the environment. Unit tests (`npm run test:unit`) are built with the same SIMD flag and check each kernel against a scalar reference, the delay against the old per-sample loop, and the FFT against a naive DFT.
 
@@ -112,4 +113,4 @@ Both backends use `AudioGraphEngine` through `processWasmAudio` / `bespoke_proce
 
 ## Note / pulse routing (canvas graph)
 
-See [wasm/audio.md](wasm/audio.md). `AudioGraphEngine` routes Audio, Modulation, and Note edges; pulse clock events are reserved for future consumers.
+See [wasm/audio.md](wasm/audio.md). `AudioGraphEngine` routes Audio, Modulation, Note, and Pulse edges. Pulse sources (`transport`, `clockdivider`) drive `clockdivider`, `pulsetonote`, and `drumseq`.

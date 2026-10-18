@@ -91,7 +91,6 @@ BespokeSynth_WASM/
 │
 ├── resource/                    # Runtime resources (fonts, presets, etc.)
 ├── scripts/                     # Build/util scripts
-│   └── prebuild.js              # Cross-platform prebuild
 ├── CMakeLists.txt               # Root CMake config (desktop)
 ├── package.json                 # NPM configuration
 ├── tsconfig.json                # TypeScript config
@@ -122,10 +121,10 @@ BespokeSynth_WASM/
 # Or via npm
 npm run build:wasm
 
-# Full build (WASM + TypeScript + Webpack)
+# Full build (WASM + Webpack)
 npm run build
 
-# TypeScript and Webpack only (no WASM rebuild)
+# Webpack only (no WASM rebuild)
 npm run build:web-only
 ```
 
@@ -149,18 +148,17 @@ cmake --build ignore/build --parallel 4
 # Webpack dev server with hot reload (port 8080)
 npm run dev
 
-# Serve built files (port 8000)
+# Serve built dist/ on port 8000 with COOP/COEP (AudioWorklet backend works)
 npm run serve
 ```
 
 ### NPM Scripts
 
 ```bash
-npm run build           # Full production build
+npm run build           # Full production build (WASM once, then webpack)
 npm run build:wasm      # WASM only
-npm run build:ts        # TypeScript compilation
-npm run build:webpack   # Webpack bundling
-npm run build:web-only  # TypeScript + Webpack only
+npm run build:webpack   # Webpack bundling (ts-loader type-checks)
+npm run build:web-only  # Webpack only (no WASM rebuild)
 npm run dev             # Development server
 npm run clean           # Clean build artifacts
 npm run clean:all       # Clean including node_modules
@@ -402,7 +400,7 @@ BespokeSynth WASM: Initialization complete
 ## 8. Security Considerations
 
 - The WASM virtual file system is sandboxed
-- Use IndexedDB for persistent storage (not yet implemented)
+- Patches are stored in IndexedDB (`src/patchStorage.ts`); sample bytes live in the Origin Private File System, keyed by content hash
 - Audio requires user interaction to start (browser policy)
 - WebGPU requires secure context (HTTPS or localhost)
 - COOP/COEP headers required for SharedArrayBuffer (configured in webpack)

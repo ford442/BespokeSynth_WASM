@@ -81,13 +81,13 @@ See [docs/webgl-fallback.md](../docs/webgl-fallback.md) for renderer selection, 
 
 ## Running Locally
 
-Start a local web server:
+Serve the bundled app with cross-origin isolation headers (COOP/COEP), which the AudioWorklet backend needs:
 ```bash
-cd dist
-python -m http.server 8000
+npm run build:web-only
+npm run serve        # http://localhost:8000/
 ```
 
-Then open `http://localhost:8000/` in your browser.
+A plain `python -m http.server` does not send those headers, so the app falls back to the SDL2 audio backend there.
 
 Note: The `shell.html` template includes a default JavaScript handler that will automatically call `Module._bespoke_init` when the Emscripten runtime is ready and will display helpful UI messages if WebGPU initialization fails or times out.
 
@@ -295,11 +295,11 @@ Audio and rendering settings can be configured via the JavaScript API or URL par
 
 ## Known Limitations
 
-1. **Threading**: Multi-threaded audio processing requires SharedArrayBuffer, which needs specific HTTP headers (COOP/COEP). The development server sends those headers to support the experimental threaded preset, but the shipping WASM build keeps `BESPOKE_WASM_THREADS=OFF` until a tested pthread audio path is enabled.
+1. **Threading**: The AudioWorklet SAB ring (the default audio backend) requires SharedArrayBuffer, which needs the COOP/COEP headers. `npm run dev` and `npm run serve` send them; a production host must send the same pair or the app falls back to SDL2 audio. The shipping WASM build keeps `BESPOKE_WASM_THREADS=OFF` (no pthreads) until a tested pthread audio path is enabled.
 
 2. **File System**: The virtual file system is sandboxed. Use IndexedDB for persistent storage.
 
-3. **MIDI**: WebMIDI support is not yet implemented (planned for future release).
+3. **MIDI**: Web MIDI is implemented (`src/midi.ts`, `src/ui/midiPanel.ts`): input, channel filter, CC learn, output and optional clock. See [docs/wasm/live-instrument.md](../docs/wasm/live-instrument.md).
 
 4. **VST Plugins**: Plugin hosting is not available in the WASM build.
 

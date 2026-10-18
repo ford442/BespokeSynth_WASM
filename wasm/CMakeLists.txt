@@ -37,6 +37,8 @@ add_compile_options(
 # NOTE: -sENVIRONMENT=web is intentionally NOT set here (directory-wide) — it
 # would also apply to BespokeSynthWASM_test, which `npm run test:unit` runs
 # under Node. It's added to BespokeSynthWASM's own EMSCRIPTEN_LINK_FLAGS below.
+# ALLOW_MEMORY_GROWTH is set here only (both targets inherit it); the browser
+# target caps it with MAXIMUM_MEMORY in EMSCRIPTEN_LINK_FLAGS below.
 add_link_options(
     "-sALLOW_MEMORY_GROWTH=1"
     "-sUSE_WEBGL2=1"
@@ -325,14 +327,18 @@ set(EMSCRIPTEN_LINK_FLAGS
     "-sWASM=1"
     "-sINVOKE_RUN=0"
     "-sENVIRONMENT=web" # Browser-only deliverable; trims Node/worker glue from the JS runtime.
-    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','allocateUTF8','stringToUTF8','lengthBytesUTF8','HEAPF32','HEAPU8','HEAP8','wasmMemory']"
+    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','stringToNewUTF8','stringToUTF8','lengthBytesUTF8','HEAPF32','HEAPU8','HEAP8','wasmMemory']"
     "-sEXPORTED_FUNCTIONS=[${BESPOKE_WASM_EXPORTED_FUNCTIONS}]"
-    "-sALLOW_MEMORY_GROWTH=1"
     # 64MB covers static init, the preload bundle, and the canonical patch
     # graph (peak heap is reported as heapBytes in the audio health HUD).
-    # ALLOW_MEMORY_GROWTH=1 above lets sample-heavy patches grow past it; a
-    # growth step detaches HEAP views, which the TS host re-reads per block.
+    # add_link_options() above lets sample-heavy patches grow past it; a growth
+    # step detaches HEAP views, which the TS host re-reads per block.
     "-sINITIAL_MEMORY=67108864"  # 64MB initial
+    # Growth is capped so a runaway patch fails its allocation instead of
+    # taking the tab's whole address space. 2GiB is also the largest heap where
+    # heap pointers stay below 2^31, so the TS host's `ptr >> 2` view indexing
+    # cannot go negative.
+    "-sMAXIMUM_MEMORY=2147483648"
     "-sSTACK_SIZE=1048576"  # 1MB stack
     "--shell-file=${BESPOKE_WASM_DIR}/shell.html"
     "--preload-file=${BESPOKE_WASM_DIR}/resource-pack@/resource"
@@ -488,5 +494,5 @@ target_sources(BespokeSynthWASM_test PRIVATE
 
 set_target_properties(BespokeSynthWASM_test PROPERTIES
     SUFFIX ".js"
-    LINK_FLAGS "-sWASM=1 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=67108864 -sSTACK_SIZE=1048576 -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
+    LINK_FLAGS "-sWASM=1 -sINITIAL_MEMORY=67108864 -sSTACK_SIZE=1048576 -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
 )

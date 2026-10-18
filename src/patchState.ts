@@ -9,10 +9,10 @@ export function getPatchStateJson(module: BespokeSynthModule | null): string {
 }
 
 export function loadPatchStateJson(module: BespokeSynthModule | null, json: string): boolean {
-  if (!module?._bespoke_load_state_json || !module.allocateUTF8 || !module._free) {
+  if (!module?._bespoke_load_state_json || !module.stringToNewUTF8 || !module._free) {
     return false;
   }
-  const jsonPtr = module.allocateUTF8(json);
+  const jsonPtr = module.stringToNewUTF8(json);
   try {
     return module._bespoke_load_state_json(jsonPtr) === 0;
   } finally {
@@ -22,8 +22,8 @@ export function loadPatchStateJson(module: BespokeSynthModule | null, json: stri
 
 /** Load a patch bundled in Emscripten's preloaded /resource filesystem. */
 export function loadBundledLayout(module: BespokeSynthModule | null, path: string): boolean {
-  if (!module?._bespoke_load_layout || !module.allocateUTF8 || !module._free) return false;
-  const pathPtr = module.allocateUTF8(path);
+  if (!module?._bespoke_load_layout || !module.stringToNewUTF8 || !module._free) return false;
+  const pathPtr = module.stringToNewUTF8(path);
   try {
     return module._bespoke_load_layout(pathPtr) === 0;
   } finally {

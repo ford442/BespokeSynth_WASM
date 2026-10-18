@@ -14,7 +14,7 @@ export function loadSampleIntoWasm(
   name: string,
 ): { sampleId: number; hash: string } {
   const dataPtr = writeHeapBytes(module, bytes);
-  const namePtr = module.allocateUTF8(name);
+  const namePtr = module.stringToNewUTF8(name);
   try {
     const sampleId = module._bespoke_load_sample(dataPtr, bytes.byteLength, namePtr);
     const hashPtr = module._bespoke_get_sample_hash(sampleId);
@@ -27,7 +27,7 @@ export function loadSampleIntoWasm(
 }
 
 export function assignSampleToModule(module: BespokeSynthModule, moduleId: number, hash: string): boolean {
-  const hashPtr = module.allocateUTF8(hash);
+  const hashPtr = module.stringToNewUTF8(hash);
   try {
     return module._bespoke_assign_sample(moduleId, hashPtr) === 1;
   } finally {
@@ -36,7 +36,7 @@ export function assignSampleToModule(module: BespokeSynthModule, moduleId: numbe
 }
 
 export function findOrCreateSampler(module: BespokeSynthModule, x = 220, y = 220): number {
-  const typePtr = module.allocateUTF8('sampler');
+  const typePtr = module.stringToNewUTF8('sampler');
   try {
     const existing = module._bespoke_find_first_module(typePtr);
     if (existing >= 0) return existing;

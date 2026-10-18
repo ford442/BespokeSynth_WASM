@@ -19,7 +19,13 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: {
-          args: ['--use-gl=angle', '--use-angle=swiftshader-webgl'],
+          args: [
+            '--use-gl=angle',
+            '--use-angle=swiftshader-webgl',
+            // Fake capture device + auto-accepted prompt: getUserMedia works headless (mic-capture.spec.ts).
+            '--use-fake-device-for-media-stream',
+            '--use-fake-ui-for-media-stream',
+          ],
         },
       },
     },

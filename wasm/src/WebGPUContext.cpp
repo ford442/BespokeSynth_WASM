@@ -131,38 +131,30 @@ static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatu
       {
          printf("WebGPUContext: Adapter found, requesting device\n");
 
-         // Request the adapter's own supported limits rather than the
-         // (much lower) WebGPU default limits, so later features (larger
-         // storage buffers/textures for GPU compute, more bind groups for
-         // richer pipelines) aren't capped below what the hardware offers.
-         WGPULimits adapterLimits = {};
-         const bool haveLimits = wgpuAdapterGetLimits(adapter, &adapterLimits) == WGPUStatus_Success;
-
-         // Opportunistically request features useful for later GPU work
-         // (timestamp-based frame timing, float32-filterable textures for
-         // analyzer/FFT visualizations) when the adapter actually supports them.
-         static const WGPUFeatureName kDesiredFeatures[] = {
-            WGPUFeatureName_TimestampQuery,
-            WGPUFeatureName_Float32Filterable,
-         };
-         constexpr size_t kDesiredFeatureCount = sizeof(kDesiredFeatures) / sizeof(kDesiredFeatures[0]);
-         WGPUFeatureName enabledFeatures[kDesiredFeatureCount];
-         size_t enabledFeatureCount = 0;
-         for (WGPUFeatureName feature : kDesiredFeatures)
+         // Default limits cover everything the renderer and analyzer create: the
+         // largest buffer is the screenshot staging buffer (4 bytes per physical
+         // pixel, far below the 256 MiB default), and the FFT workgroup is 256
+         // invocations (the default maximum) with 4 KiB of workgroup memory.
+         // Requesting every adapter limit instead can make requestDevice fail
+         // on multi-adapter machines, so only raise what scales with the user's
+         // display: the surface is sized in physical pixels (CSS size *
+         // devicePixelRatio) and may exceed the default 8192 on very large
+         // displays.
+         constexpr uint32_t kDefaultMaxTextureDimension2D = 8192;
+         WGPULimits requiredLimits = WGPU_LIMITS_INIT;
+         WGPULimits adapterLimits = WGPU_LIMITS_INIT;
+         if (wgpuAdapterGetLimits(adapter, &adapterLimits) == WGPUStatus_Success &&
+             adapterLimits.maxTextureDimension2D > kDefaultMaxTextureDimension2D)
          {
-            if (wgpuAdapterHasFeature(adapter, feature))
-               enabledFeatures[enabledFeatureCount++] = feature;
+            requiredLimits.maxTextureDimension2D = adapterLimits.maxTextureDimension2D;
          }
 
+         // No features are required: nothing uses timestamp queries or filtered
+         // float32 textures. A consumer (e.g. a timestamp-query frame-time HUD)
+         // should enable its feature only when it is switched on.
          WGPUDeviceDescriptor deviceDesc = {};
          deviceDesc.label = WGPUStringView{ "BespokeSynth WASM device", strlen("BespokeSynth WASM device") };
-         if (haveLimits)
-            deviceDesc.requiredLimits = &adapterLimits;
-         if (enabledFeatureCount > 0)
-         {
-            deviceDesc.requiredFeatureCount = enabledFeatureCount;
-            deviceDesc.requiredFeatures = enabledFeatures;
-         }
+         deviceDesc.requiredLimits = &requiredLimits;
 
          // Set up error callback in device descriptor
          deviceDesc.uncapturedErrorCallbackInfo.callback = deviceErrorCallback;

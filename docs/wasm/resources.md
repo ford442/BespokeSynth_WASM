@@ -21,7 +21,7 @@ Webpack copies the same pack to `dist/resource/` for HTTP access.
 Under repo-root `resource/` (not in the WASM pack):
 
 - Desktop example `.bsk` savestates (~21 MB)
-- Drum kits (~10 MB) — deferred until a sampler adapter exists
+- Drum kits (~10 MB) — not bundled; the `sampler` module exists, so load your own WAV/FLAC/MP3 by drag-and-drop (see [samples.md](samples.md))
 - Controllers, python scripts, tooltips, TTF fonts
 
 TTFs never ship. `scripts/bake_sdf_font.sh` compiles a host tool
