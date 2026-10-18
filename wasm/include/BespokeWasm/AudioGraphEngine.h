@@ -63,6 +63,14 @@ namespace bespoke
          /** Transport position in beats at the end of the last processed block (0 when stopped). */
          double beatPosition() const { return mPublishedBeat.load(std::memory_order_relaxed); }
 
+         /**
+          * Largest |sample| reaching the Output module since the last call, per
+          * channel (0 = L, 1 = R). Measured on the summed input, before the
+          * Output limiter, so values above 1 mean the patch is clipping.
+          * Single reader (UI thread); resets on read.
+          */
+         float takeOutputPeak(int channel);
+
          void processBlock(const AudioGraphSnapshot& graph,
                            float* const* output,
                            int numOutputChannels,
@@ -84,8 +92,11 @@ namespace bespoke
          void destroySlot(RuntimeSlot& slot);
          void resetEventSourceState();
          void drainNoteRing();
-         float* audioSlotBuffer(int slot, int numSamples);
+         /** Planar slot: channel 0 at slot * 2 * block, channel 1 one block later. */
+         float* audioSlotBuffer(int slot, int channel, int numSamples);
+         int audioSlotChannels(int slot) const;
          float* modulationSlotBuffer(int slot, int numSamples);
+         void publishOutputPeaks(const float* const* channels, int numChannels, int numSamples);
 
          struct ProcessScratch;
 
@@ -93,6 +104,8 @@ namespace bespoke
          std::vector<RuntimeSlot> mRuntimeSlots;
          std::unordered_map<int, int> mSlotIndexByModuleId;
          std::vector<float> mAudioArena;
+         /** Channels written to each audio slot this block (1 = mono, read R as L). */
+         std::vector<uint8_t> mSlotChannels;
          std::vector<float> mModulationArena;
          std::vector<float> mSummedModulation;
          std::vector<float> mInputScratch;
@@ -110,6 +123,7 @@ namespace bespoke
          double mAudioTimeSeconds = 0.0;
          double mBeatPosition = 0.0;
          std::atomic<double> mPublishedBeat{ 0.0 };
+         std::atomic<float> mOutputPeak[2]{ { 0.0f }, { 0.0f } };
       };
 
    } // namespace wasm

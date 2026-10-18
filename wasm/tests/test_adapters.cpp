@@ -26,7 +26,7 @@ void test_filter_module_adapter()
    WasmAudioProcessContext context;
    context.sampleRate = 44100.0f;
    context.numSamples = 64;
-   adapter.processAudio(&runtime, &params, buffer, context);
+   adapter.processMono(&runtime, &params, buffer, context);
    double energy = 0.0;
    for (float sample : buffer)
       energy += sample * sample;
@@ -57,7 +57,7 @@ void test_first_wave_module_adapters()
       WasmAudioProcessContext context;
       context.sampleRate = 44100.0f;
       context.numSamples = 256;
-      adapter.processAudio(&runtime, &params, buffer, context);
+      adapter.processMono(&runtime, &params, buffer, context);
       TEST("Noise adapter produces non-silent output", buffer_rms(std::vector<float>(buffer, buffer + 256)) > 0.01f);
       TEST("Noise adapter registered", WasmModuleAdapterRegistry::instance().find("noise") != nullptr);
    }
@@ -74,7 +74,7 @@ void test_first_wave_module_adapters()
       WasmAudioProcessContext context;
       context.sampleRate = 44100.0f;
       context.numSamples = 512;
-      adapter.processAudio(runtimeStorage.data(), &params, buffer, context);
+      adapter.processMono(runtimeStorage.data(), &params, buffer, context);
       double tail = 0.0;
       for (int i = 100; i < 512; ++i)
          tail += std::fabs(buffer[i]);
@@ -102,7 +102,7 @@ void test_first_wave_module_adapters()
       context.blockStartTimeSeconds = 1.0;
       context.notes = &noteOn;
       context.noteCount = 1;
-      adapter.processAudio(&runtime, &params, buffer, context);
+      adapter.processMono(&runtime, &params, buffer, context);
       TEST("ADSR adapter applies envelope after note-on", buffer_rms(std::vector<float>(buffer, buffer + 256)) > 0.01f);
       TEST("ADSR adapter registered", WasmModuleAdapterRegistry::instance().find("adsr") != nullptr);
 
@@ -244,7 +244,7 @@ void test_step_sequencer_note_graph()
       ctx.notes = emitted;
       ctx.noteCount = emittedCount;
       float buf[128] = {};
-      oscAdapter.processAudio(oscRt.data(), &oscP, buf, ctx);
+      oscAdapter.processMono(oscRt.data(), &oscP, buf, ctx);
       TEST("Oscillator sounds when gated by sequencer notes", buffer_rms(std::vector<float>(buf, buf + 128)) > 0.01f);
       oscAdapter.destroyRuntimeState(oscRt.data());
       seqAdapter.destroyRuntimeState(seqRt.data());
@@ -325,11 +325,11 @@ void test_typed_adapter_round_trip()
          auto* params = static_cast<Params*>(dst);
          params->value = wasmControlValue(controls, "value", 0.25f);
       }
-      void processAudio(void*, const void* paramsPtr, float* buffer, const WasmAudioProcessContext& context) const override
+      void processAudio(void*, const void* paramsPtr, float* const* channels, const WasmAudioProcessContext& context) const override
       {
          const auto& params = *static_cast<const Params*>(paramsPtr);
          for (int i = 0; i < context.numSamples; ++i)
-            buffer[i] = params.value;
+            channels[0][i] = params.value;
       }
    };
 
@@ -355,11 +355,12 @@ void test_typed_adapter_round_trip()
          auto* params = static_cast<Params*>(dst);
          params->scale = wasmControlValue(controls, "scale", 2.0f);
       }
-      void processAudio(void*, const void* paramsPtr, float* buffer, const WasmAudioProcessContext& context) const override
+      void processAudio(void*, const void* paramsPtr, float* const* channels, const WasmAudioProcessContext& context) const override
       {
          const auto& params = *static_cast<const Params*>(paramsPtr);
-         for (int i = 0; i < context.numSamples; ++i)
-            buffer[i] *= params.scale;
+         for (int ch = 0; ch < context.numChannels; ++ch)
+            for (int i = 0; i < context.numSamples; ++i)
+               channels[ch][i] *= params.scale;
       }
    };
 
@@ -416,7 +417,7 @@ void test_reverb_adapter()
    WasmAudioProcessContext context;
    context.sampleRate = 44100.0f;
    context.numSamples = 2048;
-   adapter.processAudio(runtime.data(), &params, buffer, context);
+   adapter.processMono(runtime.data(), &params, buffer, context);
    double tail = 0.0;
    for (int i = 1200; i < 2048; ++i)
       tail += std::fabs(buffer[i]);

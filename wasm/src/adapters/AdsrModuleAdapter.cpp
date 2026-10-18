@@ -65,10 +65,10 @@ namespace bespoke
 
       void AdsrModuleAdapter::processAudio(void* runtimeState,
                                            const void* paramsPtr,
-                                           float* buffer,
+                                           float* const* channels,
                                            const WasmAudioProcessContext& context) const
       {
-         if (!runtimeState || !paramsPtr || !buffer)
+         if (!runtimeState || !paramsPtr || !channels)
             return;
 
          auto& state = *static_cast<AdsrAdapterRuntimeState*>(runtimeState);
@@ -151,7 +151,8 @@ namespace bespoke
                   break;
             }
 
-            buffer[i] *= state.level;
+            for (int ch = 0; ch < context.numChannels; ++ch)
+               channels[ch][i] *= state.level;
          }
       }
 

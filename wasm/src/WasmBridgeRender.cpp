@@ -177,9 +177,11 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
             state.audioBackend->start();
          else if (!playing && state.audioBackend->isRunning())
             state.audioBackend->stop();
-
-         state.canvas->setOutputLevel(state.audioBackend->getOutputLevel());
       }
+      // Engine-side peaks work for every backend (SDL and worklet) and are measured pre-limit.
+      if (state.audioGraphEngine)
+         state.canvas->setOutputMeter(state.audioGraphEngine->takeOutputPeak(0),
+                                      state.audioGraphEngine->takeOutputPeak(1));
       state.canvas->render(*state.renderer, state.width, state.height);
    }
    else if (useLegacy)

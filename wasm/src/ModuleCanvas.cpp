@@ -896,14 +896,15 @@ namespace bespoke
          return screenY / mScale - mOffsetY;
       }
 
-      void ModuleCanvas::setOutputLevel(float level)
+      void ModuleCanvas::setOutputMeter(float peakLeft, float peakRight)
       {
          Lock lock(mMutex);
          for (auto& [id, module] : mModules)
          {
             if (module->getType() == "output")
             {
-               module->setControlValue("level", level);
+               module->setControlValue("meterL", peakLeft);
+               module->setControlValue("meterR", peakRight);
                break;
             }
          }

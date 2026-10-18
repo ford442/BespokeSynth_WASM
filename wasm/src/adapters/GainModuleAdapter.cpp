@@ -48,16 +48,17 @@ namespace bespoke
 
       void GainModuleAdapter::processAudio(void* runtimeState,
                                            const void* paramsPtr,
-                                           float* buffer,
+                                           float* const* channels,
                                            const WasmAudioProcessContext& context) const
       {
          (void)runtimeState;
-         if (!paramsPtr || !buffer)
+         if (!paramsPtr || !channels)
             return;
 
          const auto& params = *static_cast<const GainParams*>(paramsPtr);
          const float gain = clampFloat(params.gain, 0.0f, 1.0f);
-         dsp::scale(buffer, context.numSamples, gain);
+         for (int ch = 0; ch < context.numChannels; ++ch)
+            dsp::scale(channels[ch], context.numSamples, gain);
       }
 
       BESPOKE_REGISTER_MODULE(GainModuleAdapter);

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 namespace bespoke
 {
@@ -137,6 +138,15 @@ namespace bespoke
             case SliderFormat::Ratio:
                snprintf(buf, len, "%.1f:1", value);
                break;
+            case SliderFormat::Pan:
+            {
+               const int amount = static_cast<int>(std::lround((value - 0.5f) * 200.0f));
+               if (amount == 0)
+                  snprintf(buf, len, "C");
+               else
+                  snprintf(buf, len, "%c%d", amount < 0 ? 'L' : 'R', std::abs(amount));
+               break;
+            }
             case SliderFormat::Choice:
             {
                const int index = static_cast<int>(std::lround(value));

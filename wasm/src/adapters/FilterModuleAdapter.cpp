@@ -80,25 +80,29 @@ namespace bespoke
 
       void FilterModuleAdapter::processAudio(void* runtimeState,
                                              const void* paramsPtr,
-                                             float* buffer,
+                                             float* const* channels,
                                              const WasmAudioProcessContext& context) const
       {
-         if (!runtimeState || !paramsPtr || !buffer)
+         if (!runtimeState || !paramsPtr || !channels)
             return;
 
          auto& state = *static_cast<FilterAdapterRuntimeState*>(runtimeState);
          const auto& params = *static_cast<const FilterParams*>(paramsPtr);
          if (state.lastSampleRate != context.sampleRate)
          {
-            state.filter.SetSampleRate(context.sampleRate);
-            state.filter.Clear();
+            for (auto& filter : state.filter)
+            {
+               filter.SetSampleRate(context.sampleRate);
+               filter.Clear();
+            }
             state.lastSampleRate = context.sampleRate;
          }
 
          const FilterType filterType = filterTypeFor(params.type);
          if (state.lastFilterType != static_cast<int>(filterType))
          {
-            state.filter.SetFilterType(filterType);
+            for (auto& filter : state.filter)
+               filter.SetFilterType(filterType);
             state.lastFilterType = static_cast<int>(filterType);
          }
 
@@ -111,8 +115,11 @@ namespace bespoke
             const float cutoff = clampFloat(params.cutoff * std::pow(2.0f, modulation * 2.0f),
                                             20.0f, context.sampleRate * 0.45f);
             const float q = clampFloat(0.2f + params.resonance * 9.8f, 0.2f, 10.0f);
-            state.filter.SetFilterParams(cutoff, q);
-            buffer[i] = state.filter.Filter(buffer[i]);
+            for (int ch = 0; ch < context.numChannels; ++ch)
+            {
+               state.filter[ch].SetFilterParams(cutoff, q);
+               channels[ch][i] = state.filter[ch].Filter(channels[ch][i]);
+            }
          }
       }
 

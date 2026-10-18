@@ -171,7 +171,7 @@ void test_catalog_wave2_dynamics_and_colour()
    WasmAudioProcessContext chorusContext;
    chorusContext.sampleRate = 44100.0f;
    chorusContext.numSamples = static_cast<int>(wet.size());
-   chorus.processAudio(chorusState.data(), &chorusParams, wet.data(), chorusContext);
+   chorus.processMono(chorusState.data(), &chorusParams, wet.data(), chorusContext);
    double chorusDiff = 0.0;
    for (size_t i = 0; i < wet.size(); ++i)
       chorusDiff += std::fabs(wet[i] - dry[i]);
@@ -193,7 +193,7 @@ void test_catalog_wave2_dynamics_and_colour()
    std::vector<float> driven = dry;
    WasmAudioProcessContext shaperContext;
    shaperContext.numSamples = static_cast<int>(driven.size());
-   shaper.processAudio(nullptr, &shaperParams, driven.data(), shaperContext);
+   shaper.processMono(nullptr, &shaperParams, driven.data(), shaperContext);
    float peak = 0.0f;
    for (float v : driven)
       peak = std::max(peak, std::fabs(v));
@@ -201,7 +201,7 @@ void test_catalog_wave2_dynamics_and_colour()
    std::vector<float> cv(dry.size(), -1.0f);
    std::vector<float> cvDriven = dry;
    shaperContext.modulationBuffer = cv.data();
-   shaper.processAudio(nullptr, &shaperParams, cvDriven.data(), shaperContext);
+   shaper.processMono(nullptr, &shaperParams, cvDriven.data(), shaperContext);
    TEST("Waveshaper Drive CV at -1 silences the shaped path", buffer_rms(cvDriven) < 1e-6f);
 }
 
@@ -361,7 +361,7 @@ void test_catalog_wave2_freeverb()
    context.sampleRate = 44100.0f;
    context.numSamples = static_cast<int>(noise.size());
    std::vector<float> first = noise;
-   adapter.processAudio(runtimeA->data(), &params, first.data(), context);
+   adapter.processMono(runtimeA->data(), &params, first.data(), context);
    const float inRms = buffer_rms(noise);
    const float wetRms = buffer_rms(std::vector<float>(first.begin() + 4096, first.end()));
    printf("  freeverb in rms %.4f, 100%% wet rms %.4f\n", inRms, wetRms);
@@ -371,7 +371,7 @@ void test_catalog_wave2_freeverb()
    std::vector<uint8_t> runtimeB(*runtimeA);
    runtimeA.reset();
    std::vector<float> second = noise;
-   adapter.processAudio(runtimeB.data(), &params, second.data(), context);
+   adapter.processMono(runtimeB.data(), &params, second.data(), context);
    TEST("Freeverb survives runtime-arena relocation",
         all_finite(second) && buffer_rms(std::vector<float>(second.begin() + 4096, second.end())) > inRms * 0.25f);
    adapter.destroyRuntimeState(runtimeB.data());

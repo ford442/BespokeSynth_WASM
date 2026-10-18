@@ -108,6 +108,13 @@ namespace bespoke
             params->sample = SampleStore::instance().findByHash(extra->second);
       }
 
+      int SamplerModuleAdapter::outputChannelCount(const void* paramsPtr, const WasmAudioProcessContext& context) const
+      {
+         (void)context;
+         const auto* params = static_cast<const SamplerParams*>(paramsPtr);
+         return params && params->sample ? params->sample->channelCount() : 1;
+      }
+
       void SamplerModuleAdapter::initRuntimeState(void* runtimeState) const
       {
          new (runtimeState) SamplerAdapterRuntimeState();
@@ -120,17 +127,21 @@ namespace bespoke
 
       void SamplerModuleAdapter::processAudio(void* runtimeState,
                                               const void* paramsPtr,
-                                              float* buffer,
+                                              float* const* channels,
                                               const WasmAudioProcessContext& context) const
       {
-         if (!runtimeState || !paramsPtr || !buffer)
+         if (!runtimeState || !paramsPtr || !channels)
             return;
 
          auto& state = *static_cast<SamplerAdapterRuntimeState*>(runtimeState);
          const auto& params = *static_cast<const SamplerParams*>(paramsPtr);
          const SampleBuffer* sample = params.sample;
          const int frames = sample ? sample->frameCount() : 0;
-         const float* data = sample ? sample->samples() : nullptr;
+         const float* data = sample ? sample->channelData(0) : nullptr;
+         // A stereo file into a one-channel block (processMono) plays its mid.
+         const bool stereoSample = sample && sample->channelCount() == 2;
+         const float* dataR = stereoSample ? sample->channelData(1) : data;
+         const int outChannels = context.numChannels;
 
          if (context.notes && context.noteCount > 0 && data && frames > 0)
          {
@@ -157,8 +168,8 @@ namespace bespoke
             }
          }
 
-         for (int i = 0; i < context.numSamples; ++i)
-            buffer[i] = 0.0f;
+         for (int ch = 0; ch < outChannels; ++ch)
+            std::fill(channels[ch], channels[ch] + context.numSamples, 0.0f);
          if (!data || frames <= 0)
             return;
 
@@ -196,8 +207,18 @@ namespace bespoke
                const int idx = static_cast<int>(voice.position);
                const int next = std::min(frames - 1, idx + 1);
                const float frac = static_cast<float>(voice.position - idx);
-               const float sampleValue = data[idx] + (data[next] - data[idx]) * frac;
-               buffer[i] += sampleValue * voice.velocity * volume;
+               const float gain = voice.velocity * volume;
+               const float left = data[idx] + (data[next] - data[idx]) * frac;
+               const float right = dataR[idx] + (dataR[next] - dataR[idx]) * frac;
+               if (outChannels == 2)
+               {
+                  channels[0][i] += left * gain;
+                  channels[1][i] += right * gain;
+               }
+               else
+               {
+                  channels[0][i] += (stereoSample ? (left + right) * 0.5f : left) * gain;
+               }
                voice.position += voice.rate;
             }
          }

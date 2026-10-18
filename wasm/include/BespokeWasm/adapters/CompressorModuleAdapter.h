@@ -41,6 +41,8 @@ namespace bespoke
          ModuleCategory category() const override { return ModuleCategory::AudioEffect; }
          WasmAudioRole audioRole() const override { return WasmAudioRole::AudioProcessor; }
          bool sumsAudioInputs() const override { return false; }
+         /** Width of the main input; the sidechain only keys the detector. */
+         int outputChannelCount(const void* params, const WasmAudioProcessContext& context) const override;
 
          std::vector<WasmControlDescriptor> controlDescriptors() const override;
          std::vector<PortDescriptor> inputPorts() const override;
@@ -55,7 +57,7 @@ namespace bespoke
          void destroyRuntimeState(void* runtimeState) const override;
          void processAudio(void* runtimeState,
                            const void* params,
-                           float* buffer,
+                           float* const* channels,
                            const WasmAudioProcessContext& context) const override;
 
          /** Static gain curve (dB change for a given input level), exposed for tests. */

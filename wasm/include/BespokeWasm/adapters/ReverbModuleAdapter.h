@@ -46,6 +46,8 @@ namespace bespoke
          const char* displayName() const override { return "Reverb"; }
          ModuleCategory category() const override { return ModuleCategory::AudioEffect; }
          WasmAudioRole audioRole() const override { return WasmAudioRole::AudioProcessor; }
+         /** Freeverb's decorrelated L/R tails are always kept. */
+         int outputChannelCount(const void*, const WasmAudioProcessContext&) const override { return 2; }
 
          std::vector<WasmControlDescriptor> controlDescriptors() const override;
          std::vector<PortDescriptor> inputPorts() const override;
@@ -60,7 +62,7 @@ namespace bespoke
          void destroyRuntimeState(void* runtimeState) const override;
          void processAudio(void* runtimeState,
                            const void* params,
-                           float* buffer,
+                           float* const* channels,
                            const WasmAudioProcessContext& context) const override;
       };
 

@@ -91,6 +91,21 @@ namespace bespoke::wasm::AudioAnalysis
       writeIndex.store(index + static_cast<unsigned int>(count), std::memory_order_release);
    }
 
+   void pushStereo(const float* left, const float* right, int count)
+   {
+      if (!left || count <= 0)
+         return;
+      if (!right)
+      {
+         pushSamples(left, count);
+         return;
+      }
+      unsigned int index = writeIndex.load(std::memory_order_relaxed);
+      for (int i = 0; i < count; ++i)
+         ring[(index + static_cast<unsigned int>(i)) % kRingSize] = (left[i] + right[i]) * 0.5f;
+      writeIndex.store(index + static_cast<unsigned int>(count), std::memory_order_release);
+   }
+
    void copyLatest(float* destination, int count)
    {
       if (!destination || count <= 0)

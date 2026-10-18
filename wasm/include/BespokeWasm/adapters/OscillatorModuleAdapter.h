@@ -64,7 +64,7 @@ namespace bespoke
          void destroyRuntimeState(void* runtimeState) const override;
          void processAudio(void* runtimeState,
                            const void* params,
-                           float* buffer,
+                           float* const* channels,
                            const WasmAudioProcessContext& context) const override;
       };
 

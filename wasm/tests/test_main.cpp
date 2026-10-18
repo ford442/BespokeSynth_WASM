@@ -40,6 +40,9 @@ int main()
    test_undo_redo();
    test_midi_learn_and_channel();
    test_script_note_queue();
+   test_stereo_dsp_kernels();
+   test_stereo_graph();
+   test_stereo_patch_migration();
 
    printf("\n============================\n");
    printf("Results: %d passed, %d failed\n", gTestsPassed, gTestsFailed);

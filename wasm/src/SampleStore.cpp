@@ -29,17 +29,25 @@ namespace bespoke
          }
 
          std::vector<float> decoded;
+         int channels = 1;
          int sourceRate = 0;
          std::string error;
-         if (!decodeAudioFile(bytes, length, decoded, sourceRate, error))
+         if (!decodeAudioFile(bytes, length, decoded, channels, sourceRate, error))
             return -1;
 
+         // Planes are resampled independently; the hash stays over the original file bytes.
          const int destRate = deviceSampleRate > 0 ? deviceSampleRate : sourceRate;
-         std::vector<float> resampled = resampleMonoCatmullRom(
-         decoded.data(), static_cast<int>(decoded.size()), sourceRate, destRate);
+         const int sourceFrames = static_cast<int>(decoded.size()) / channels;
+         std::vector<float> resampled;
+         for (int ch = 0; ch < channels; ++ch)
+         {
+            std::vector<float> plane = resampleMonoCatmullRom(
+            decoded.data() + static_cast<size_t>(ch) * sourceFrames, sourceFrames, sourceRate, destRate);
+            resampled.insert(resampled.end(), plane.begin(), plane.end());
+         }
 
          auto buffer = std::make_shared<SampleBuffer>(
-         std::move(resampled), destRate, hash, name ? name : "sample");
+         std::move(resampled), channels, destRate, hash, name ? name : "sample");
 
          std::lock_guard<std::mutex> lock(mMutex);
          auto existing = mIdByHash.find(hash);

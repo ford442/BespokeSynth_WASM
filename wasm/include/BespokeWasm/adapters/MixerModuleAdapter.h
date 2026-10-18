@@ -19,6 +19,7 @@ namespace bespoke
       struct MixerParams
       {
          float level[kMixerChannelCount] = { 0.8f, 0.8f, 0.8f, 0.8f };
+         float pan[kMixerChannelCount] = { 0.5f, 0.5f, 0.5f, 0.5f }; // 0 = L, 0.5 = centre, 1 = R
          float master = 1.0f;
       };
 
@@ -35,6 +36,7 @@ namespace bespoke
          ModuleCategory category() const override { return ModuleCategory::AudioEffect; }
          WasmAudioRole audioRole() const override { return WasmAudioRole::AudioProcessor; }
          bool sumsAudioInputs() const override { return false; }
+         int outputChannelCount(const void*, const WasmAudioProcessContext&) const override { return 2; }
 
          std::vector<WasmControlDescriptor> controlDescriptors() const override;
          std::vector<PortDescriptor> inputPorts() const override;
@@ -46,7 +48,7 @@ namespace bespoke
 
          void processAudio(void* runtimeState,
                            const void* params,
-                           float* buffer,
+                           float* const* channels,
                            const WasmAudioProcessContext& context) const override;
       };
 

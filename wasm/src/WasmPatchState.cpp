@@ -585,9 +585,8 @@ namespace bespoke
 
       void migratePatchState(ModuleCanvas::StateSnapshot& snapshot)
       {
-         if (snapshot.schemaVersion >= kPatchSchemaVersion)
-            return;
-
+         // Additive controls (mixer pan1..4, output limit, chorus width) need no schema bump:
+         // any control a saved patch lacks takes its descriptor default, even on current-version patches.
          auto& registry = WasmModuleAdapterRegistry::instance();
          for (auto& module : snapshot.modules)
          {
@@ -600,6 +599,8 @@ namespace bespoke
                   module.controls[control.name] = control.defaultValue;
             }
          }
+         if (snapshot.schemaVersion >= kPatchSchemaVersion)
+            return;
          if (snapshot.schemaVersion < 4)
             seedDefaultMidiCcBindings(snapshot);
          snapshot.schemaVersion = kPatchSchemaVersion;

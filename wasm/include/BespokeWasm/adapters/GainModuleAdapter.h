@@ -37,7 +37,7 @@ namespace bespoke
 
          void processAudio(void* runtimeState,
                            const void* params,
-                           float* buffer,
+                           float* const* channels,
                            const WasmAudioProcessContext& context) const override;
       };
 

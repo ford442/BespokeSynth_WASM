@@ -58,9 +58,11 @@ namespace bespoke
          mPreparedAudioSlots = maxAudioSlots;
          mPreparedModulationSlots = maxModulationSlots;
 
-         const size_t audioSamples = static_cast<size_t>(maxAudioSlots) * static_cast<size_t>(maxBlockSize);
+         const size_t audioSamples = static_cast<size_t>(maxAudioSlots) * 2u * static_cast<size_t>(maxBlockSize);
          if (mAudioArena.size() < audioSamples)
             mAudioArena.resize(audioSamples);
+         if (mSlotChannels.size() < static_cast<size_t>(maxAudioSlots))
+            mSlotChannels.resize(static_cast<size_t>(maxAudioSlots), 1);
 
          const size_t modSamples = static_cast<size_t>(maxModulationSlots) * static_cast<size_t>(maxBlockSize);
          if (mModulationArena.size() < modSamples)
@@ -219,11 +221,38 @@ namespace bespoke
          }
       }
 
-      float* AudioGraphEngine::audioSlotBuffer(int slot, int numSamples)
+      float* AudioGraphEngine::audioSlotBuffer(int slot, int channel, int numSamples)
       {
-         if (slot < 0 || slot >= mPreparedAudioSlots || numSamples > mPreparedBlockSize)
+         if (slot < 0 || slot >= mPreparedAudioSlots || numSamples > mPreparedBlockSize || channel < 0 || channel > 1)
             return nullptr;
-         return mAudioArena.data() + static_cast<size_t>(slot) * static_cast<size_t>(mPreparedBlockSize);
+         const size_t block = static_cast<size_t>(mPreparedBlockSize);
+         return mAudioArena.data() + (static_cast<size_t>(slot) * 2u + static_cast<size_t>(channel)) * block;
+      }
+
+      int AudioGraphEngine::audioSlotChannels(int slot) const
+      {
+         if (slot < 0 || static_cast<size_t>(slot) >= mSlotChannels.size())
+            return 1;
+         return mSlotChannels[static_cast<size_t>(slot)];
+      }
+
+      void AudioGraphEngine::publishOutputPeaks(const float* const* channels, int numChannels, int numSamples)
+      {
+         for (int ch = 0; ch < 2; ++ch)
+         {
+            const float peak = dsp::peakAbs(channels[std::min(ch, numChannels - 1)], numSamples);
+            float held = mOutputPeak[ch].load(std::memory_order_relaxed);
+            while (peak > held && !mOutputPeak[ch].compare_exchange_weak(held, peak, std::memory_order_relaxed))
+            {
+            }
+         }
+      }
+
+      float AudioGraphEngine::takeOutputPeak(int channel)
+      {
+         if (channel < 0 || channel > 1)
+            return 0.0f;
+         return mOutputPeak[channel].exchange(0.0f, std::memory_order_relaxed);
       }
 
       float* AudioGraphEngine::modulationSlotBuffer(int slot, int numSamples)
@@ -412,7 +441,7 @@ namespace bespoke
             const WasmModuleAdapter* adapter = registry.adapterAt(node.typeIndex);
             if (!adapter)
                continue;
-            adapter->processAudio(stateFor(node), graph.paramsFor(node), buffer, modulationContext);
+            adapter->processMono(stateFor(node), graph.paramsFor(node), buffer, modulationContext);
          }
 
          const double blockStart = mAudioTimeSeconds;
@@ -424,28 +453,29 @@ namespace bespoke
             if (step.nodeIndex < 0 || static_cast<size_t>(step.nodeIndex) >= graph.nodes.size())
                continue;
             const auto& node = graph.nodes[static_cast<size_t>(step.nodeIndex)];
-            float* buffer = audioSlotBuffer(step.outBufferSlot, numSamples);
-            if (!buffer)
+            float* channels[2] = { audioSlotBuffer(step.outBufferSlot, 0, numSamples),
+                                   audioSlotBuffer(step.outBufferSlot, 1, numSamples) };
+            if (!channels[0])
                continue;
-
-            if (step.outBufferSlot >= 0)
-               std::memset(buffer, 0, static_cast<size_t>(numSamples) * sizeof(float));
 
             const WasmModuleAdapter* stepAdapter = registry.adapterAt(step.typeIndex);
             const bool sumInputs = !stepAdapter || stepAdapter->sumsAudioInputs();
             std::array<WasmAudioInput, decltype(step.inputBufferSlots)::kCapacity> audioInputs{};
             int audioInputCount = 0;
+            int inputChannels = 1;
             for (int inputIndex = 0; inputIndex < step.inputBufferSlots.size(); ++inputIndex)
             {
-               const float* source = audioSlotBuffer(step.inputBufferSlots.data[inputIndex], numSamples);
-               if (!source)
+               const int inputSlot = step.inputBufferSlots.data[inputIndex];
+               const float* left = audioSlotBuffer(inputSlot, 0, numSamples);
+               if (!left)
                   continue;
-               audioInputs[static_cast<size_t>(audioInputCount++)] = { source, step.inputBufferPorts.data[inputIndex] };
-               if (sumInputs)
-               {
-                  for (int i = 0; i < numSamples; ++i)
-                     buffer[i] += source[i];
-               }
+               // Mono upmix is free: a mono slot hands out its L buffer as R.
+               WasmAudioInput& input = audioInputs[static_cast<size_t>(audioInputCount++)];
+               input.numChannels = audioSlotChannels(inputSlot);
+               input.channels[0] = left;
+               input.channels[1] = input.numChannels == 2 ? audioSlotBuffer(inputSlot, 1, numSamples) : left;
+               input.port = step.inputBufferPorts.data[inputIndex];
+               inputChannels = std::max(inputChannels, input.numChannels);
             }
 
             const WasmNoteEvent* moduleNotes = nullptr;
@@ -519,6 +549,24 @@ namespace bespoke
             context.hasAudioInput = step.inputBufferSlots.count > 0;
             context.audioInputs = audioInputCount > 0 ? audioInputs.data() : nullptr;
             context.audioInputCount = audioInputCount;
+            context.inputChannels = inputChannels;
+
+            const void* params = graph.paramsFor(node);
+            const int numChannels = std::max(1, std::min(2, stepAdapter ? stepAdapter->outputChannelCount(params, context)
+                                                                        : inputChannels));
+            context.numChannels = numChannels;
+            if (numChannels < 2)
+               channels[1] = nullptr;
+            for (int ch = 0; ch < numChannels; ++ch)
+               std::memset(channels[ch], 0, static_cast<size_t>(numSamples) * sizeof(float));
+            if (sumInputs)
+            {
+               for (int c = 0; c < audioInputCount; ++c)
+                  accumulateAudioInput(audioInputs[static_cast<size_t>(c)], channels, numChannels, numSamples);
+            }
+            mSlotChannels[static_cast<size_t>(step.outBufferSlot)] = static_cast<uint8_t>(numChannels);
+            if (step.audioRole == WasmAudioRole::Sink)
+               publishOutputPeaks(channels, numChannels, numSamples);
             if (moduleNotes && moduleNoteCount > 0)
             {
                context.notes = moduleNotes;
@@ -545,19 +593,30 @@ namespace bespoke
             }
 
             if (stepAdapter)
-               stepAdapter->processAudio(stateFor(node), graph.paramsFor(node), buffer, context);
+               stepAdapter->processAudio(stateFor(node), params, channels, context);
          }
 
-         const float* outBuffer = audioSlotBuffer(plan.outputBufferSlot, numSamples);
-         if (!outBuffer)
+         const int outChannels = audioSlotChannels(plan.outputBufferSlot);
+         const float* outBuffers[2] = { audioSlotBuffer(plan.outputBufferSlot, 0, numSamples),
+                                        audioSlotBuffer(plan.outputBufferSlot, outChannels == 2 ? 1 : 0, numSamples) };
+         if (!outBuffers[0])
             return;
 
-         for (int ch = 0; ch < channels; ++ch)
+         // The Output limiter normally makes this clamp a no-op; it remains the last guard when the limiter is off.
+         if (channels == 1 && outChannels == 2 && output[0])
          {
-            if (!output[ch])
-               continue;
             for (int i = 0; i < numSamples; ++i)
-               output[ch][i] = clampFloat(outBuffer[i], -1.0f, 1.0f);
+               output[0][i] = clampFloat((outBuffers[0][i] + outBuffers[1][i]) * 0.5f, -1.0f, 1.0f);
+         }
+         else
+         {
+            for (int ch = 0; ch < channels; ++ch)
+            {
+               if (!output[ch])
+                  continue;
+               for (int i = 0; i < numSamples; ++i)
+                  output[ch][i] = clampFloat(outBuffers[ch][i], -1.0f, 1.0f);
+            }
          }
          mAudioTimeSeconds += static_cast<double>(numSamples) / sampleRate;
       }

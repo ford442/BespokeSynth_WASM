@@ -24,7 +24,7 @@ namespace bespoke
 
       struct FilterAdapterRuntimeState
       {
-         BiquadFilter filter;
+         BiquadFilter filter[2]; // one per channel, shared coefficients
          float lastSampleRate = 0.0f;
          int lastFilterType = -1;
       };
@@ -50,7 +50,7 @@ namespace bespoke
          void destroyRuntimeState(void* runtimeState) const override;
          void processAudio(void* runtimeState,
                            const void* params,
-                           float* buffer,
+                           float* const* channels,
                            const WasmAudioProcessContext& context) const override;
 
          static FilterType filterTypeFor(int filterType);

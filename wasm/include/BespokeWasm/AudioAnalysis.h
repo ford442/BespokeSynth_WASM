@@ -11,6 +11,8 @@ namespace bespoke::wasm::AudioAnalysis
 
    // Single producer (audio callback), lock-free reader (render thread).
    void pushSamples(const float* samples, int count);
+   /** Pushes the mid (L + R) / 2 collapse; the scope and both FFT paths read this one ring. */
+   void pushStereo(const float* left, const float* right, int count);
    void copyLatest(float* destination, int count);
    void computeSpectrum(float* destination, int bins);
 

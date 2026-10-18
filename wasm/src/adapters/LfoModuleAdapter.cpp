@@ -86,9 +86,10 @@ namespace bespoke
 
       void LfoModuleAdapter::processAudio(void* runtimeState,
                                           const void* paramsPtr,
-                                          float* buffer,
+                                          float* const* channels,
                                           const WasmAudioProcessContext& context) const
       {
+         float* buffer = channels ? channels[0] : nullptr;
          if (!runtimeState || !paramsPtr || !buffer)
             return;
 

@@ -161,7 +161,8 @@ namespace bespoke
          void onMouseWheel(float deltaX, float deltaY, float mouseX, float mouseY);
          void onKeyDown(int keyCode, int modifiers);
 
-         void setOutputLevel(float level);
+         /** Per-channel pre-limit peaks for the Output VU (UI thread, once per frame). */
+         void setOutputMeter(float peakLeft, float peakRight);
 
          void clearUserModules();
          void setViewTransform(float offsetX, float offsetY, float scale);

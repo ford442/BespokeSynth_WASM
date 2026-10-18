@@ -11,6 +11,7 @@
 #pragma once
 
 #include "BespokeWasm/AudioGraphTypes.h"
+#include "BespokeWasm/DspSimd.h"
 #include "BespokeWasm/Module.h"
 #include "BespokeWasm/ModuleTypes.h"
 #include <map>
@@ -57,10 +58,14 @@ namespace bespoke
          float strength = 1.0f;
       };
 
-      /** One incoming audio cable, tagged with the destination input port index. */
+      /**
+       * One incoming audio cable, tagged with the destination input port index.
+       * Planar channels; a mono source has numChannels == 1 and channels[1] == channels[0].
+       */
       struct WasmAudioInput
       {
-         const float* buffer = nullptr;
+         const float* channels[2] = { nullptr, nullptr };
+         int numChannels = 1;
          int port = 0;
       };
 
@@ -68,6 +73,10 @@ namespace bespoke
       {
          float sampleRate = 44100.0f;
          int numSamples = 0;
+         /** Channels the adapter writes (1 or 2); always 1 for modulation sources. */
+         int numChannels = 1;
+         /** Widest audio cable into this module (1 when it has none). */
+         int inputChannels = 1;
          double blockStartTimeSeconds = 0.0;
          double beatStart = 0.0;
          double beatEnd = 0.0;
@@ -93,20 +102,51 @@ namespace bespoke
          return it != controls.end() ? it->second : fallback;
       }
 
-      /** dst[i] += every cable into input `port`. Returns false when that port has no cable. */
-      inline bool accumulateAudioInputPort(const WasmAudioProcessContext& context, int port, float* dst)
+      /**
+       * dst[ch] += one cable, matched to `numChannels`: a mono cable feeds both
+       * channels, a stereo cable into one channel is summed to mid (L + R) / 2.
+       */
+      inline void accumulateAudioInput(const WasmAudioInput& input, float* const* dst, int numChannels, int numSamples)
+      {
+         if (numChannels == 1 && input.numChannels == 2)
+         {
+            dsp::accumulateScaled(dst[0], input.channels[0], numSamples, 0.5f);
+            dsp::accumulateScaled(dst[0], input.channels[1], numSamples, 0.5f);
+            return;
+         }
+         for (int ch = 0; ch < numChannels; ++ch)
+            dsp::accumulateScaled(dst[ch], input.channels[ch], numSamples, 1.0f);
+      }
+
+      /** dst[ch] += every cable into input `port`. Returns false when that port has no cable. */
+      inline bool accumulateAudioInputPort(const WasmAudioProcessContext& context,
+                                           int port,
+                                           float* const* dst,
+                                           int numChannels)
       {
          bool any = false;
          for (int c = 0; c < context.audioInputCount; ++c)
          {
             const WasmAudioInput& input = context.audioInputs[c];
-            if (input.port != port || !input.buffer)
+            if (input.port != port || !input.channels[0])
                continue;
-            for (int i = 0; i < context.numSamples; ++i)
-               dst[i] += input.buffer[i];
+            accumulateAudioInput(input, dst, numChannels, context.numSamples);
             any = true;
          }
          return any;
+      }
+
+      /** Widest cable into input `port`, or 0 when it has none. */
+      inline int audioInputPortChannels(const WasmAudioProcessContext& context, int port)
+      {
+         int channels = 0;
+         for (int c = 0; c < context.audioInputCount; ++c)
+         {
+            const WasmAudioInput& input = context.audioInputs[c];
+            if (input.port == port && input.channels[0] && input.numChannels > channels)
+               channels = input.numChannels;
+         }
+         return channels;
       }
 
       class WasmModuleAdapter
@@ -120,10 +160,21 @@ namespace bespoke
          virtual bool isSingleton() const { return false; }
          virtual WasmAudioRole audioRole() const { return WasmAudioRole::None; }
          /**
-          * true: the engine sums every audio cable into `buffer` before processAudio.
-          * false: `buffer` arrives zeroed and the adapter reads context.audioInputs per port.
+          * true: the engine sums every audio cable into `channels` before processAudio.
+          * false: `channels` arrive zeroed and the adapter reads context.audioInputs per port.
           */
          virtual bool sumsAudioInputs() const { return true; }
+         /**
+          * Channels this module writes this block (1 or 2). Called on the audio
+          * thread with audioInputs/inputChannels filled; numChannels is not set
+          * yet. The default follows the widest input, so mono chains stay mono
+          * and a stereo source keeps its width through per-channel effects.
+          */
+         virtual int outputChannelCount(const void* params, const WasmAudioProcessContext& context) const
+         {
+            (void)params;
+            return context.inputChannels;
+         }
          /** NoteSource output is snapped to the graph Scale unless this returns false. */
          virtual bool quantizesNotesToScale() const { return true; }
 
@@ -153,15 +204,31 @@ namespace bespoke
          virtual void initRuntimeState(void* runtimeState) const { (void)runtimeState; }
          virtual void destroyRuntimeState(void* runtimeState) const { (void)runtimeState; }
 
+         /**
+          * `channels` holds context.numChannels planar buffers of
+          * context.numSamples each (channels[1] is null for a mono block).
+          */
          virtual void processAudio(void* runtimeState,
                                    const void* params,
-                                   float* buffer,
+                                   float* const* channels,
                                    const WasmAudioProcessContext& context) const
          {
             (void)runtimeState;
             (void)params;
-            (void)buffer;
+            (void)channels;
             (void)context;
+         }
+
+         /** One-channel processAudio (modulation sources, unit tests). */
+         void processMono(void* runtimeState,
+                          const void* params,
+                          float* buffer,
+                          const WasmAudioProcessContext& context) const
+         {
+            WasmAudioProcessContext mono = context;
+            mono.numChannels = 1;
+            float* channels[2] = { buffer, nullptr };
+            processAudio(runtimeState, params, channels, mono);
          }
 
          virtual void emitNotesForBeatRange(void* runtimeState,

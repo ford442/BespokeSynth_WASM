@@ -28,13 +28,21 @@ namespace bespoke
       public:
          static constexpr int kPeakBins = 256;
 
-         SampleBuffer(std::vector<float> mono,
+         /** `planar` holds `channels` (1 or 2) back-to-back planes of equal length. */
+         SampleBuffer(std::vector<float> planar,
+                      int channels,
                       int sampleRate,
                       std::string hash,
                       std::string name);
 
-         const float* samples() const { return mSamples.data(); }
-         int frameCount() const { return static_cast<int>(mSamples.size()); }
+         int channelCount() const { return mChannels; }
+         int frameCount() const { return static_cast<int>(mSamples.size()) / mChannels; }
+         /** Plane `channel`; a mono buffer returns its only plane for channel 1 too. */
+         const float* channelData(int channel) const
+         {
+            return mSamples.data() + static_cast<size_t>(channel < mChannels ? channel : 0) * frameCount();
+         }
+         const float* samples() const { return channelData(0); }
          int sampleRate() const { return mSampleRate; }
          const std::string& hash() const { return mHash; }
          const std::string& name() const { return mName; }
@@ -55,6 +63,7 @@ namespace bespoke
          std::vector<SamplePeak> mPeaks;
          std::string mHash;
          std::string mName;
+         int mChannels = 1;
          int mSampleRate = 44100;
          int mId = -1;
          float mStart = 0.0f;
@@ -70,9 +79,14 @@ namespace bespoke
                                                 int inputFrames,
                                                 int inputRate,
                                                 int outputRate);
+      /**
+       * Decode WAV/FLAC/MP3 to planar float. Mono and stereo files keep their
+       * channels; anything wider is downmixed to mono (surround is out of scope).
+       */
       bool decodeAudioFile(const uint8_t* bytes,
                            int length,
-                           std::vector<float>& monoOut,
+                           std::vector<float>& planarOut,
+                           int& channelsOut,
                            int& sampleRateOut,
                            std::string& error);
       bool encodeWav(const float* interleaved,

@@ -87,7 +87,7 @@ void test_dsp_simd_kernels()
          WasmAudioProcessContext context;
          context.sampleRate = sampleRate;
          context.numSamples = 512;
-         adapter.processAudio(runtimeStorage.data(), &params, buffer, context);
+         adapter.processMono(runtimeStorage.data(), &params, buffer, context);
 
          for (int i = 0; i < 512; ++i)
          {

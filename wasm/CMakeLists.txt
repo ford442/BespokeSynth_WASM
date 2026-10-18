@@ -429,6 +429,7 @@ add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/tests/test_catalog_wave2.cpp
     ${BESPOKE_WASM_DIR}/tests/test_dsp_tuning.cpp
     ${BESPOKE_WASM_DIR}/tests/test_canvas.cpp
+    ${BESPOKE_WASM_DIR}/tests/test_stereo.cpp
     ${BESPOKE_WASM_DIR}/tests/synth_globals_stub.cpp
     ${BESPOKE_WASM_DIR}/src/AudioProcessPlan.cpp
     ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp

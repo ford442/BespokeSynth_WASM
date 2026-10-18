@@ -84,6 +84,12 @@ namespace bespoke
          params->kneeDb = sliderSpecValue(specs, controls, "knee");
       }
 
+      int CompressorModuleAdapter::outputChannelCount(const void* params, const WasmAudioProcessContext& context) const
+      {
+         (void)params;
+         return std::max(1, audioInputPortChannels(context, kPortMain));
+      }
+
       void CompressorModuleAdapter::initRuntimeState(void* runtimeState) const
       {
          new (runtimeState) CompressorRuntimeState();
@@ -96,10 +102,10 @@ namespace bespoke
 
       void CompressorModuleAdapter::processAudio(void* runtimeState,
                                                  const void* paramsPtr,
-                                                 float* buffer,
+                                                 float* const* channels,
                                                  const WasmAudioProcessContext& context) const
       {
-         if (!runtimeState || !paramsPtr || !buffer)
+         if (!runtimeState || !paramsPtr || !channels)
             return;
 
          auto& state = *static_cast<CompressorRuntimeState*>(runtimeState);
@@ -110,41 +116,50 @@ namespace bespoke
          // Below this linear level the gain computer is exactly 0 dB: skip the log.
          const float quietLinear = std::pow(10.0f, (params.thresholdDb - params.kneeDb * 0.5f) / 20.0f);
 
-         // `buffer` arrives zeroed; the main input is port 0, the detector key is port 1 when cabled.
-         accumulateAudioInputPort(context, kPortMain, buffer);
-         bool hasSidechain = false;
-         for (int c = 0; c < context.audioInputCount; ++c)
-            hasSidechain |= context.audioInputs[c].port == kPortSidechain && context.audioInputs[c].buffer;
+         // `channels` arrive zeroed; the main input is port 0, the detector key is port 1 when cabled.
+         accumulateAudioInputPort(context, kPortMain, channels, context.numChannels);
+         const bool hasSidechain = audioInputPortChannels(context, kPortSidechain) > 0;
 
+         // Linked stereo: one detector on max(|L|, |R|) of the key, one gain for every channel.
          float key[kChunk];
          for (int start = 0; start < context.numSamples; start += kChunk)
          {
             const int count = std::min(kChunk, context.numSamples - start);
+            std::fill(key, key + count, 0.0f);
             if (hasSidechain)
             {
-               std::fill(key, key + count, 0.0f);
                for (int c = 0; c < context.audioInputCount; ++c)
                {
                   const WasmAudioInput& input = context.audioInputs[c];
-                  if (input.port != kPortSidechain || !input.buffer)
+                  if (input.port != kPortSidechain || !input.channels[0])
                      continue;
                   for (int i = 0; i < count; ++i)
-                     key[i] += input.buffer[start + i];
+                  {
+                     const float l = input.channels[0][start + i];
+                     const float r = input.channels[1][start + i];
+                     key[i] = std::max(key[i], std::max(std::fabs(l), std::fabs(r)));
+                  }
                }
             }
             else
             {
-               std::copy(buffer + start, buffer + start + count, key);
+               for (int ch = 0; ch < context.numChannels; ++ch)
+               {
+                  for (int i = 0; i < count; ++i)
+                     key[i] = std::max(key[i], std::fabs(channels[ch][start + i]));
+               }
             }
 
             for (int i = 0; i < count; ++i)
             {
-               const float level = std::fabs(key[i]);
+               const float level = key[i];
                const float targetDb =
                level > quietLinear ? gainComputerDb(20.0f * std::log10(level), params) : 0.0f;
                const float coeff = targetDb < state.envelopeDb ? attack : release;
                state.envelopeDb = targetDb + coeff * (state.envelopeDb - targetDb);
-               buffer[start + i] *= std::pow(10.0f, (state.envelopeDb + params.makeupDb) / 20.0f);
+               const float gain = std::pow(10.0f, (state.envelopeDb + params.makeupDb) / 20.0f);
+               for (int ch = 0; ch < context.numChannels; ++ch)
+                  channels[ch][start + i] *= gain;
             }
          }
       }

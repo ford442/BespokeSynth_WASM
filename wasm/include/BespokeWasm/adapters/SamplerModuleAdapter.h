@@ -60,6 +60,8 @@ namespace bespoke
          const char* displayName() const override { return "Sampler"; }
          ModuleCategory category() const override { return ModuleCategory::Synth; }
          WasmAudioRole audioRole() const override { return WasmAudioRole::AudioSource; }
+         /** Stereo files play stereo; mono files (or no sample) stay mono. */
+         int outputChannelCount(const void* params, const WasmAudioProcessContext& context) const override;
 
          std::vector<WasmControlDescriptor> controlDescriptors() const override;
          std::vector<PortDescriptor> inputPorts() const override;
@@ -78,7 +80,7 @@ namespace bespoke
          void destroyRuntimeState(void* runtimeState) const override;
          void processAudio(void* runtimeState,
                            const void* params,
-                           float* buffer,
+                           float* const* channels,
                            const WasmAudioProcessContext& context) const override;
       };
 

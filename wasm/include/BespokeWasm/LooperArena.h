@@ -19,7 +19,10 @@ namespace bespoke
       {
          static constexpr int kMaxFrames = 16 * 48000;
 
+         /** Planar: L in [0, kMaxFrames), R in [kMaxFrames, 2 * kMaxFrames). */
          std::vector<float> samples;
+         /** Width of the recorded loop (1 = only the L plane is meaningful). */
+         int channels = 1;
          int loopLength = 0;
          int writePos = 0;
          int playPos = 0;
@@ -29,9 +32,11 @@ namespace bespoke
          bool hasLoop = false;
 
          LooperArena()
-         : samples(static_cast<size_t>(kMaxFrames), 0.0f)
+         : samples(static_cast<size_t>(kMaxFrames) * 2u, 0.0f)
          {
          }
+
+         float* plane(int channel) { return samples.data() + static_cast<size_t>(channel) * kMaxFrames; }
       };
 
       class LooperArenaPool

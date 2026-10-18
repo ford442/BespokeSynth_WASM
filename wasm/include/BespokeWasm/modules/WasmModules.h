@@ -56,11 +56,19 @@ namespace bespoke
       public:
          OutputModule(int id);
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
+         /** `limit` is serialized; `meterL`/`meterR` are live pre-limit peaks fed by the canvas each frame. */
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         bool handleMouseDown(float worldX, float worldY) override;
+         std::string controlNameAt(float worldX, float worldY) const override;
 
       private:
+         bool hitLimitToggle(float worldX, float worldY) const;
+
          float mLevel = 0.0f;
+         float mMeter[2] = { 0.0f, 0.0f };
+         int mClipHoldFrames = 0;
+         bool mLimit = true;
       };
 
       class FilterModule : public Module

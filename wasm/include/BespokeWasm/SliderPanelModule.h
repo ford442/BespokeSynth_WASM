@@ -32,6 +32,7 @@ namespace bespoke
          Millis,
          Ratio, // "4.0:1"
          Choice, // snapped index into choices
+         Pan, // 0..1 shown as L100 / C / R100
       };
 
       struct SliderSpec

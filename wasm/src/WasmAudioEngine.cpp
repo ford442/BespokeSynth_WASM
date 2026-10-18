@@ -104,7 +104,7 @@ namespace bespoke::wasm
          sampleRate = static_cast<float>(state.audioBackend->getSampleRate());
 
       state.audioGraphEngine->processBlock(*graph, output, numOutputChannels, numSamples, sampleRate);
-      AudioAnalysis::pushSamples(output[0], numSamples);
+      AudioAnalysis::pushStereo(output[0], numOutputChannels > 1 ? output[1] : nullptr, numSamples);
       finishMetrics(numSamples, sampleRate);
    }
 

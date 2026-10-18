@@ -78,23 +78,27 @@ namespace bespoke
 
       void WaveshaperModuleAdapter::processAudio(void* runtimeState,
                                                  const void* paramsPtr,
-                                                 float* buffer,
+                                                 float* const* channels,
                                                  const WasmAudioProcessContext& context) const
       {
          (void)runtimeState;
-         if (!paramsPtr || !buffer)
+         if (!paramsPtr || !channels)
             return;
 
          const auto& params = *static_cast<const WaveshaperParams*>(paramsPtr);
          const float dry = 1.0f - params.mix;
-         for (int i = 0; i < context.numSamples; ++i)
+         for (int ch = 0; ch < context.numChannels; ++ch)
          {
-            // Drive CV scales drive by (1 + cv): an LFO at depth 1 sweeps 0..2x.
-            float drive = params.drive;
-            if (context.modulationBuffer)
-               drive = std::max(0.0f, drive * (1.0f + context.modulationBuffer[i]));
-            const float x = buffer[i];
-            buffer[i] = (x * dry + shape(x * drive, params.mode) * params.mix) * params.level;
+            float* buffer = channels[ch];
+            for (int i = 0; i < context.numSamples; ++i)
+            {
+               // Drive CV scales drive by (1 + cv): an LFO at depth 1 sweeps 0..2x.
+               float drive = params.drive;
+               if (context.modulationBuffer)
+                  drive = std::max(0.0f, drive * (1.0f + context.modulationBuffer[i]));
+               const float x = buffer[i];
+               buffer[i] = (x * dry + shape(x * drive, params.mode) * params.mix) * params.level;
+            }
          }
       }
 

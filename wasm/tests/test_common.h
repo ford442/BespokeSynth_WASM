@@ -108,6 +108,9 @@ void test_scala_tuning();
 void test_undo_redo();
 void test_midi_learn_and_channel();
 void test_script_note_queue();
+void test_stereo_dsp_kernels();
+void test_stereo_graph();
+void test_stereo_patch_migration();
 
 // --- Shared helpers ---
 

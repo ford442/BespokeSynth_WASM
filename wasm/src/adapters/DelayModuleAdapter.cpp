@@ -24,6 +24,12 @@ namespace bespoke
          {
             return std::max(minValue, std::min(maxValue, value));
          }
+
+         float* delayLine(DelayAdapterRuntimeState& state, int channel)
+         {
+            return reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(&state) + sizeof(DelayAdapterRuntimeState)) +
+                   static_cast<size_t>(channel) * DelayModuleAdapter::kMaxDelaySamples;
+         }
       }
 
       std::vector<WasmControlDescriptor> DelayModuleAdapter::controlDescriptors() const
@@ -60,18 +66,14 @@ namespace bespoke
 
       size_t DelayModuleAdapter::runtimeStateSize() const
       {
-         return sizeof(DelayAdapterRuntimeState) + sizeof(float) * kMaxDelaySamples;
+         return sizeof(DelayAdapterRuntimeState) + sizeof(float) * kMaxDelaySamples * 2;
       }
 
       void DelayModuleAdapter::initRuntimeState(void* runtimeState) const
       {
          auto* state = new (runtimeState) DelayAdapterRuntimeState();
-         state->buffer = reinterpret_cast<float*>(
-            reinterpret_cast<uint8_t*>(runtimeState) + sizeof(DelayAdapterRuntimeState));
          state->usedCapacity = kMaxDelaySamples;
-         state->writeIndex = 0;
-         state->lastSampleRate = 0.0f;
-         std::memset(state->buffer, 0, sizeof(float) * kMaxDelaySamples);
+         std::memset(delayLine(*state, 0), 0, sizeof(float) * kMaxDelaySamples * 2);
       }
 
       void DelayModuleAdapter::destroyRuntimeState(void* runtimeState) const
@@ -81,27 +83,32 @@ namespace bespoke
 
       void DelayModuleAdapter::processAudio(void* runtimeState,
                                             const void* paramsPtr,
-                                            float* buffer,
+                                            float* const* channels,
                                             const WasmAudioProcessContext& context) const
       {
-         if (!runtimeState || !paramsPtr || !buffer)
+         if (!runtimeState || !paramsPtr || !channels)
             return;
 
          auto& state = *static_cast<DelayAdapterRuntimeState*>(runtimeState);
          const auto& params = *static_cast<const DelayParams*>(paramsPtr);
-         if (!state.buffer || state.usedCapacity == 0)
+         if (state.usedCapacity == 0)
             return;
 
          const size_t capacity = std::min(
-            state.usedCapacity,
-            static_cast<size_t>(std::max(1.0f, context.sampleRate * kMaxDelaySeconds)));
+         state.usedCapacity,
+         static_cast<size_t>(std::max(1.0f, context.sampleRate * kMaxDelaySeconds)));
 
          if (state.lastSampleRate != context.sampleRate)
          {
-            std::memset(state.buffer, 0, sizeof(float) * state.usedCapacity);
+            std::memset(delayLine(state, 0), 0, sizeof(float) * state.usedCapacity);
+            std::memset(delayLine(state, 1), 0, sizeof(float) * state.usedCapacity);
             state.writeIndex = 0;
             state.lastSampleRate = context.sampleRate;
          }
+         // Going mono → stereo: the right line starts as a copy of the left so echoes carry on.
+         if (context.numChannels == 2 && state.lastChannels == 1)
+            std::memcpy(delayLine(state, 1), delayLine(state, 0), sizeof(float) * capacity);
+         state.lastChannels = context.numChannels;
 
          const float delaySeconds = clampFloat(params.time, 0.001f, kMaxDelaySeconds);
          const float feedback = clampFloat(params.feedback, 0.0f, 0.95f);
@@ -114,45 +121,54 @@ namespace bespoke
          while (readPos < 0.0f)
             readPos += static_cast<float>(capacity);
          const float frac = readPos - std::floor(readPos);
-         size_t readIndex = static_cast<size_t>(readPos) % capacity;
+         const size_t readStart = static_cast<size_t>(readPos) % capacity;
 
          // A span may only read samples written before it: readIndex + span must
          // stay behind writeIndex, so span <= ceil(delaySamples) - 1.
          const size_t maxSpan = std::min(
-            kDelayChunk, static_cast<size_t>(std::max(1.0f, std::ceil(delaySamples) - 1.0f)));
+         kDelayChunk, static_cast<size_t>(std::max(1.0f, std::ceil(delaySamples) - 1.0f)));
 
-         float delayed[kDelayChunk];
-         size_t pos = 0;
          const size_t total = static_cast<size_t>(context.numSamples);
-         while (pos < total)
+         size_t writeEnd = state.writeIndex;
+         for (int ch = 0; ch < context.numChannels; ++ch)
          {
-            // Contiguous span: no write wrap, and the read (i0..i0+span) does not wrap.
-            size_t span = std::min(maxSpan, total - pos);
-            span = std::min(span, capacity - state.writeIndex);
-            span = readIndex + 1 < capacity ? std::min(span, capacity - 1 - readIndex) : 0;
-
-            float* io = buffer + pos;
-            if (span == 0)
+            float* line = delayLine(state, ch);
+            float* buffer = channels[ch];
+            size_t writeIndex = state.writeIndex;
+            size_t readIndex = readStart;
+            float delayed[kDelayChunk];
+            size_t pos = 0;
+            while (pos < total)
             {
-               const float input = io[0];
-               const float d = state.buffer[readIndex] * (1.0f - frac) +
-                               state.buffer[(readIndex + 1) % capacity] * frac;
-               state.buffer[state.writeIndex] = input + d * feedback;
-               io[0] = input * (1.0f - mix) + d * mix;
-               span = 1;
-            }
-            else
-            {
-               const int n = static_cast<int>(span);
-               dsp::lerpRead(delayed, state.buffer + readIndex, n, frac);
-               dsp::mix2(state.buffer + state.writeIndex, io, 1.0f, delayed, feedback, n);
-               dsp::mix2(io, io, 1.0f - mix, delayed, mix, n);
-            }
+               // Contiguous span: no write wrap, and the read (i0..i0+span) does not wrap.
+               size_t span = std::min(maxSpan, total - pos);
+               span = std::min(span, capacity - writeIndex);
+               span = readIndex + 1 < capacity ? std::min(span, capacity - 1 - readIndex) : 0;
 
-            state.writeIndex = (state.writeIndex + span) % capacity;
-            readIndex = (readIndex + span) % capacity;
-            pos += span;
+               float* io = buffer + pos;
+               if (span == 0)
+               {
+                  const float input = io[0];
+                  const float d = line[readIndex] * (1.0f - frac) + line[(readIndex + 1) % capacity] * frac;
+                  line[writeIndex] = input + d * feedback;
+                  io[0] = input * (1.0f - mix) + d * mix;
+                  span = 1;
+               }
+               else
+               {
+                  const int n = static_cast<int>(span);
+                  dsp::lerpRead(delayed, line + readIndex, n, frac);
+                  dsp::mix2(line + writeIndex, io, 1.0f, delayed, feedback, n);
+                  dsp::mix2(io, io, 1.0f - mix, delayed, mix, n);
+               }
+
+               writeIndex = (writeIndex + span) % capacity;
+               readIndex = (readIndex + span) % capacity;
+               pos += span;
+            }
+            writeEnd = writeIndex;
          }
+         state.writeIndex = writeEnd;
       }
 
       BESPOKE_REGISTER_MODULE(DelayModuleAdapter);

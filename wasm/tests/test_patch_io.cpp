@@ -130,8 +130,10 @@ void test_sample_io_and_offline()
    TEST("Encode sine WAV", encodeWav(sine.data(), 441, 1, 44100, 32, wav, error));
 
    std::vector<float> decoded;
+   int decodedChannels = 0;
    int decodedRate = 0;
-   TEST("Decode WAV", decodeAudioFile(wav.data(), static_cast<int>(wav.size()), decoded, decodedRate, error));
+   TEST("Decode WAV", decodeAudioFile(wav.data(), static_cast<int>(wav.size()), decoded, decodedChannels, decodedRate, error));
+   TEST("Decoded mono WAV stays mono", decodedChannels == 1);
    TEST("Decoded WAV rate", decodedRate == 44100);
    TEST("Decoded WAV has energy", buffer_rms(decoded) > 0.2f);
 
@@ -160,7 +162,7 @@ void test_sample_io_and_offline()
    context.numSamples = 128;
    context.notes = &note;
    context.noteCount = 1;
-   samplerAdapter.processAudio(runtime.data(), &samplerParams, buffer, context);
+   samplerAdapter.processMono(runtime.data(), &samplerParams, buffer, context);
    TEST("Sampler note produces audio", buffer_rms(std::vector<float>(buffer, buffer + 128)) > 0.01f);
    samplerAdapter.destroyRuntimeState(runtime.data());
 

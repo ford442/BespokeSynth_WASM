@@ -35,6 +35,8 @@ namespace bespoke
          const char* displayName() const override { return "Looper"; }
          ModuleCategory category() const override { return ModuleCategory::AudioEffect; }
          WasmAudioRole audioRole() const override { return WasmAudioRole::AudioProcessor; }
+         /** Widest of the live input and the recorded loop. */
+         int outputChannelCount(const void* params, const WasmAudioProcessContext& context) const override;
 
          std::vector<WasmControlDescriptor> controlDescriptors() const override;
          std::vector<PortDescriptor> inputPorts() const override;
@@ -53,7 +55,7 @@ namespace bespoke
          void destroyRuntimeState(void* runtimeState) const override;
          void processAudio(void* runtimeState,
                            const void* params,
-                           float* buffer,
+                           float* const* channels,
                            const WasmAudioProcessContext& context) const override;
       };
 
