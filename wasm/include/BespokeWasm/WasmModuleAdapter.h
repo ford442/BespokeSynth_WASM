@@ -96,6 +96,23 @@ namespace bespoke
          bool hasAudioInput = false;
       };
 
+      /**
+       * One block of Note input for a NoteProcessor. `notes` are the merged events of
+       * the upstream Note cables (earlier emitters in the same block), or the global
+       * MIDI / QWERTY performance notes when the module has no Note cable.
+       */
+      struct WasmNoteProcessBlock
+      {
+         double beatStart = 0.0;
+         double beatEnd = 0.0;
+         float bpm = 120.0f;
+         float sampleRate = 44100.0f;
+         int numSamples = 0;
+         const WasmNoteEvent* notes = nullptr;
+         int noteCount = 0;
+         bool hasNoteCable = false;
+      };
+
       inline float wasmControlValue(const WasmControlMap& controls, const char* name, float fallback)
       {
          auto it = controls.find(name);
@@ -200,6 +217,18 @@ namespace bespoke
             fillParams(controls, dst);
          }
 
+         /**
+          * `params` were filled by another WASM instance (the UI module) and copied into
+          * this one's heap: replace any pointer they carry with this instance's own
+          * object (a sample by id, a looper arena by module id). Runs when a snapshot is
+          * applied in the AudioWorklet engine, never inside processAudio; may allocate.
+          */
+         virtual void rebindParams(int moduleId, void* params) const
+         {
+            (void)moduleId;
+            (void)params;
+         }
+
          virtual size_t runtimeStateSize() const { return 0; }
          virtual void initRuntimeState(void* runtimeState) const { (void)runtimeState; }
          virtual void destroyRuntimeState(void* runtimeState) const { (void)runtimeState; }
@@ -249,6 +278,26 @@ namespace bespoke
             (void)maxNotes;
             (void)pulses;
             (void)pulseCount;
+            outCount = 0;
+         }
+
+         /**
+          * NoteProcessor only: turn `block.notes` into output notes for this block.
+          * Runs upstream-first, so a processor sees what the emitters cabled into it
+          * produced this block. Must not allocate. Output order is delivery order.
+          */
+         virtual void processNotes(void* runtimeState,
+                                   const void* params,
+                                   const WasmNoteProcessBlock& block,
+                                   WasmNoteEvent* outNotes,
+                                   int maxNotes,
+                                   int& outCount) const
+         {
+            (void)runtimeState;
+            (void)params;
+            (void)block;
+            (void)outNotes;
+            (void)maxNotes;
             outCount = 0;
          }
 

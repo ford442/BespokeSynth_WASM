@@ -7,11 +7,15 @@
 
 #include "BespokeWasm/WasmBridge.h"
 #include "BespokeWasm/WasmBridgeInternal.h"
+#include "BespokeWasm/AudioAnalysis.h"
 #include "BespokeWasm/AudioHealth.h"
 #include "BespokeWasm/AudioGraphEngine.h"
+#include "BespokeWasm/AudioGraphSnapshotCodec.h"
+#include "BespokeWasm/AudioRemote.h"
 #include "BespokeWasm/WasmAudioEngine.h"
 #include "BespokeWasm/InputAudioBus.h"
 #include "BespokeWasm/OfflineRender.h"
+#include "BespokeWasm/SampleStore.h"
 #include "BespokeWasm/WasmRuntimeState.h"
 
 #include <algorithm>
@@ -27,6 +31,7 @@ namespace
 {
    std::vector<uint8_t> gOfflineWav;
    int gOfflineBits = 32;
+   std::vector<uint8_t> gEncodedGraph;
 }
 
 extern "C" {
@@ -112,6 +117,7 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_external_audio(int enabled)
 {
    auto& state = runtimeState();
    state.externalAudioActive = enabled != 0;
+   syncSampleStoreRate();
    if (state.externalAudioActive && state.audioBackend && state.audioBackend->isRunning())
       state.audioBackend->stop();
    printf("BespokeSynth WASM: external audio %s\n",
@@ -126,7 +132,10 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_external_audio(void)
 EMSCRIPTEN_KEEPALIVE void bespoke_set_external_sample_rate(float sampleRate)
 {
    if (sampleRate > 0.0f)
+   {
       runtimeState().externalSampleRate = sampleRate;
+      syncSampleStoreRate();
+   }
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_set_audio_backend_id(int backend)
@@ -153,6 +162,114 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_audio_queue_stats(int depthFrames, int cap
 EMSCRIPTEN_KEEPALIVE void bespoke_push_input_audio(const float* frames, int framesCount)
 {
    InputAudioBus::instance().push(frames, framesCount);
+}
+
+// The host reports whether the microphone is open so the Input module can say so.
+EMSCRIPTEN_KEEPALIVE void bespoke_set_input_capture_active(int active)
+{
+   InputAudioBus::instance().setCaptureActive(active != 0);
+}
+
+// --- AudioWorklet engine (Option A): this module edits, a second instance plays ---
+
+/**
+ * 1: the AudioWorklet engine plays the graph from now on, so this module's engine stops
+ * sizing state and refuses to render; notes, script notes and graph changes go to the host
+ * (Module.bespokeAudioRemote). 0: back to local rendering (worklet engine failed or closed).
+ */
+EMSCRIPTEN_KEEPALIVE void bespoke_set_audio_remote(int enabled)
+{
+   auto& state = runtimeState();
+   const bool remote = enabled != 0;
+   if (remote == state.remoteAudioActive)
+      return;
+   state.remoteAudioActive = remote;
+   state.remoteBeat = 0.0;
+   state.remoteOutputPeak[0] = state.remoteOutputPeak[1] = 0.0f;
+   if (!state.audioGraphEngine)
+      return;
+   // Notes queued before the worklet took over (a chord held before Play) are its to play.
+   static AudioGraphEngine::NoteMessage pending[AudioGraphEngine::kMaxNoteRingCapacity];
+   const int pendingCount =
+   remote ? state.audioGraphEngine->takeQueuedNotes(pending, AudioGraphEngine::kMaxNoteRingCapacity) : 0;
+   // Free the idle engine's delay lines and loops; re-size them if we take playback back.
+   state.audioGraphEngine->resetClock();
+   for (int i = 0; i < pendingCount; ++i)
+      queuePerformanceNote(pending[i]);
+   if (!remote && state.canvas)
+   {
+      if (const auto graph = state.canvas->getAudioGraphSnapshot())
+         state.audioGraphEngine->prepareRuntimeStates(*graph);
+   }
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_get_audio_remote(void)
+{
+   return runtimeState().remoteAudioActive ? 1 : 0;
+}
+
+/** Must equal the worklet module's bespoke_audio_wire_abi for snapshots to cross. */
+EMSCRIPTEN_KEEPALIVE int bespoke_get_audio_wire_abi(void)
+{
+   return static_cast<int>(audioGraphWireAbi());
+}
+
+/**
+ * Encodes the latest published graph for the worklet engine. The bytes stay valid until the
+ * next call; null (and 0 length) before the canvas exists.
+ */
+EMSCRIPTEN_KEEPALIVE const unsigned char* bespoke_encode_audio_graph(int* outLength)
+{
+   auto& state = runtimeState();
+   gEncodedGraph.clear();
+   if (state.canvas)
+   {
+      if (const auto graph = state.canvas->getAudioGraphSnapshot())
+         encodeAudioGraphSnapshot(*graph, gEncodedGraph);
+   }
+   if (outLength)
+      *outLength = static_cast<int>(gEncodedGraph.size());
+   return gEncodedGraph.empty() ? nullptr : gEncodedGraph.data();
+}
+
+/** Samples decoded so far; ids run 0..count-1 and are never reused. */
+EMSCRIPTEN_KEEPALIVE int bespoke_get_sample_count(void)
+{
+   return SampleStore::instance().count();
+}
+
+/**
+ * Describes sample `id` for copying into the worklet engine: out[0] channels, out[1] frames,
+ * out[2] sample rate, out[3] pointer to `channels` back-to-back planes. Returns 0 when absent.
+ */
+EMSCRIPTEN_KEEPALIVE int bespoke_get_sample_info(int id, int* out)
+{
+   const SampleBuffer* sample = SampleStore::instance().findById(id);
+   if (!sample || !out)
+      return 0;
+   out[0] = sample->channelCount();
+   out[1] = sample->frameCount();
+   out[2] = sample->sampleRate();
+   out[3] = static_cast<int>(reinterpret_cast<uintptr_t>(sample->channelData(0)));
+   return 1;
+}
+
+/** Host, once per frame in remote mode: what the worklet engine last reported. Peaks accumulate. */
+EMSCRIPTEN_KEEPALIVE void bespoke_set_remote_audio_status(double beat, float outputPeakL, float outputPeakR,
+                                                          float inputPeak)
+{
+   auto& state = runtimeState();
+   state.remoteBeat = beat;
+   state.remoteOutputPeak[0] = std::max(state.remoteOutputPeak[0], outputPeakL);
+   state.remoteOutputPeak[1] = std::max(state.remoteOutputPeak[1], outputPeakR);
+   InputAudioBus::instance().notePeak(inputPeak);
+}
+
+/** Mono (mid) output samples rendered elsewhere, for the scope and spectrum. */
+EMSCRIPTEN_KEEPALIVE void bespoke_push_analysis_samples(const float* samples, int count)
+{
+   if (samples && count > 0)
+      AudioAnalysis::pushSamples(samples, count);
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_set_offline_format(int bitsPerSample)

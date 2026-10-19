@@ -32,7 +32,17 @@ namespace bespoke
             int channel = 0;
          };
 
+         /** A note the graph played, for the selected MIDI output (see setMidiOutCapture). */
+         struct MidiOutNote
+         {
+            int pitch = 60;
+            float velocity = 0.0f;
+            bool isNoteOn = false;
+            int channel = 0;
+         };
+
          static constexpr int kMaxNoteRingCapacity = 256;
+         static constexpr int kMidiOutRingCapacity = 512;
          static constexpr int kMaxNoteEventsPerBlock = 64;
          static constexpr int kMaxEventSources = 16;
          static constexpr int kMaxBlockSize = 2048;
@@ -45,11 +55,31 @@ namespace bespoke
 
          void queueNote(const NoteMessage& note);
          uint64_t noteDropCount() const { return mNoteDropCount.load(std::memory_order_relaxed); }
+         /**
+          * Pops up to `maxNotes` queued notes this engine has not rendered, oldest first. Only while
+          * nothing processes the engine: the UI module hands them to the AudioWorklet engine when
+          * that takes over playback (a chord held before Play).
+          */
+         int takeQueuedNotes(NoteMessage* dst, int maxNotes);
+
+         /**
+          * While enabled, notes from the graph's note emitters (sequencers, drums, script, arp,
+          * and any processor whose output is not itself cabled into another processor) are
+          * queued for drainMidiOut. Stopping the transport queues note-offs for everything
+          * still sounding on the output. Off by default so nothing queues with no consumer.
+          */
+         void setMidiOutCapture(bool enabled);
+         /** UI thread: copy up to `maxNotes` queued notes in delivery order. */
+         int drainMidiOut(MidiOutNote* dst, int maxNotes);
+         uint64_t midiOutDropCount() const { return mMidiOutDropCount.load(std::memory_order_relaxed); }
 
          /** Grow buffer arenas on the UI thread (init / buffer-size changes). */
          void prepareForBlock(int maxBlockSize, int maxAudioSlots, int maxModulationSlots);
 
-         /** Zero transport clock and drop queued MIDI (offline / determinism). */
+         /**
+          * Zero the transport clock, drop queued input notes and all module runtime state (offline /
+          * determinism / a new patch). Queues note-offs for notes still sounding on the MIDI output.
+          */
          void resetClock();
 
          /**
@@ -92,6 +122,8 @@ namespace bespoke
          void destroySlot(RuntimeSlot& slot);
          void resetEventSourceState();
          void drainNoteRing();
+         void pushMidiOut(const WasmNoteEvent* notes, int count);
+         void flushMidiOutHeld();
          /** Planar slot: channel 0 at slot * 2 * block, channel 1 one block later. */
          float* audioSlotBuffer(int slot, int channel, int numSamples);
          int audioSlotChannels(int slot) const;
@@ -117,6 +149,10 @@ namespace bespoke
          std::atomic<uint32_t> mNoteWriteIndex{ 0 };
          std::atomic<uint32_t> mNoteReadIndex{ 0 };
          std::atomic<uint64_t> mNoteDropCount{ 0 };
+         std::atomic<bool> mMidiOutCapture{ false };
+         std::atomic<uint32_t> mMidiOutWriteIndex{ 0 };
+         std::atomic<uint32_t> mMidiOutReadIndex{ 0 };
+         std::atomic<uint64_t> mMidiOutDropCount{ 0 };
 
          int mMidiNoteCount = 0;
 

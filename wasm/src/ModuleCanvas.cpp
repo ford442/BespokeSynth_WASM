@@ -8,6 +8,7 @@
 #include "BespokeWasm/ModuleCanvas.h"
 #include "BespokeWasm/ModuleCanvasHelpers.h"
 #include "BespokeWasm/ModuleFactory.h"
+#include "BespokeWasm/PlaceholderModule.h"
 #include "BespokeWasm/WasmModuleAdapter.h"
 #include "BespokeWasm/WasmPatchState.h"
 #include "BespokeWasm/AudioProcessPlan.h"
@@ -120,16 +121,59 @@ namespace bespoke
             printf("ModuleCanvas: Unknown module type '%s'\n", type.c_str());
             return -1;
          }
+         return installModuleLocked(std::move(module), x, y, id);
+      }
 
+      int ModuleCanvas::installModuleLocked(std::unique_ptr<Module> module, float x, float y, int id)
+      {
          mNextModuleId = std::max(mNextModuleId, id + 1);
          module->setPosition(x, y);
          printf("ModuleCanvas: Created module '%s' (id=%d) at (%.1f, %.1f)\n",
-                type.c_str(), id, x, y);
+                module->serializedType().c_str(), id, x, y);
          mModules[id] = std::move(module);
          if (!mMidiMapFromPatch)
             seedDefaultMidiCcMapLocked();
          publishAudioGraphSnapshotLocked();
          return id;
+      }
+
+      int ModuleCanvas::createModuleOrPlaceholderLocked(const std::string& type, float x, float y, int id)
+      {
+         if (WasmModuleAdapterRegistry::instance().find(type))
+            return createModuleWithIdLocked(type, x, y, id);
+         if (id < 0 || mModules.count(id) != 0)
+            return -1;
+         // Never alias an unknown type onto another module: keep a labelled stub (ADR).
+         printf("ModuleCanvas: '%s' is not in this build; loading a placeholder\n", type.c_str());
+         return installModuleLocked(std::make_unique<PlaceholderModule>(id, type), x, y, id);
+      }
+
+      bool ModuleCanvas::isPlaceholderLocked(int moduleId) const
+      {
+         auto it = mModules.find(moduleId);
+         return it != mModules.end() && it->second->isPlaceholder();
+      }
+
+      int ModuleCanvas::placeholderCount() const
+      {
+         Lock lock(mMutex);
+         int count = 0;
+         for (const auto& [id, module] : mModules)
+            count += module->isPlaceholder() ? 1 : 0;
+         return count;
+      }
+
+      void ModuleCanvas::refreshPlaceholderBadgesLocked()
+      {
+         for (const auto& [id, module] : mModules)
+         {
+            if (!module->isPlaceholder())
+               continue;
+            int kept = 0;
+            for (const auto& cable : mDanglingConnections)
+               kept += (cable.sourceModuleId == id || cable.destModuleId == id) ? 1 : 0;
+            static_cast<PlaceholderModule*>(module.get())->setKeptCableCount(kept);
+         }
       }
 
       void ModuleCanvas::deleteModule(int moduleId)
@@ -155,6 +199,12 @@ namespace bespoke
                   command.connections.push_back({ conn.sourceModuleId, conn.sourcePortIndex,
                                                   conn.destModuleId, conn.destPortIndex });
             }
+            for (const auto& cable : mDanglingConnections)
+            {
+               if (cable.sourceModuleId == moduleId || cable.destModuleId == moduleId)
+                  command.connections.push_back({ cable.sourceModuleId, cable.sourcePortIndex,
+                                                  cable.destModuleId, cable.destPortIndex });
+            }
             for (const auto& binding : mMidiCcMap)
             {
                if (binding.moduleId == moduleId)
@@ -175,6 +225,13 @@ namespace bespoke
                            return c.sourceModuleId == moduleId || c.destModuleId == moduleId;
                         }),
          mConnections.end());
+         mDanglingConnections.erase(std::remove_if(mDanglingConnections.begin(), mDanglingConnections.end(),
+                                                   [moduleId](const StateConnection& cable)
+                                                   {
+                                                      return cable.sourceModuleId == moduleId ||
+                                                             cable.destModuleId == moduleId;
+                                                   }),
+                                    mDanglingConnections.end());
          mMidiCcMap.erase(std::remove_if(mMidiCcMap.begin(), mMidiCcMap.end(),
                                          [moduleId](const MidiCcBinding& binding)
                                          {
@@ -189,6 +246,7 @@ namespace bespoke
             mControlModuleId = -1;
 
          mModules.erase(moduleId);
+         refreshPlaceholderBadgesLocked();
          printf("ModuleCanvas: Deleted module %d\n", moduleId);
          if (!mMidiMapFromPatch)
             seedDefaultMidiCcMapLocked();
@@ -630,6 +688,8 @@ namespace bespoke
          std::map<std::string, float> controls;
          for (const auto& name : WasmModuleAdapterRegistry::instance().serializableControlNames(module.getType()))
             controls[name] = module.getControlValue(name);
+         for (const auto& name : module.preservedControlNames())
+            controls[name] = module.getControlValue(name);
          return controls;
       }
 
@@ -762,17 +822,13 @@ namespace bespoke
          {
             StateModule stateModule;
             stateModule.id = id;
-            stateModule.type = module->getType();
+            stateModule.type = module->serializedType();
             stateModule.x = module->getX();
             stateModule.y = module->getY();
             stateModule.minimized = module->isMinimized();
             stateModule.enabled = module->isEnabled();
-
-            for (const auto& controlName : WasmModuleAdapterRegistry::instance().serializableControlNames(stateModule.type))
-               stateModule.controls[controlName] = module->getControlValue(controlName);
-            for (const auto& extraName : module->stringPropertyNames())
-               stateModule.extras[extraName] = module->getStringProperty(extraName);
-
+            stateModule.controls = moduleControlMap(*module);
+            stateModule.extras = moduleStringMap(*module);
             snapshot.modules.push_back(stateModule);
          }
 
@@ -785,6 +841,8 @@ namespace bespoke
             stateConn.destPortIndex = conn.destPortIndex;
             snapshot.connections.push_back(stateConn);
          }
+         snapshot.connections.insert(snapshot.connections.end(), mDanglingConnections.begin(),
+                                     mDanglingConnections.end());
 
          return snapshot;
       }
@@ -829,7 +887,7 @@ namespace bespoke
             }
             else
             {
-               newId = createModule(stateModule.type, stateModule.x, stateModule.y);
+               newId = createModuleOrPlaceholderLocked(stateModule.type, stateModule.x, stateModule.y, mNextModuleId);
                module = getModule(newId);
             }
 
@@ -853,8 +911,15 @@ namespace bespoke
             auto dstIt = idMap.find(stateConn.destModuleId);
             if (srcIt == idMap.end() || dstIt == idMap.end())
                continue;
+            if (isPlaceholderLocked(srcIt->second) || isPlaceholderLocked(dstIt->second))
+            {
+               mDanglingConnections.push_back({ srcIt->second, stateConn.sourcePortIndex, dstIt->second,
+                                                stateConn.destPortIndex });
+               continue;
+            }
             connectModules(srcIt->second, stateConn.sourcePortIndex, dstIt->second, stateConn.destPortIndex);
          }
+         refreshPlaceholderBadgesLocked();
 
          mMidiNoteChannel = snapshot.midiNoteChannel;
          mMidiCcMap.clear();
@@ -1157,7 +1222,7 @@ namespace bespoke
       {
          UndoModuleState state;
          state.id = module.getId();
-         state.type = module.getType();
+         state.type = module.serializedType();
          state.x = module.getX();
          state.y = module.getY();
          state.minimized = module.isMinimized();
@@ -1167,9 +1232,21 @@ namespace bespoke
          return state;
       }
 
+      void ModuleCanvas::restoreCableLocked(const UndoConnection& cable)
+      {
+         if (isPlaceholderLocked(cable.sourceModuleId) || isPlaceholderLocked(cable.destModuleId))
+         {
+            mDanglingConnections.push_back({ cable.sourceModuleId, cable.sourcePortIndex, cable.destModuleId,
+                                             cable.destPortIndex });
+            refreshPlaceholderBadgesLocked();
+            return;
+         }
+         connectLocked(cable.sourceModuleId, cable.sourcePortIndex, cable.destModuleId, cable.destPortIndex);
+      }
+
       void ModuleCanvas::restoreModuleLocked(const UndoModuleState& state)
       {
-         if (createModuleWithIdLocked(state.type, state.x, state.y, state.id) < 0)
+         if (createModuleOrPlaceholderLocked(state.type, state.x, state.y, state.id) < 0)
             return;
          Module* module = mModules[state.id].get();
          module->setMinimized(state.minimized);
@@ -1219,7 +1296,7 @@ namespace bespoke
                }
                restoreModuleLocked(command.module);
                for (const auto& c : command.connections)
-                  connectLocked(c.sourceModuleId, c.sourcePortIndex, c.destModuleId, c.destPortIndex);
+                  restoreCableLocked(c);
                for (const auto& binding : command.bindings)
                {
                   const bool present = std::any_of(mMidiCcMap.begin(), mMidiCcMap.end(),

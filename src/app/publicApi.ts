@@ -3,6 +3,7 @@ import type { CaptureScreenshotOptions } from '../rendererMode';
 import {
   downloadPatchState,
   getPatchStateJson,
+  getPlaceholderCount,
   loadBundledLayout,
   loadPatchStateJson,
   promptForPatchStateFile,
@@ -14,7 +15,6 @@ import {
   switchRendererPreference,
   type RendererBackend,
 } from '../rendererMode';
-import { readAudioHealth } from '../audio/audioHealth';
 import { switchAudioPreference, type AudioBackendId } from '../audio/audioMode';
 import { runAudioWorkletPoc } from '../audio/workletPoc';
 import { downloadOfflineWav, renderOfflineWav } from '../samples/offlineExport';
@@ -65,10 +65,12 @@ export function installPublicApi(app: BespokeSynthApp): void {
     onScreenshotCaptured,
     getStateJson: () => getPatchStateJson(app.getModule()),
     loadStateJson: (json: string) => loadPatchStateJson(app.getModule(), json),
+    /** Modules in the loaded patch that this build only holds as placeholders. */
+    getPlaceholderCount: () => getPlaceholderCount(app.getModule()),
     downloadPatch: (filename?: string) => downloadPatchState(app.getModule(), filename),
     loadPatchFile: () => promptForPatchStateFile(app.getModule()),
     loadBundledLayout: (path: string) => loadBundledLayout(app.getModule(), path),
-    getAudioHealth: () => readAudioHealth(app.getModule()),
+    getAudioHealth: () => app.getAudioHealth(),
     getAudioBackend: () => app.getAudioBackendChoice().backend,
     getAudioBackendChoice: () => app.getAudioBackendChoice(),
     getAudioRingStats: () => app.getAudioRingStats(),
@@ -169,11 +171,15 @@ export function installPublicApi(app: BespokeSynthApp): void {
     getScriptLog: () => app.getScriptPanel()?.log() ?? [],
     getSampleRate: () => app.getModule()?._bespoke_get_sample_rate?.() ?? 44100,
     isSpawnMenuOpen: () => (app.getModule()?._bespoke_is_text_entry_active?.() ?? 0) === 1,
-    getTransportBeat: () => app.getModule()?._bespoke_get_transport_beat?.() ?? 0,
+    getTransportBeat: () => {
+      app.syncAudioEngine();
+      return app.getModule()?._bespoke_get_transport_beat?.() ?? 0;
+    },
     /** Latest output samples (analyzer ring), for pitch/level checks. */
     getOutputWaveform: (count = 2048) => {
       const mod = app.getModule();
       if (!mod) return [];
+      app.syncAudioEngine();
       const ptr = mod._malloc(count * 4);
       try {
         const copied = mod._bespoke_copy_output_waveform(ptr, count);

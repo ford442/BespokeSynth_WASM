@@ -28,6 +28,8 @@ export interface WorkletRingStats {
   depthFrames: number;
   capacityFrames: number;
   underrunFrames: number;
+  /** Device latency after the producer (AudioContext base + output latency); worklet engine only. */
+  outputLatencyMs?: number;
 }
 
 export interface WorkletRingBackend {

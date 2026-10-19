@@ -78,7 +78,8 @@ namespace bespoke::wasm
          return;
       }
 
-      if (!state.canvas || !state.audioGraphEngine)
+      // The AudioWorklet engine owns the graph: this module must not render it as well.
+      if (!state.canvas || !state.audioGraphEngine || state.remoteAudioActive)
       {
          for (int channel = 0; channel < std::min(numOutputChannels, 2); ++channel)
             if (output[channel])

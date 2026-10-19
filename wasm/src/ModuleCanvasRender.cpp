@@ -114,27 +114,18 @@ namespace bespoke
          renderer.strokeColor(Color(0.28f, 0.28f, 0.33f, 1.0f));
          renderer.line(menuX + 8.0f, menuY + kSearchHeight, menuX + kMenuWidth - 8.0f, menuY + kSearchHeight);
 
-         const char* categories[] = { "All", "Synth", "FX", "Mod", "Pulse", "Other" };
-         const int categoryValues[] = {
-            -1,
-            static_cast<int>(ModuleCategory::Synth),
-            static_cast<int>(ModuleCategory::AudioEffect),
-            static_cast<int>(ModuleCategory::Modulator),
-            static_cast<int>(ModuleCategory::Pulse),
-            static_cast<int>(ModuleCategory::Other)
-         };
-         constexpr int kCategoryCount = 6;
-         for (int i = 0; i < kCategoryCount; ++i)
+         for (int i = 0; i < kSpawnMenuChipCount; ++i)
          {
-            const float chipX = menuX + 6.0f + i * 44.5f;
-            if (mSpawnMenuCategory == categoryValues[i])
+            const SpawnMenuChip& chip = spawnMenuChip(i);
+            const float chipX = menuX + 6.0f + i * kSpawnMenuChipPitch;
+            if (mSpawnMenuCategory == chip.category)
             {
                renderer.fillColor(Color(0.25f, 0.35f, 0.30f, 1.0f));
-               renderer.roundedRect(chipX, menuY + kSearchHeight + 3.0f, 42.0f, 18.0f, 3.0f);
+               renderer.roundedRect(chipX, menuY + kSearchHeight + 3.0f, kSpawnMenuChipWidth, 18.0f, 3.0f);
                renderer.fill();
             }
             drawText(renderer, chipX + 4.0f, textBaselineFromTop(renderer, menuY + kSearchHeight + 6.0f),
-                     categories[i], UITheme::kTextSecondary, 9.0f);
+                     chip.label, UITheme::kTextSecondary, 9.0f);
          }
 
          const float rowsY = menuY + kSearchHeight + kCategoryHeight + 2.0f;

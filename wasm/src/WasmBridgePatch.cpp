@@ -206,7 +206,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_load_state_json(const char* json)
 
    state.oscillatorModuleId = state.canvas->findFirstModuleOfType("oscillator");
    state.gainModuleId = state.canvas->findFirstModuleOfType("gain");
-   state.audioGraphEngine = std::make_unique<AudioGraphEngine>();
+   resetAudioGraphEngineForPatch();
    printf("BespokeSynth WASM: Loaded state JSON (%zu modules, %zu connections)\n",
           snapshot.modules.size(), snapshot.connections.size());
    return 0;
@@ -279,12 +279,8 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_control_info(int index)
 
 EMSCRIPTEN_KEEPALIVE int bespoke_load_sample(const unsigned char* bytes, int len, const char* name)
 {
-   auto& state = runtimeState();
-   int deviceRate = 44100;
-   if (state.audioBackend)
-      deviceRate = state.audioBackend->getSampleRate();
-   else if (state.externalSampleRate > 0.0f)
-      deviceRate = static_cast<int>(state.externalSampleRate);
+   const int deviceRate = currentDeviceSampleRate();
+   syncSampleStoreRate();
 
    const int id = SampleStore::instance().loadFromMemory(bytes, len, name ? name : "sample", deviceRate);
    if (id < 0)

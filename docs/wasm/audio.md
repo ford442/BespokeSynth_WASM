@@ -8,11 +8,12 @@ Detailed architecture (SDL vs AudioWorklet, block API, CPU load) lives in [../wa
 
 | Role | Examples | Graph behavior |
 | --- | --- | --- |
-| `AudioSource` | oscillator, noise, sampler | Produce audio buffers; participate in audio topology |
-| `AudioProcessor` | filter, gain, delay, adsr, looper, mixer, compressor, chorus, waveshaper, reverb | Process incoming audio |
+| `AudioSource` | oscillator, noise, sampler, input | Produce audio buffers; participate in audio topology |
+| `AudioProcessor` | filter, gain, delay, adsr, looper, mixer, compressor, chorus, waveshaper, reverb, eq | Process incoming audio |
 | `Sink` | output | Terminal audio node |
 | `ModulationSource` | lfo | Emit per-sample modulation for CV ports |
 | `NoteSource` | stepsequencer, pulsetonote, drumseq | Emit note on/off from beat position and/or Pulse cables |
+| `NoteProcessor` | chorder, arpeggiator, notefilter, noterouter | Take Note events in and emit Note events out, in the same block (see [Note processors](#note-processors)) |
 | `PulseSource` | transport, clockdivider | Emit clock pulses; may also consume Pulse (clockdivider) |
 
 ## Port types
@@ -122,17 +123,53 @@ Sliders use the shared `SliderPanelModule` (one spec table per adapter drives co
 
 Second fixture: `?renderTest=2`. Transport → drumseq; Kick → sine osc (55 Hz), Snare/Hat → ADSRs on one noise source → mixer ch 1–3 → compressor → output. It plays a four-on-the-floor loop with no MIDI (`tests/e2e/drum-bus.spec.ts`).
 
+## Catalog wave 3 (Input / EQ / Note processors)
+
+| Type id | Spawn category | Ports (in → out) | Controls | Behavior |
+| --- | --- | --- | --- | --- |
+| `input` | Synth | → Audio | `gain` 0–2, `mute` | The mic bus (`context.inputAudio`, mono, see [samples.md](samples.md#looper)) as an Audio source. Only goes where it is cabled, so feedback needs an explicit Input → … → Output cable; there is no separate monitor switch. Shows "Mic off" until the header **Mic** button starts capture, then a level bar |
+| `eq` | FX | Audio → Audio | `lowFreq`/`lowGain`, `midFreq`/`midGain`/`midQ`, `hiMidFreq`/`hiMidGain`/`hiMidQ`, `highFreq`/`highGain` (gains ±18 dB), `output` dB | Low shelf, two peaks, high shelf on `Source/BiquadFilter` (the desktop `EQ.cpp` is not compiled). Coefficients are rebuilt only when a control moves; a band within 0.01 dB of flat is skipped, so a flat EQ is a bit-exact bypass. Frequencies slide logarithmically |
+| `chorder` | Note | Note → Note | `chord` (Major … Octave, Custom), `inversion`, `tone2..4` (Custom), `level` | One chord per input note. A tone shared by two held chords is not retriggered and stays on until its last key goes |
+| `arpeggiator` | Note | Note → Note | `rate` (1/4 … 1/32), `mode` (Up/Down/Up-Down/Random/As played), `octaves` 1–4, `gate` | Walks the held notes on transport beats; silent while the transport is stopped |
+| `notefilter` | Note | Note → Note | `low`, `high`, `mode` (Inside/Outside) | Pitch-range gate. A note-off always follows its note-on, so editing the range mid-hold cannot hang a voice |
+| `noterouter` | Note | Note → 4× Note | `outputs` 2–4, `mode` (Round robin / Pitch split), `split`, `zone` | Deals notes to outputs; the off follows its on to the same output |
+
+### Note processors
+
+A `NoteProcessor` implements `processNotes(runtime, params, block, out, max, count)`. The engine hands it the merged Note events of its upstream cables **from the same block** and collects what it emits, exactly like pulse processors.
+
+- **Order.** `AudioProcessPlan::noteSourceNodeIndices` holds note sources and processors together, topologically ordered upstream-first (`orderEventSources`, shared with the pulse plan). An `EventSourcePlan` lists the earlier scratch slots it reads (`noteSourceScratchSlots`, with `noteSourcePortFilters` for multi-output sources such as `drumseq` and `noterouter`). A cycle is rejected like any other.
+- **Consumers.** Oscillator and sampler read `step.noteSourceScratchSlots` as before, so they work behind any chain without knowing a processor exists. `WasmNoteEvent::outputPort` is how a multi-output source tells its cables apart.
+- **No Note cable.** A processor with no incoming Note cable listens to the *performance* (QWERTY and MIDI in). `AudioProcessPlan::performanceNotesProcessed` records that, so MIDI in → chorder → oscillator needs no sequencer. Performance notes are Scale-quantized once, before any processor runs; processors emit exact intervals (`quantizesNotesToScale()` is false).
+- **Allocation.** Processor state is a fixed-size runtime block (held-note tables, bitsets), pre-sized with every other module's by `prepareRuntimeStates`. Nothing allocates in `processBlock`; the tests run the whole chain under the allocation trap.
+- **Transport stop.** Processor state resets with the transport (`resetEventSourceState`), and the engine ends every note it reported to MIDI out.
+
+### Graph notes to MIDI out
+
+`AudioGraphEngine::setMidiOutCapture(true)` makes `processBlock` copy the notes of every note source and processor into a 512-entry SPSC ring (`drainMidiOut`). Only *reporting* emitters are captured: a source whose Note cables all end in processors is silent here (`EventSourcePlan::reportsToMidiOut`), because the processor's output is what the patch plays. Without that rule a sequencer into a chorder would send both the raw note and the chord. Capture is off unless the host asks, so a patch with no MIDI port pays nothing.
+
+The host side is `GraphNotePump` (`src/app/graphMidiOut.ts`): every 8 ms it follows the port selection (`bespoke_set_graph_note_capture`), drains `bespoke_drain_graph_notes` (one packed int per event), and sends the bytes with a Web MIDI timestamp of `now +` the audio still queued in the worklet ring (or, with the worklet engine, the device latency), so MIDI lands with the sound. With the worklet engine the notes come from the engine's capture through a SharedArrayBuffer ring (`GraphNotePump.setSource`) instead of `bespoke_drain_graph_notes`. Details and the dedup rules: [live-instrument.md](live-instrument.md#midi-out-and-clock).
+
+### Unknown module types
+
+`ModuleCanvas::applyStateSnapshot` (and undo's restore) creates a `PlaceholderModule` for a saved `type` this build lacks, instead of failing or aliasing another module. It has no ports and no DSP; its title is the original type name. Its controls and string extras are kept and written back under the original `type`, and every cable that touched it is kept in `mDanglingConnections` and saved back unchanged (the badge reads "N cables kept, not connected"). The audio graph never sees it. `createModule("vocoder", ...)` from the UI or the C API still fails: placeholders only come from loading. `bespoke_get_placeholder_count()` reports how many a patch loaded.
+
+### Loading a patch
+
+`bespoke_load_state_json` calls `resetAudioGraphEngineForPatch()` (`WasmRuntimeState.cpp`): the live engine is reset in place (`resetClock`: transport clock, queued input notes, every module's runtime state, plus note-offs for anything still sounding on the MIDI output) and its state is re-sized for the new graph. It keeps the block size set at init and its MIDI-out capture setting. Before this, a load swapped in a brand-new `AudioGraphEngine` that was never `prepareForBlock`'d, so `processBlock` returned early and a loaded patch stayed silent (and reported no graph notes) until something else re-prepared the engine.
+
 ## Audio backends (playback)
 
 | Backend | How to select | Notes |
 | --- | --- | --- |
-| Worklet + SAB ring (default) | automatic when `crossOriginIsolated`, or `?audio=worklet` | Real graph via `bespoke_process_audio_block`; adaptive lookahead |
+| Worklet engine (default) | automatic when `crossOriginIsolated`, or `?audio=worklet` | The graph runs in `BespokeSynthWASM_audio` inside the AudioWorklet; the UI module sends it snapshots and notes. One quantum of buffering |
+| Worklet + SAB ring | `?audio=ring`, or automatic if the engine fails to start | UI module renders via `bespoke_process_audio_block` on the main thread; adaptive lookahead |
 | SDL2 | `?audio=sdl`, or automatic without isolation | Compatibility path (old Safari, hosts without COOP/COEP) |
 | Tone POC | `?audioWorkletPoc=1` | Isolation demo only; not in the header dropdown |
 
 Resolution order: `?audio=` (persisted to `localStorage` `bespokesynth.audio`) → stored preference → auto. A worklet request on a page that is not cross-origin isolated falls back to SDL2; the header shows *Audio: SDL2 (fallback)* with the reason in its tooltip and a status message. `window.__bespoke.getAudioBackendChoice()` returns `{ backend, requested, source, fallbackReason? }`.
 
-Health: `window.__bespoke.getAudioHealth()` (includes `heapBytes`), `window.__bespoke.getAudioRingStats()` (lookahead), and the `?debug=1` HUD. Full design: [../wasm-audio.md](../wasm-audio.md).
+Health: `window.__bespoke.getAudioHealth()` (includes `heapBytes`; with the engine also `audioHeapBytes`, `snapshotCount`, `mainThreadBlocks`), `window.__bespoke.getAudioRingStats()` (lookahead), and the `?debug=1` HUD. Offline bounce (Export WAV, `renderOfflineWav`) always renders with the UI module's engine on the main thread. Full design: [../wasm-audio.md](../wasm-audio.md#option-a--audioworklet-engine).
 
 ## Production headers (required for the worklet)
 
@@ -148,4 +185,4 @@ Cross-Origin-Resource-Policy: same-origin
 
 ## Adding note-driven modules
 
-Prefer a new `WasmModuleAdapter` with `WasmAudioRole::NoteSource` or `PulseSource` (or consume notes/pulses in `processAudio` via `WasmAudioProcessContext`). Do not special-case types inside `ModuleCanvas`. See [module-porting.md](module-porting.md).
+Prefer a new `WasmModuleAdapter` with `WasmAudioRole::NoteSource`, `NoteProcessor` or `PulseSource` (or consume notes/pulses in `processAudio` via `WasmAudioProcessContext`). Do not special-case types inside `ModuleCanvas`. See [module-porting.md](module-porting.md).

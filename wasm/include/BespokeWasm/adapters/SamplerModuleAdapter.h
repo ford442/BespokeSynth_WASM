@@ -27,6 +27,8 @@ namespace bespoke
       struct SamplerParams
       {
          const SampleBuffer* sample = nullptr;
+         /** SampleStore id of `sample` (-1 for none); rebindParams resolves it in another heap. */
+         int sampleId = -1;
          float volume = 0.85f;
          float start = 0.0f;
          float end = 1.0f;
@@ -74,6 +76,7 @@ namespace bespoke
                          const WasmControlMap& controls,
                          const WasmStringMap& extras,
                          void* dst) const override;
+         void rebindParams(int moduleId, void* params) const override;
 
          size_t runtimeStateSize() const override { return sizeof(SamplerAdapterRuntimeState); }
          void initRuntimeState(void* runtimeState) const override;

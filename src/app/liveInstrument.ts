@@ -1,5 +1,7 @@
 import type { BespokeSynthModule } from '../../wasm/types/bespoke-synth';
 import { MidiClock, MidiOutputRouter } from '../midi';
+import { GraphNotePump } from './graphMidiOut';
+import { PerformanceEcho } from './performanceEcho';
 import { QwertyPiano, type QwertyPianoState } from './qwertyPiano';
 
 export function isMidiClockRequested(search: string = window.location.search): boolean {
@@ -10,16 +12,25 @@ export function isMidiClockRequested(search: string = window.location.search): b
 /**
  * Local performance surface: QWERTY piano and script notes go to the WASM voice
  * path (same as hardware MIDI in) and are echoed to the selected MIDI output.
+ * Notes the graph itself plays (sequencers, drums, arp...) reach the same output
+ * through the GraphNotePump, so the two paths together cover everything audible.
  */
 export class LiveInstrument {
   readonly midiOut = new MidiOutputRouter();
+  readonly graphNotes: GraphNotePump;
   readonly piano: QwertyPiano;
   private clock: MidiClock | null = null;
+  private readonly echo: PerformanceEcho;
   private readonly getModule: () => BespokeSynthModule | null;
   private readonly listeners = new Set<(state: QwertyPianoState) => void>();
 
   constructor(getModule: () => BespokeSynthModule | null) {
     this.getModule = getModule;
+    this.graphNotes = new GraphNotePump(getModule, this.midiOut);
+    this.echo = new PerformanceEcho(
+      this.midiOut,
+      () => (getModule()?._bespoke_performance_notes_processed?.() ?? 0) === 1,
+    );
     this.piano = new QwertyPiano(
       {
         noteOn: (channel, pitch, velocity) => this.noteOn(channel, pitch, velocity),
@@ -36,13 +47,26 @@ export class LiveInstrument {
   noteOn(channel: number, pitch: number, velocity: number): void {
     const ch = this.playChannel(channel);
     this.getModule()?._bespoke_midi_note_on?.(ch, pitch, velocity);
-    this.midiOut.noteOn(ch, pitch, velocity);
+    this.echoPerformanceNote(true, ch, pitch, velocity);
   }
 
   noteOff(channel: number, pitch: number): void {
     const ch = this.playChannel(channel);
     this.getModule()?._bespoke_midi_note_off?.(ch, pitch);
-    this.midiOut.noteOff(ch, pitch);
+    this.echoPerformanceNote(false, ch, pitch, 0);
+  }
+
+  /**
+   * Sends a performance note (QWERTY, or a script note with no cable) to the MIDI output as played.
+   * Held back when a Note processor owns the performance: the graph reports its output instead.
+   */
+  echoPerformanceNote(on: boolean, channel: number, pitch: number, velocity: number): void {
+    this.echo.echo(on, channel, pitch, velocity);
+  }
+
+  /** Delay graph notes by the audio still queued ahead of the speakers, so MIDI lands with the sound. */
+  setGraphNoteLatency(latencyMs: () => number): void {
+    this.graphNotes.setLatencySource(latencyMs);
   }
 
   /** Local notes follow the graph's note-channel filter so they are never filtered out. */
@@ -60,6 +84,11 @@ export class LiveInstrument {
     });
     this.clock.start();
     return true;
+  }
+
+  /** Starts forwarding graph notes to the selected MIDI output (cheap while no port is selected). */
+  startGraphNotes(): void {
+    this.graphNotes.start();
   }
 
   isClockRunning(): boolean {

@@ -15,6 +15,7 @@
 #include "BespokeWasm/SDL2AudioBackend.h"
 #include "BespokeWasm/ModuleCanvas.h"
 #include "BespokeWasm/AudioGraphEngine.h"
+#include "BespokeWasm/AudioRemote.h"
 #include "BespokeWasm/WasmAudioEngine.h"
 #include "BespokeWasm/WasmRuntimeState.h"
 #include "BespokeWasm/Theme.h"
@@ -84,6 +85,7 @@ namespace bespoke
          }
 
          printf("WasmBridge: Audio backend initialized successfully\n");
+         syncSampleStoreRate();
          reportInitProgress("audio_ready", "Audio device opened successfully");
          state.initState = InitState::AudioReady;
          state.audioBackend->setCallback(wasmAudioCallback);
@@ -99,10 +101,13 @@ namespace bespoke
          state.audioGraphEngine->prepareForBlock(std::max(bufferSize, 2048), 128, 32);
          prepareWasmAudioScratch(std::max(bufferSize, 2048));
          // Size engine runtime state on every publish (spawn/delete/undo), so
-         // processBlock never grows an arena inside the audio callback.
+         // processBlock never grows an arena inside the audio callback. While the
+         // AudioWorklet engine plays, it sizes its own state; ours stays idle.
          state.canvas->setSnapshotListener([](const AudioGraphSnapshot& graph)
                                            {
-                                              if (auto* engine = runtimeState().audioGraphEngine.get())
+                                              if (audioRemoteActive())
+                                                 notifyAudioGraphPublished();
+                                              else if (auto* engine = runtimeState().audioGraphEngine.get())
                                                  engine->prepareRuntimeStates(graph);
                                            });
 

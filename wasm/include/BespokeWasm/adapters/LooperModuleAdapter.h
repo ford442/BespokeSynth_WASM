@@ -49,6 +49,7 @@ namespace bespoke
                          const WasmControlMap& controls,
                          const WasmStringMap& extras,
                          void* dst) const override;
+         void rebindParams(int moduleId, void* params) const override;
 
          size_t runtimeStateSize() const override { return sizeof(LooperAdapterRuntimeState); }
          void initRuntimeState(void* runtimeState) const override;

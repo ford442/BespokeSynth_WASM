@@ -83,6 +83,22 @@ export interface BespokeSynthModule extends EmscriptenRuntime {
     _bespoke_reset_audio_health(): void;
     _bespoke_set_audio_queue_stats(depthFrames: number, capacityFrames: number, externalUnderruns: number): void;
 
+    // AudioWorklet engine (Option A): a second, DSP-only instance plays the graph
+    /** 1: the worklet engine plays; notes and graph changes go to `bespokeAudioRemote`. */
+    _bespoke_set_audio_remote(enabled: number): void;
+    _bespoke_get_audio_remote(): number;
+    /** Must equal the audio module's _bespoke_audio_wire_abi. */
+    _bespoke_get_audio_wire_abi(): number;
+    /** Encodes the latest graph; writes the byte length to the int at `outLength`. */
+    _bespoke_encode_audio_graph(outLength: number): number;
+    _bespoke_get_sample_count(): number;
+    /** Writes [channels, frames, sampleRate, planarPtr] into 4 ints at `out`; 0 when absent. */
+    _bespoke_get_sample_info(id: number, out: number): number;
+    _bespoke_set_remote_audio_status(beat: number, peakL: number, peakR: number, inputPeak: number): void;
+    _bespoke_push_analysis_samples(samples: number, count: number): void;
+    /** Installed by the host while the worklet engine is live (src/audio/workletEngineBackend.ts). */
+    bespokeAudioRemote?: BespokeAudioRemoteHooks;
+
     // Panel management
     _bespoke_process_events(): void;
     _bespoke_set_panel(panelIndex: number): void;
@@ -136,6 +152,7 @@ export interface BespokeSynthModule extends EmscriptenRuntime {
     _bespoke_set_module_string(moduleId: number, key: number, value: number): number;
     _bespoke_get_module_string(moduleId: number, key: number): number;
     _bespoke_push_input_audio(frames: number, framesCount: number): void;
+    _bespoke_set_input_capture_active(active: number): void;
     _bespoke_set_offline_format(bitsPerSample: number): void;
     _bespoke_render_offline(seconds: number, sampleRate: number): number;
     _bespoke_get_offline_wav(outByteLength: number): number;
@@ -180,8 +197,17 @@ export interface BespokeSynthModule extends EmscriptenRuntime {
     _bespoke_scale_get_tuning_error(): number;
     _bespoke_get_note_frequency(pitch: number): number;
 
+    // Graph notes for the MIDI output
+    _bespoke_set_graph_note_capture(enabled: number): void;
+    /** Pops captured notes into an Int32 buffer: pitch | vel << 8 | channel << 16 | on << 20. */
+    _bespoke_drain_graph_notes(out: number, maxEvents: number): number;
+    /** 1 when a Note processor listens to the performance instead of a cable. */
+    _bespoke_performance_notes_processed(): number;
+    _bespoke_get_placeholder_count(): number;
+
     // Script module host (?script=1)
     _bespoke_set_scripting_enabled(enabled: number): void;
+    /** 0 rejected, 1 queued on the script's own cables, 2 played on the performance path. */
     _bespoke_script_note(moduleId: number, pitch: number, velocity: number, isNoteOn: number): number;
     _bespoke_script_set_control(moduleId: number, controlName: number, value: number): number;
     _bespoke_script_stopped(moduleId: number): void;
@@ -193,6 +219,14 @@ export interface BespokeSynthModule extends EmscriptenRuntime {
     _bespoke_get_analyzer_cpu_fft_count(): number;
     /** WebGPU compute FFT dispatches (analyzer_fft.wgsl). */
     _bespoke_get_analyzer_gpu_fft_count(): number;
+}
+
+/** Called from C++ (wasm/src/AudioRemote.cpp) while the worklet engine plays. */
+export interface BespokeAudioRemoteHooks {
+    /** One AudioEngineEventType record (a note or a script note) for the worklet. */
+    event(type: number, a: number, b: number, c: number): void;
+    /** A snapshot was published; `reset` when a patch was loaded. */
+    graphChanged(reset: boolean): void;
 }
 
 /**

@@ -20,6 +20,18 @@ export function loadPatchStateJson(module: BespokeSynthModule | null, json: stri
   }
 }
 
+/** Modules in the current patch whose type this build lacks (kept as placeholders, saved back unchanged). */
+export function getPlaceholderCount(module: BespokeSynthModule | null): number {
+  return module?._bespoke_get_placeholder_count?.() ?? 0;
+}
+
+/** Suffix for a "Loaded ..." status line when the patch held module types this build doesn't have. */
+export function placeholderNotice(module: BespokeSynthModule | null): string {
+  const count = getPlaceholderCount(module);
+  if (count <= 0) return '';
+  return ` - ${count} unsupported module${count === 1 ? '' : 's'} kept as placeholder${count === 1 ? '' : 's'}`;
+}
+
 /** Load a patch bundled in Emscripten's preloaded /resource filesystem. */
 export function loadBundledLayout(module: BespokeSynthModule | null, path: string): boolean {
   if (!module?._bespoke_load_layout || !module.stringToNewUTF8 || !module._free) return false;

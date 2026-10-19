@@ -90,6 +90,15 @@ namespace bespoke
             return false;
          }
 
+         /**
+          * Type name written to patch JSON. Equals getType() except for a placeholder, which
+          * keeps the unsupported desktop type it stands in for so a save round-trips it.
+          */
+         virtual std::string serializedType() const { return mType; }
+         /** Controls to save beyond the adapter's descriptors (a placeholder keeps the unknown ones). */
+         virtual std::vector<std::string> preservedControlNames() const { return {}; }
+         virtual bool isPlaceholder() const { return false; }
+
          virtual bool handleMouseDown(float worldX, float worldY) { return false; }
          virtual bool handleMouseDrag(float worldX, float worldY, float dx, float dy) { return false; }
          virtual void handleMouseUp() {}

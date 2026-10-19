@@ -9,6 +9,8 @@ import {
 
 export type ScriptStatus = 'stopped' | 'running' | 'error' | 'killed';
 
+export type ScriptNoteRoute = 0 | 1 | 2;
+
 export interface ScriptLogEntry {
   level: 'log' | 'error' | 'system';
   text: string;
@@ -17,8 +19,12 @@ export interface ScriptLogEntry {
 export interface ScriptHostCallbacks {
   onLog?: (entry: ScriptLogEntry) => void;
   onStatus?: (status: ScriptStatus, detail?: string) => void;
-  /** Mirror script notes elsewhere (e.g. the selected MIDI output). */
-  onNote?: (pitch: number, velocity: number, on: boolean) => void;
+  /**
+   * Mirror script notes elsewhere (e.g. the selected MIDI output). `route` is what the engine did with the
+   * note: 0 rejected, 1 queued on the script module's own Note cables (the engine reports those to MIDI
+   * out itself), 2 played like a keyboard because the module has no cable (the host echoes those).
+   */
+  onNote?: (pitch: number, velocity: number, on: boolean, route: ScriptNoteRoute) => void;
 }
 
 const TICK_MS = 20;
@@ -189,8 +195,9 @@ export class ScriptHost {
   private sendNote(pitch: number, velocity: number, on: boolean): void {
     if (on) this.heldNotes.add(pitch);
     else this.heldNotes.delete(pitch);
-    this.module._bespoke_script_note?.(this.moduleId, pitch, velocity, on ? 1 : 0);
-    this.callbacks.onNote?.(pitch, velocity, on);
+    // A build without the route result behaves as before: every accepted note is echoed.
+    const route = (this.module._bespoke_script_note?.(this.moduleId, pitch, velocity, on ? 1 : 0) ?? 2) as ScriptNoteRoute;
+    this.callbacks.onNote?.(pitch, velocity, on, route);
   }
 
   private listModules(): Array<{ id: number; type: string }> {

@@ -4,6 +4,7 @@
 
 #include "BespokeWasm/InputAudioBus.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace bespoke
@@ -41,6 +42,7 @@ namespace bespoke
 
          uint32_t read = mRead.load(std::memory_order_relaxed);
          const uint32_t write = mWrite.load(std::memory_order_acquire);
+         float peak = 0.0f;
          for (int i = 0; i < count; ++i)
          {
             if (read == write)
@@ -49,9 +51,19 @@ namespace bespoke
                continue;
             }
             dest[i] = mBuffer[read];
+            peak = std::max(peak, std::fabs(dest[i]));
             read = (read + 1u) % static_cast<uint32_t>(kCapacity);
          }
          mRead.store(read, std::memory_order_release);
+         notePeak(peak);
+      }
+
+      void InputAudioBus::notePeak(float peak)
+      {
+         float held = mPeak.load(std::memory_order_relaxed);
+         while (peak > held && !mPeak.compare_exchange_weak(held, peak, std::memory_order_relaxed))
+         {
+         }
       }
 
    } // namespace wasm

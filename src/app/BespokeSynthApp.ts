@@ -16,6 +16,7 @@ import {
   getPatchStateJson,
   loadBundledLayout,
   loadPatchStateJson,
+  placeholderNotice,
   promptForPatchStateFile,
 } from '../patchState';
 import { PatchStorage, PATCH_DEFAULT_AUTOSAVE_NAME } from '../patchStorage';
@@ -34,6 +35,13 @@ import {
   type WorkletRingBackend,
   type WorkletRingStats,
 } from '../audio/workletRingBackend';
+import {
+  AUDIO_BACKEND_WORKLET_WASM,
+  compileWorkletEngine,
+  createWorkletEngineBackend,
+  type WorkletEngineBackend,
+} from '../audio/workletEngineBackend';
+import { readAudioHealth, type AudioHealth } from '../audio/audioHealth';
 import { bespokeWindow } from './browserWindow';
 import { loadWasmModule } from './wasmLoader';
 import {
@@ -67,6 +75,12 @@ import { startInputCapture, type InputCaptureHandle } from '../audio/inputCaptur
 import { LiveInstrument } from './liveInstrument';
 import { setupScriptPanel, type ScriptPanelHandle } from '../ui/scriptPanel';
 
+/** `?patch=<name>` loads one of the patches shipped in the resource pack. */
+const BUNDLED_PATCHES: Record<string, string> = {
+  starter: 'savestate/wasm-starter.bsk',
+  drumkit: 'savestate/wasm-drumkit.bsk',
+};
+
 export class BespokeSynthApp {
   private canvas: HTMLCanvasElement | null = null;
   private module: BespokeSynthModule | null = null;
@@ -91,6 +105,10 @@ export class BespokeSynthApp {
   private readonly audioBackendChoice: AudioBackendChoice = resolveAudioBackendChoice();
   private audioBackendId: AudioBackendId = this.audioBackendChoice.backend;
   private workletRing: WorkletRingBackend | null = null;
+  /** Option A: the graph runs in a DSP-only WASM instance inside the AudioWorklet. */
+  private workletEngine: WorkletEngineBackend | null = null;
+  private workletEngineStarting: Promise<boolean> | null = null;
+  private workletEngineError: string | null = null;
   private readonly patchStatusHelpers = createPatchStatusHelpers();
   private inputCapture: InputCaptureHandle | null = null;
   readonly live = new LiveInstrument(() => this.module);
@@ -109,7 +127,25 @@ export class BespokeSynthApp {
   }
 
   getAudioRingStats(): WorkletRingStats | null {
-    return this.workletRing?.getStats() ?? null;
+    return this.workletEngine?.getStats() ?? this.workletRing?.getStats() ?? null;
+  }
+
+  /**
+   * The playing engine's health: the worklet engine's while it plays (heapBytes and
+   * mainThreadBlocks still describe the UI module), else the UI module's own.
+   */
+  getAudioHealth(): AudioHealth | null {
+    const main = readAudioHealth(this.module);
+    const engine = this.workletEngine?.getHealth();
+    if (!engine) {
+      return main && this.workletEngineError ? { ...main, engineError: this.workletEngineError } : main;
+    }
+    return { ...engine, heapBytes: main?.heapBytes, mainThreadBlocks: main?.callbackCount ?? 0 };
+  }
+
+  /** Mirrors the worklet engine's beat, meters and scope samples into the UI module now. */
+  syncAudioEngine(): void {
+    this.workletEngine?.syncToMain();
   }
 
   getHostFrameCount(): number {
@@ -201,7 +237,7 @@ export class BespokeSynthApp {
     if (isDebugRequested()) {
       setupFloatingRendererToggle(this.rendererBackend);
       setupAudioHealthHud(
-        () => this.module,
+        () => this.getAudioHealth(),
         () => this.getAudioRingStats(),
       );
     }
@@ -303,6 +339,7 @@ export class BespokeSynthApp {
     this.renderLoop = startRenderLoop({
       module: this.module,
       canvas: this.canvas,
+      beforeFrame: () => this.workletEngine?.syncToMain(),
     });
 
     installSampleDropTarget(this.canvas, () => this.module, (message) => {
@@ -443,7 +480,12 @@ export class BespokeSynthApp {
   private async startPlayback(): Promise<void> {
     if (!this.module) return;
 
-    if (this.audioBackendId === 'worklet') {
+    if (this.audioBackendId === 'worklet' && (await this.ensureWorkletEngine())) {
+      this.module._bespoke_play?.();
+      return;
+    }
+
+    if (this.audioBackendId === 'worklet' || this.audioBackendId === 'ring') {
       const gate = canUseWorkletRingBackend();
       if (!gate.ok) {
         console.warn('Worklet audio unavailable, falling back to SDL2:', gate.reason);
@@ -473,11 +515,47 @@ export class BespokeSynthApp {
     this.workletRing?.stop();
   }
 
+  /**
+   * Starts the worklet engine once. On failure (no engine build, ABI mismatch, worklet error)
+   * the app falls back to the main-thread SAB ring for the rest of the session.
+   */
+  private ensureWorkletEngine(): Promise<boolean> {
+    if (this.workletEngine?.isRunning()) return Promise.resolve(true);
+    if (!this.module || this.audioBackendId !== 'worklet') return Promise.resolve(false);
+    if (!this.workletEngineStarting) {
+      const engine = createWorkletEngineBackend(this.module);
+      this.workletEngineStarting = engine.start().then(
+        () => {
+          this.workletEngine = engine;
+          this.live.graphNotes.setSource(engine.graphNotes);
+          console.log('Audio backend: worklet engine (graph runs in the AudioWorklet)');
+          return true;
+        },
+        (error: unknown) => {
+          engine.dispose();
+          this.workletEngineError = error instanceof Error ? error.message : String(error);
+          this.audioBackendId = 'ring';
+          const message = `Audio: worklet engine unavailable (${this.workletEngineError}); using the main-thread ring`;
+          console.warn(message);
+          this.patchStatusHelpers.showPatchStatus(message, 8000);
+          return false;
+        },
+      );
+      void this.workletEngineStarting.finally(() => {
+        this.workletEngineStarting = null;
+      });
+    }
+    return this.workletEngineStarting;
+  }
+
   private applyPostInitOptions(): void {
     if (!this.module) return;
 
     this.scriptPanel?.attach(this.module);
     if (this.live.enableClockIfRequested()) console.log('MIDI clock out enabled (?midiClock=1)');
+    // Graph notes (sequencers, drums, arp...) follow the selected MIDI port, delayed by the queued audio.
+    this.live.setGraphNoteLatency(() => this.queuedAudioMs());
+    this.live.startGraphNotes();
 
     const renderTestScene = getRenderTestScene();
     if (renderTestScene > 0) {
@@ -485,10 +563,9 @@ export class BespokeSynthApp {
       console.log(`Render test mode: scene ${renderTestScene} loaded (?renderTest=${renderTestScene})`);
     }
 
-    if (new URLSearchParams(window.location.search).get('patch') === 'starter') {
-      if (!loadBundledLayout(this.module, 'savestate/wasm-starter.bsk')) {
-        console.warn('Bundled starter patch could not be loaded');
-      }
+    const bundledPatch = BUNDLED_PATCHES[new URLSearchParams(window.location.search).get('patch') ?? ''];
+    if (bundledPatch && !loadBundledLayout(this.module, bundledPatch)) {
+      console.warn(`Bundled patch ${bundledPatch} could not be loaded`);
     }
 
     const activeBackend = this.module._bespoke_get_renderer_backend?.() === 1 ? 'webgl' : 'webgpu';
@@ -501,10 +578,15 @@ export class BespokeSynthApp {
     const rendererSelect = document.getElementById('rendererSelect') as HTMLSelectElement | null;
     if (rendererSelect) rendererSelect.value = activeBackend;
 
-    this.module._bespoke_set_audio_backend_id?.(this.audioBackendId === 'worklet' ? 1 : 0);
+    const backendIds: Record<AudioBackendId, number> = { worklet: AUDIO_BACKEND_WORKLET_WASM, ring: 1, sdl: 0 };
+    this.module._bespoke_set_audio_backend_id?.(backendIds[this.audioBackendId]);
     const choice = this.audioBackendChoice;
     if (choice.backend === 'worklet') {
-      console.log(`Audio backend: worklet (SAB ring, ${choice.source}) — starts on Play`);
+      console.log(`Audio backend: worklet engine (${choice.source}) — starts on Play`);
+      // Compile the engine's .wasm while the user looks at the canvas; Play then only instantiates.
+      compileWorkletEngine().catch(() => undefined);
+    } else if (choice.backend === 'ring') {
+      console.log(`Audio backend: worklet ring, main-thread DSP (${choice.source}) — starts on Play`);
     } else if (choice.fallbackReason) {
       const message = `Audio: SDL2 fallback — AudioWorklet unavailable: ${choice.fallbackReason}`;
       console.warn(message);
@@ -530,7 +612,7 @@ export class BespokeSynthApp {
     if (!json) return;
     await restorePatchSamples(this.module, collectSampleHashes(json));
     if (loadPatchStateJson(this.module, json)) {
-      this.patchStatusHelpers.showPatchStatus('Loaded shared patch');
+      this.patchStatusHelpers.showPatchStatus(`Loaded shared patch${placeholderNotice(this.module)}`);
     }
   }
 
@@ -546,6 +628,17 @@ export class BespokeSynthApp {
     }
   }
 
+  /** Audio queued ahead of the speakers; 0 when SDL plays (its buffer is a few ms). */
+  private queuedAudioMs(): number {
+    // The worklet engine renders one quantum ahead; only the device latency remains.
+    if (this.workletEngine?.isRunning()) return this.workletEngine.outputLatencySeconds() * 1000;
+    const ring = this.workletRing;
+    const context = ring?.getContext();
+    const stats = ring?.getStats();
+    if (!ring || !ring.isRunning() || !context || !stats) return 0;
+    return (stats.depthFrames / context.sampleRate) * 1000;
+  }
+
   private async toggleInputCapture(): Promise<void> {
     if (!this.module) return;
     if (this.inputCapture?.running()) {
@@ -555,7 +648,13 @@ export class BespokeSynthApp {
       return;
     }
     try {
-      this.inputCapture = await startInputCapture(this.module);
+      // The mic feeds whichever instance plays the graph, so settle that first.
+      const engine = (await this.ensureWorkletEngine()) ? this.workletEngine : null;
+      const ring = engine?.getInputRing();
+      this.inputCapture = await startInputCapture(
+        this.module,
+        engine && ring ? { ring, setActive: (active) => engine.setInputActive(active) } : {},
+      );
       this.patchStatusHelpers.showPatchStatus('Mic input on');
     } catch (error) {
       console.error('Mic capture failed', error);
@@ -743,6 +842,11 @@ export class BespokeSynthApp {
   shutdown(): void {
     this.inputCapture?.stop();
     this.inputCapture = null;
+    this.live.graphNotes.setSource(null);
+    this.workletEngine?.dispose();
+    this.workletEngine = null;
+    this.workletRing?.dispose();
+    this.workletRing = null;
     this.renderLoop?.stop();
     this.renderLoop = null;
     if (this.module?._bespoke_shutdown) {

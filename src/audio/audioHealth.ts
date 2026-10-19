@@ -15,6 +15,18 @@ export interface AudioHealth {
   noteDropCount: number;
   /** WASM linear memory size in bytes (peak; memory never shrinks). Absent on older builds. */
   heapBytes?: number;
+  /** Worklet engine only: its own WASM heap (heapBytes is then the UI module's). */
+  audioHeapBytes?: number;
+  /** Worklet engine only: snapshots it has applied. */
+  snapshotCount?: number;
+  /** Worklet engine only: note/script events dropped because the event ring was full. */
+  eventDropCount?: number;
+  /**
+   * Worklet engine only: blocks the UI module rendered on the main thread. Stays 0 while the
+   * worklet engine plays (bespoke_set_audio_remote makes the UI module refuse to render).
+   */
+  mainThreadBlocks?: number;
+  engineError?: string;
 }
 
 export function readAudioHealth(module: BespokeSynthModule | null): AudioHealth | null {
@@ -31,9 +43,11 @@ export function readAudioHealth(module: BespokeSynthModule | null): AudioHealth 
 export function backendName(id: number): string {
   switch (id) {
     case 1:
-      return 'worklet';
+      return 'worklet-ring';
     case 2:
       return 'poc';
+    case 3:
+      return 'worklet-wasm';
     default:
       return 'sdl';
   }

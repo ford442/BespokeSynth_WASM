@@ -203,3 +203,159 @@ void test_sample_io_and_offline()
    }
    TEST("Sample hash round-trips", hashOk);
 }
+
+void test_unknown_type_placeholders()
+{
+   printf("\n=== Unknown-Type Placeholder Tests ===\n");
+
+   // A patch from a build (or the desktop app) that has module types this one doesn't:
+   // "vocoder" sits in the signal path, "futurething" hangs off the side.
+   const char* fixture =
+   "{\n"
+   "  \"filetype\": \"bespokesynth\",\n"
+   "  \"format\": \"bespokesynth-wasm-state\",\n"
+   "  \"version\": 4,\n"
+   "  \"transport\": { \"bpm\": 120, \"playing\": false },\n"
+   "  \"modules\": [\n"
+   "    { \"id\": 1, \"type\": \"oscillator\", \"position\": { \"x\": 10, \"y\": 20 },\n"
+   "      \"controls\": { \"frequency\": 330, \"volume\": 0.5, \"waveform\": 1 } },\n"
+   "    { \"id\": 2, \"type\": \"vocoder\", \"position\": { \"x\": 200, \"y\": 40 },\n"
+   "      \"controls\": { \"carrier\": 0.3, \"depth\": 0.7, \"bands\": 16 },\n"
+   "      \"extras\": { \"preset\": \"robot\" } },\n"
+   "    { \"id\": 3, \"type\": \"delay\", \"position\": { \"x\": 400, \"y\": 60 }, \"controls\": { \"time\": 250 } },\n"
+   "    { \"id\": 4, \"type\": \"output\", \"position\": { \"x\": 600, \"y\": 80 }, \"controls\": {} },\n"
+   "    { \"id\": 5, \"type\": \"futurething\", \"position\": { \"x\": 200, \"y\": 200 }, \"controls\": { \"amount\": 2 } }\n"
+   "  ],\n"
+   "  \"connections\": [\n"
+   "    { \"source\": { \"module\": 1, \"port\": 0 }, \"destination\": { \"module\": 2, \"port\": 0 } },\n"
+   "    { \"source\": { \"module\": 2, \"port\": 0 }, \"destination\": { \"module\": 3, \"port\": 0 } },\n"
+   "    { \"source\": { \"module\": 1, \"port\": 0 }, \"destination\": { \"module\": 3, \"port\": 0 } },\n"
+   "    { \"source\": { \"module\": 3, \"port\": 0 }, \"destination\": { \"module\": 4, \"port\": 0 } }\n"
+   "  ]\n"
+   "}\n";
+
+   ModuleCanvas::StateSnapshot loaded;
+   int viewMode = 0;
+   std::string error;
+   TEST("Fixture with unknown types parses", deserializePatchState(fixture, loaded, viewMode, error));
+
+   const int baselineModules = ModuleCanvas().getModuleCount(); // transport + scale
+   ModuleCanvas canvas;
+   canvas.clearUndoHistory();
+   TEST("Canvas applies a patch with unknown types", canvas.applyStateSnapshot(loaded));
+   TEST("Both unknown modules become placeholders", canvas.placeholderCount() == 2);
+   TEST("Known modules load normally", canvas.getModuleCount() == baselineModules + 5);
+
+   // Loading renumbers modules, so find them by their saved type.
+   const int vocoderId = canvas_module_id(canvas, "vocoder");
+   const int futureId = canvas_module_id(canvas, "futurething");
+   const int oscId = canvas_module_id(canvas, "oscillator");
+   const int delayId = canvas_module_id(canvas, "delay");
+   const int outputId = canvas_module_id(canvas, "output");
+   TEST("Saved types resolve to modules", vocoderId > 0 && futureId > 0 && oscId > 0 && delayId > 0 && outputId > 0);
+
+   Module* vocoder = canvas.getModule(vocoderId);
+   TEST("Placeholder keeps its position", vocoder && vocoder->getX() == 200.0f && vocoder->getY() == 40.0f);
+   TEST("Placeholder is labelled with the original type",
+        vocoder && vocoder->isPlaceholder() && vocoder->getName() == "vocoder" && vocoder->serializedType() == "vocoder");
+   TEST("Placeholder is not a runtime module type", vocoder && vocoder->getType() == "placeholder" &&
+                                                    WasmModuleAdapterRegistry::instance().find("placeholder") == nullptr);
+   TEST("Placeholder has no ports (no DSP to cable)", vocoder && vocoder->getInputs().empty() && vocoder->getOutputs().empty());
+   TEST("A known module is not a placeholder", canvas.getModule(oscId) && !canvas.getModule(oscId)->isPlaceholder());
+
+   // Never silently remapped onto another module: the graph holds only the real modules.
+   const auto graph = canvas.getAudioGraphSnapshot();
+   int oscillators = 0;
+   bool hasPlaceholderNode = false;
+   for (const auto& node : graph->nodes)
+   {
+      if (node.id == vocoderId || node.id == futureId)
+         hasPlaceholderNode = true;
+      const WasmModuleAdapter* adapter = WasmModuleAdapterRegistry::instance().adapterAt(node.typeIndex);
+      if (adapter && std::string(adapter->typeId()) == "oscillator")
+         ++oscillators;
+   }
+   TEST("Unknown types add no audio-graph node, and no oscillator stands in for them",
+        !hasPlaceholderNode && oscillators == 1);
+   bool directCable = false;
+   for (const auto& cable : graph->connections)
+      directCable = directCable || (cable.sourceModuleId == oscId && cable.destModuleId == delayId);
+   TEST("Cables between known modules still connect", directCable && graph->processPlan.valid);
+
+   // The patch saves back with its unknown modules and cables intact.
+   const ModuleCanvas::StateSnapshot saved = canvas.createStateSnapshot();
+   auto findModule = [](const ModuleCanvas::StateSnapshot& snapshot, int id) -> const ModuleCanvas::StateModule*
+   {
+      for (const auto& module : snapshot.modules)
+      {
+         if (module.id == id)
+            return &module;
+      }
+      return nullptr;
+   };
+   const auto* savedVocoder = findModule(saved, vocoderId);
+   TEST("Saved state keeps the original type name", savedVocoder && savedVocoder->type == "vocoder");
+   TEST("Saved state keeps the unknown module's controls and extras",
+        savedVocoder && savedVocoder->controls.count("carrier") && savedVocoder->controls.at("depth") == 0.7f &&
+        savedVocoder->controls.at("bands") == 16.0f && savedVocoder->extras.count("preset") &&
+        savedVocoder->extras.at("preset") == "robot");
+   const auto* savedFuture = findModule(saved, futureId);
+   TEST("Second placeholder is saved too", savedFuture && savedFuture->type == "futurething" &&
+                                           savedFuture->controls.count("amount") && savedFuture->controls.at("amount") == 2.0f);
+   auto hasCable = [](const ModuleCanvas::StateSnapshot& snapshot, int src, int dst)
+   {
+      return std::any_of(snapshot.connections.begin(), snapshot.connections.end(),
+                         [src, dst](const auto& c)
+                         {
+                            return c.sourceModuleId == src && c.destModuleId == dst;
+                         });
+   };
+   TEST("Cables into and out of a placeholder are preserved",
+        hasCable(saved, oscId, vocoderId) && hasCable(saved, vocoderId, delayId) && hasCable(saved, oscId, delayId) &&
+        hasCable(saved, delayId, outputId) && saved.connections.size() == 4);
+
+   const std::string json = serializePatchState(saved, 0);
+   TEST("Serialized patch names the unknown types, never 'placeholder'",
+        json.find("\"vocoder\"") != std::string::npos && json.find("\"futurething\"") != std::string::npos &&
+        json.find("\"placeholder\"") == std::string::npos);
+   TEST("Schema version is unchanged by placeholders", saved.schemaVersion == kPatchSchemaVersion);
+
+   ModuleCanvas::StateSnapshot reloaded;
+   TEST("Saved patch parses again", deserializePatchState(json, reloaded, viewMode, error));
+   ModuleCanvas second;
+   const bool secondLoaded = second.applyStateSnapshot(reloaded);
+   // Loading renumbers modules, so the reloaded patch matches by type, position, values and cables.
+   TEST("...and loads into a fresh canvas with the same placeholders",
+        secondLoaded && second.placeholderCount() == 2 &&
+        canonical_by_type(second.createStateSnapshot()) == canonical_by_type(saved));
+
+   // The public create path still refuses unknown types: placeholders come from loading only.
+   ModuleCanvas strict;
+   const int before = strict.getModuleCount();
+   TEST("createModule still rejects an unknown type", strict.createModule("vocoder", 0, 0) < 0 &&
+                                                      strict.getModuleCount() == before);
+
+   // Deleting a placeholder drops its cables; undo brings the module and its cables back.
+   canvas.clearUndoHistory();
+   canvas.deleteModule(vocoderId);
+   const auto afterDelete = canvas.createStateSnapshot();
+   TEST("Deleting a placeholder removes it and its cables",
+        canvas.placeholderCount() == 1 && !findModule(afterDelete, vocoderId) && !hasCable(afterDelete, oscId, vocoderId) &&
+        !hasCable(afterDelete, vocoderId, delayId) && hasCable(afterDelete, oscId, delayId));
+   TEST("Undo restores the placeholder", canvas.undo() && canvas.placeholderCount() == 2);
+   const auto afterUndo = canvas.createStateSnapshot();
+   const int restoredId = canvas_module_id(canvas, "vocoder");
+   const auto* restored = findModule(afterUndo, restoredId);
+   TEST("Undo restores its type, controls and cables",
+        restored && restored->type == "vocoder" && restored->controls.count("carrier") &&
+        restored->extras.count("preset") && hasCable(afterUndo, oscId, restoredId) &&
+        hasCable(afterUndo, restoredId, delayId));
+   TEST("Redo removes it again", canvas.redo() && canvas.placeholderCount() == 1);
+
+   // Replacing a patch clears the previous placeholders and their kept cables.
+   ModuleCanvas::StateSnapshot plain;
+   plain.modules.push_back({ 1, "oscillator", 0.0f, 0.0f, false, true, {}, {} });
+   TEST("Loading a patch without unknown types clears placeholders",
+        canvas.applyStateSnapshot(plain) && canvas.placeholderCount() == 0 &&
+        canvas.createStateSnapshot().connections.empty());
+}

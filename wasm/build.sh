@@ -173,12 +173,23 @@ fi
 if [ -f "$BUILD_DIR/BespokeSynthWASM.data" ]; then
     cp "$BUILD_DIR/BespokeSynthWASM.data" "$OUTPUT_DIR/"
 fi
+# DSP-only engine for the AudioWorklet (docs/wasm-audio.md, Option A).
+for f in BespokeSynthWASM_audio.js BespokeSynthWASM_audio.wasm; do
+    if [ -f "$BUILD_DIR/$f" ]; then
+        cp "$BUILD_DIR/$f" "$OUTPUT_DIR/"
+    fi
+done
 if [ -d "$BUILD_DIR/resource" ]; then
     cp -r "$BUILD_DIR/resource" "$OUTPUT_DIR/"
 fi
 
 echo -e "${GREEN}Build complete!${NC}"
 echo "Output files are in: $OUTPUT_DIR"
+for f in BespokeSynthWASM.wasm BespokeSynthWASM_audio.wasm; do
+    if [ -f "$OUTPUT_DIR/$f" ]; then
+        echo "  $f: $(wc -c < "$OUTPUT_DIR/$f") bytes"
+    fi
+done
 echo ""
 echo "To run the full app (cross-origin isolated, AudioWorklet audio):"
 echo "  npm run build:web-only && npm run serve"

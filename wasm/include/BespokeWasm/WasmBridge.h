@@ -173,6 +173,8 @@ EMSCRIPTEN_KEEPALIVE int bespoke_find_first_module(const char* type);
 EMSCRIPTEN_KEEPALIVE int bespoke_set_module_string(int moduleId, const char* key, const char* value);
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_module_string(int moduleId, const char* key);
 EMSCRIPTEN_KEEPALIVE void bespoke_push_input_audio(const float* frames, int framesCount);
+// Whether the host's microphone capture is running (drives the Input module's status line).
+EMSCRIPTEN_KEEPALIVE void bespoke_set_input_capture_active(int active);
 EMSCRIPTEN_KEEPALIVE void bespoke_set_offline_format(int bitsPerSample);
 EMSCRIPTEN_KEEPALIVE int bespoke_render_offline(double seconds, int sampleRate);
 EMSCRIPTEN_KEEPALIVE const unsigned char* bespoke_get_offline_wav(int* outByteLength);
@@ -217,8 +219,18 @@ EMSCRIPTEN_KEEPALIVE int bespoke_scale_set_tuning(const char* kind, const char* 
 EMSCRIPTEN_KEEPALIVE const char* bespoke_scale_get_tuning_error(void);
 EMSCRIPTEN_KEEPALIVE float bespoke_get_note_frequency(int pitch);
 
+// Graph notes for the MIDI output: sequencer / drum / script / arp / chorder notes the engine plays.
+EMSCRIPTEN_KEEPALIVE void bespoke_set_graph_note_capture(int enabled);
+// Packed ints: pitch | velocity(0-127) << 8 | channel << 16 | isNoteOn << 20. Returns the count.
+EMSCRIPTEN_KEEPALIVE int bespoke_drain_graph_notes(int* out, int maxEvents);
+// 1 when a Note processor listens to the performance (QWERTY / MIDI in) instead of a cable.
+EMSCRIPTEN_KEEPALIVE int bespoke_performance_notes_processed(void);
+// Saved modules of types this build lacks, kept as labelled placeholders.
+EMSCRIPTEN_KEEPALIVE int bespoke_get_placeholder_count(void);
+
 // Script module host (?script=1). The TS worker host is the only caller.
 EMSCRIPTEN_KEEPALIVE void bespoke_set_scripting_enabled(int enabled);
+// 0 rejected, 1 queued on the script's own cables, 2 played on the performance path.
 EMSCRIPTEN_KEEPALIVE int bespoke_script_note(int moduleId, int pitch, float velocity, int isNoteOn);
 EMSCRIPTEN_KEEPALIVE int bespoke_script_set_control(int moduleId, const char* controlName, float value);
 EMSCRIPTEN_KEEPALIVE void bespoke_script_stopped(int moduleId);

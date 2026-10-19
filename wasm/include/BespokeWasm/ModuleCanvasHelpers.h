@@ -33,6 +33,17 @@ namespace bespoke
       float waveformSample(int waveform, float t);
       float portSpacingFor(float labelFont, float scale);
 
+      /** Spawn menu category chips, drawn and hit-tested from this one table. */
+      struct SpawnMenuChip
+      {
+         const char* label;
+         int category; // ModuleCategory, or -1 for All
+      };
+      constexpr int kSpawnMenuChipCount = 7;
+      constexpr float kSpawnMenuChipPitch = 38.0f;
+      constexpr float kSpawnMenuChipWidth = 36.0f;
+      const SpawnMenuChip& spawnMenuChip(int index);
+
       std::vector<ModuleTypeInfo> spawnMenuTypes(int category, const std::string& query);
       /** Feature-flagged types (e.g. "script" without ?script=1) stay out of the spawn menu. */
       void setSpawnMenuTypeHidden(const std::string& type, bool hidden);

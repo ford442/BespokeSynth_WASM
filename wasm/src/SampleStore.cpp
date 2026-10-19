@@ -78,6 +78,27 @@ namespace bespoke
          return mById[static_cast<size_t>(it->second)].get();
       }
 
+      int SampleStore::count() const
+      {
+         std::lock_guard<std::mutex> lock(mMutex);
+         return static_cast<int>(mById.size());
+      }
+
+      void SampleStore::adopt(int id, std::shared_ptr<SampleBuffer> buffer)
+      {
+         if (id < 0 || !buffer)
+            return;
+         buffer->setId(id);
+         std::lock_guard<std::mutex> lock(mMutex);
+         if (id >= static_cast<int>(mById.size()))
+            mById.resize(static_cast<size_t>(id) + 1);
+         if (const auto& previous = mById[static_cast<size_t>(id)])
+            mIdByHash.erase(previous->hash());
+         if (!buffer->hash().empty())
+            mIdByHash[buffer->hash()] = id;
+         mById[static_cast<size_t>(id)] = std::move(buffer);
+      }
+
       void SampleStore::clear()
       {
          std::lock_guard<std::mutex> lock(mMutex);

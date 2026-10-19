@@ -8,6 +8,8 @@ export interface RenderLoopHandle {
 export interface RenderLoopOptions {
   module: BespokeSynthModule;
   canvas: HTMLCanvasElement;
+  /** Runs before each bespoke_render(), e.g. to mirror worklet-engine telemetry into the UI module. */
+  beforeFrame?: () => void;
 }
 
 /**
@@ -22,6 +24,7 @@ export function startRenderLoop(options: RenderLoopOptions): RenderLoopHandle {
     const deltaSeconds = Math.min(0.1, Math.max(0, (timestamp - lastFrameTime) / 1000));
     lastFrameTime = timestamp;
 
+    options.beforeFrame?.();
     options.module._bespoke_set_frame_delta?.(deltaSeconds);
     options.module._bespoke_render?.();
     hostFrameCount += 1;

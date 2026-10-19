@@ -121,7 +121,14 @@ set(BESPOKE_WASM_ADAPTER_SOURCES
     ${BESPOKE_WASM_DIR}/src/adapters/ClockDividerModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/DrumSeqModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/adapters/ScriptModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/InputModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/EqModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/ChorderModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/ArpeggiatorModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/NoteFilterModuleAdapter.cpp
+    ${BESPOKE_WASM_DIR}/src/adapters/NoteRouterModuleAdapter.cpp
     ${BESPOKE_WASM_DIR}/src/ScriptNoteQueue.cpp
+    ${BESPOKE_WASM_DIR}/src/BundledKit.cpp
     # Shared by adapters above: generic slider UI + public-domain Freeverb (reverb adapter).
     ${BESPOKE_WASM_DIR}/src/SliderPanelModule.cpp
     ${BESPOKE_LIBS_DIR}/freeverb/src/allpass.cpp
@@ -147,6 +154,8 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/AudioAnalysis.cpp
     ${BESPOKE_WASM_DIR}/src/AudioProcessPlan.cpp
     ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioGraphSnapshotCodec.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioRemote.cpp
     ${BESPOKE_WASM_DIR}/src/WasmAudioEngine.cpp
     ${BESPOKE_WASM_DIR}/src/AudioHealth.cpp
     ${BESPOKE_WASM_DIR}/src/AudioRtGuard.cpp
@@ -167,6 +176,7 @@ set(WASM_SOURCES
     ${BESPOKE_WASM_DIR}/src/WasmBridgeLegacyPanels.cpp
     ${BESPOKE_WASM_DIR}/src/Knob.cpp
     ${BESPOKE_WASM_DIR}/src/Module.cpp
+    ${BESPOKE_WASM_DIR}/src/PlaceholderModule.cpp
     ${BESPOKE_WASM_DIR}/src/ModuleCanvas.cpp
     ${BESPOKE_WASM_DIR}/src/ModuleCanvasRender.cpp
     ${BESPOKE_WASM_DIR}/src/ModuleCanvasInput.cpp
@@ -418,6 +428,128 @@ add_custom_command(TARGET BespokeSynthWASM POST_BUILD
     COMMENT "Copying minimal WASM resource pack to build directory"
 )
 
+# --- AudioWorklet engine module (Option A, docs/wasm-audio.md) ---------------
+# A second, DSP-only link of the same adapters, instantiated inside the
+# AudioWorklet so processBlock never runs on the main thread. No Dawn, no
+# WebGL, no SDL, no preload bundle: the worklet has no fetch, so the host
+# compiles the .wasm on the main thread and hands it over in processorOptions.
+# The UI module keeps its own engine for the SDL2 path, the SAB-ring fallback,
+# and offline bounce. Adapter sources still bring their UI Module classes along
+# (createUiModule is virtual), which never run here.
+set(BESPOKE_WASM_AUDIO_SOURCES
+    ${BESPOKE_WASM_DIR}/src/AudioWorkletEngine.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioGraphSnapshotCodec.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioHealth.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioRtGuard.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioSynthGlobals.cpp
+    ${BESPOKE_WASM_DIR}/src/SampleBuffer.cpp
+    ${BESPOKE_WASM_DIR}/src/SampleStore.cpp
+    ${BESPOKE_WASM_DIR}/src/InputAudioBus.cpp
+    ${BESPOKE_WASM_DIR}/src/LooperArena.cpp
+    ${BESPOKE_WASM_DIR}/src/WasmModuleAdapterRegistry.cpp
+    ${BESPOKE_WASM_ADAPTER_SOURCES}
+    ${BESPOKE_WASM_DIR}/src/Module.cpp
+    ${BESPOKE_WASM_DIR}/src/ModuleCanvasHelpers.cpp
+    ${BESPOKE_WASM_DIR}/src/PixelFont.cpp
+    ${BESPOKE_WASM_DIR}/src/SdfFont.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/OscillatorModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/GainModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/OutputModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/FilterModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/LFOModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/AdsrModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/DelayModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/NoiseModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/StepSequencerModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/TransportModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/ScaleModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/SamplerModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/LooperModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/PulseToNoteModule.cpp
+    ${BESPOKE_WASM_DIR}/src/modules/ScriptModule.cpp
+    ${BESPOKE_WASM_DIR}/src/TuningTable.cpp
+    ${BESPOKE_SOURCE_DIR}/BiquadFilter.cpp
+    ${BESPOKE_SOURCE_DIR}/Oscillator.cpp
+)
+
+add_executable(BespokeSynthWASM_audio ${BESPOKE_WASM_AUDIO_SOURCES})
+
+target_include_directories(BespokeSynthWASM_audio PRIVATE
+    ${BESPOKE_WASM_DIR}/src
+    ${BESPOKE_WASM_DIR}/third_party/dr_libs
+)
+
+target_compile_definitions(BespokeSynthWASM_audio PRIVATE BESPOKE_WASM=1 BESPOKE_WASM_AUDIO_ONLY=1)
+
+if(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Debug")
+    target_compile_options(BespokeSynthWASM_audio PRIVATE -O0 -g)
+elseif(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Profile")
+    target_compile_options(BespokeSynthWASM_audio PRIVATE -O2 -g)
+else()
+    target_compile_options(BespokeSynthWASM_audio PRIVATE -O3)
+    if(BESPOKE_WASM_LTO)
+        target_compile_options(BespokeSynthWASM_audio PRIVATE -flto)
+    endif()
+endif()
+if(BESPOKE_WASM_SIMD)
+    target_compile_options(BespokeSynthWASM_audio PRIVATE -msimd128)
+    target_compile_definitions(BespokeSynthWASM_audio PRIVATE BESPOKE_WASM_SIMD=1)
+endif()
+target_link_options(BespokeSynthWASM_audio PRIVATE -fwasm-exceptions)
+
+set(BESPOKE_WASM_AUDIO_EXPORT_SYMBOLS "")
+file(STRINGS "${BESPOKE_WASM_DIR}/exports_audio.txt" BESPOKE_WASM_AUDIO_EXPORT_LINES)
+foreach(line IN LISTS BESPOKE_WASM_AUDIO_EXPORT_LINES)
+    string(STRIP "${line}" line)
+    if(line STREQUAL "" OR line MATCHES "^#")
+        continue()
+    endif()
+    list(APPEND BESPOKE_WASM_AUDIO_EXPORT_SYMBOLS "_${line}")
+endforeach()
+list(JOIN BESPOKE_WASM_AUDIO_EXPORT_SYMBOLS "','" BESPOKE_WASM_AUDIO_EXPORTED_FUNCTIONS_JOINED)
+
+set(BESPOKE_WASM_AUDIO_PROCESSOR_JS "${BESPOKE_WASM_DIR}/audio_worklet/engineProcessor.js")
+set(BESPOKE_WASM_AUDIO_LINK_FLAGS
+    "-sWASM=1"
+    # AudioWorkletGlobalScope: no fetch, window or WorkerGlobalScope (Emscripten >= 4.0.23).
+    "-sENVIRONMENT=worklet"
+    "-sMODULARIZE=1"
+    "-sEXPORT_NAME='createBespokeAudioEngine'"
+    "-sEXPORTED_RUNTIME_METHODS=['HEAPF32','HEAPU8','HEAP8','UTF8ToString']"
+    "-sEXPORTED_FUNCTIONS=['${BESPOKE_WASM_AUDIO_EXPORTED_FUNCTIONS_JOINED}']"
+    # Engine arenas plus loopers and delay lines; samples copied in grow it.
+    "-sINITIAL_MEMORY=33554432"
+    "-sMAXIMUM_MEMORY=2147483648"
+    "-sSTACK_SIZE=262144"
+    # A worklet-only ENVIRONMENT marks every MIN_*_VERSION unsupported, so emcc
+    # would assume Memory.toResizableBuffer (Chrome 144, Safari 26.2). Keep the
+    # main module's browser floor; the processor re-views the heap on growth.
+    "-sGROWABLE_ARRAYBUFFERS=0"
+    # The processor class is appended to the glue so one addModule() loads both.
+    "--extern-post-js=${BESPOKE_WASM_AUDIO_PROCESSOR_JS}"
+)
+if(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Debug")
+    list(APPEND BESPOKE_WASM_AUDIO_LINK_FLAGS "-O0" "-g" "-sASSERTIONS=2")
+elseif(BESPOKE_WASM_BUILD_FLAVOR STREQUAL "Profile")
+    list(APPEND BESPOKE_WASM_AUDIO_LINK_FLAGS "-O2" "-g" "-sASSERTIONS=1")
+else()
+    list(APPEND BESPOKE_WASM_AUDIO_LINK_FLAGS "-O3" "-sASSERTIONS=0")
+    if(BESPOKE_WASM_LTO)
+        list(APPEND BESPOKE_WASM_AUDIO_LINK_FLAGS "-flto")
+    endif()
+endif()
+if(BESPOKE_WASM_SIMD)
+    list(APPEND BESPOKE_WASM_AUDIO_LINK_FLAGS "-msimd128")
+endif()
+string(REPLACE ";" " " BESPOKE_WASM_AUDIO_LINK_FLAGS_STR "${BESPOKE_WASM_AUDIO_LINK_FLAGS}")
+
+set_target_properties(BespokeSynthWASM_audio PROPERTIES
+    SUFFIX ".js"
+    LINK_FLAGS "${BESPOKE_WASM_AUDIO_LINK_FLAGS_STR}"
+    LINK_DEPENDS "${BESPOKE_WASM_AUDIO_PROCESSOR_JS};${BESPOKE_WASM_DIR}/exports_audio.txt"
+)
+
 # Create a simple test target
 add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/tests/test_main.cpp
@@ -430,9 +562,13 @@ add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/tests/test_dsp_tuning.cpp
     ${BESPOKE_WASM_DIR}/tests/test_canvas.cpp
     ${BESPOKE_WASM_DIR}/tests/test_stereo.cpp
+    ${BESPOKE_WASM_DIR}/tests/test_note_graph.cpp
+    ${BESPOKE_WASM_DIR}/tests/test_audio_worklet.cpp
     ${BESPOKE_WASM_DIR}/tests/synth_globals_stub.cpp
     ${BESPOKE_WASM_DIR}/src/AudioProcessPlan.cpp
     ${BESPOKE_WASM_DIR}/src/AudioGraphEngine.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioGraphSnapshotCodec.cpp
+    ${BESPOKE_WASM_DIR}/src/AudioWorkletEngine.cpp
     ${BESPOKE_WASM_DIR}/src/AudioHealth.cpp
     ${BESPOKE_WASM_DIR}/src/AudioAnalysis.cpp
     ${BESPOKE_WASM_DIR}/src/SampleBuffer.cpp
@@ -443,6 +579,7 @@ add_executable(BespokeSynthWASM_test
     ${BESPOKE_WASM_DIR}/src/WasmModuleAdapterRegistry.cpp
     ${BESPOKE_WASM_ADAPTER_SOURCES}
     ${BESPOKE_WASM_DIR}/src/Module.cpp
+    ${BESPOKE_WASM_DIR}/src/PlaceholderModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/FilterModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/OscillatorModule.cpp
     ${BESPOKE_WASM_DIR}/src/modules/GainModule.cpp
@@ -495,5 +632,8 @@ target_sources(BespokeSynthWASM_test PRIVATE
 
 set_target_properties(BespokeSynthWASM_test PROPERTIES
     SUFFIX ".js"
-    LINK_FLAGS "-sWASM=1 -sINITIAL_MEMORY=67108864 -sSTACK_SIZE=1048576 -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
+    # The bundled drum kit and patches are read from /resource like the app does. Embedded rather than
+    # preloaded: a .data sidecar is resolved against the cwd under node, which breaks `npm run test:unit`.
+    LINK_FLAGS "-sWASM=1 -sINITIAL_MEMORY=67108864 -sSTACK_SIZE=1048576 -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap'] --embed-file=${BESPOKE_WASM_DIR}/resource-pack@/resource"
+    LINK_DEPENDS "${BESPOKE_WASM_RESOURCE_PACK_FILES}"
 )

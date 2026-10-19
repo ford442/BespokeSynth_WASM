@@ -71,21 +71,13 @@ namespace bespoke
 
             if (x >= menuX && x <= menuX + kMenuWidth && y >= menuY && y <= menuY + menuHeight)
             {
-               const int categoryValues[] = {
-                  -1,
-                  static_cast<int>(ModuleCategory::Synth),
-                  static_cast<int>(ModuleCategory::AudioEffect),
-                  static_cast<int>(ModuleCategory::Modulator),
-                  static_cast<int>(ModuleCategory::Pulse),
-                  static_cast<int>(ModuleCategory::Other)
-               };
                const float categoryY = menuY + kSearchHeight + 3.0f;
                if (y >= categoryY && y <= categoryY + 18.0f)
                {
-                  const int chip = static_cast<int>((x - menuX - 6.0f) / 44.5f);
-                  if (chip >= 0 && chip < 6)
+                  const int chip = static_cast<int>(std::floor((x - menuX - 6.0f) / kSpawnMenuChipPitch));
+                  if (chip >= 0 && chip < kSpawnMenuChipCount)
                   {
-                     mSpawnMenuCategory = categoryValues[chip];
+                     mSpawnMenuCategory = spawnMenuChip(chip).category;
                      mSpawnMenuSelectedIndex = 0;
                   }
                   return;

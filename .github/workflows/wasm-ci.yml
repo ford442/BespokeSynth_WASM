@@ -68,6 +68,17 @@ jobs:
           source "$EMSDK/emsdk_env.sh"
           npm run build:wasm
 
+      - name: Report WASM sizes
+        shell: bash
+        run: |
+          {
+            echo "| Module | .wasm bytes | .js bytes |"
+            echo "|---|---:|---:|"
+            for m in BespokeSynthWASM BespokeSynthWASM_audio; do
+              echo "| $m | $(wc -c < "wasm/dist/$m.wasm") | $(wc -c < "wasm/dist/$m.js") |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Verify WASM export manifest
         run: npm run test:exports
 

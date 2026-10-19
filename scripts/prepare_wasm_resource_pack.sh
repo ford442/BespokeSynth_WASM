@@ -23,8 +23,12 @@ copy_if_exists() {
 
 copy_if_exists "userdata_original/scales.json"
 copy_if_exists "userdata_original/savestate/wasm-starter.bsk"
+copy_if_exists "userdata_original/savestate/wasm-drumkit.bsk"
 copy_if_exists "userdata_original/layouts/blank.json"
 copy_if_exists "userdata_original/userdata_version.txt"
+
+# Drum kit one-shots (kick/snare/hat/tom), synthesized deterministically.
+python3 "$ROOT/scripts/gen_drum_kit.py" "$DEST/kits/basic" > /dev/null
 
 # UI text atlas (SDF, baked from resource/frabk.ttf + iosevka fallback).
 "$ROOT/scripts/bake_sdf_font.sh" "$DEST/fonts/ui_font.bsdf"

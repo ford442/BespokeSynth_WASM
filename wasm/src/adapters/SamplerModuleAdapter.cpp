@@ -3,6 +3,7 @@
  */
 
 #include "BespokeWasm/adapters/SamplerModuleAdapter.h"
+#include "BespokeWasm/BundledKit.h"
 #include "BespokeWasm/SampleStore.h"
 #include "BespokeWasm/TuningTable.h"
 #include "BespokeWasm/modules/WasmModules.h"
@@ -105,7 +106,16 @@ namespace bespoke
 
          auto extra = extras.find("sampleHash");
          if (extra != extras.end() && !extra->second.empty())
-            params->sample = SampleStore::instance().findByHash(extra->second);
+            params->sample = findSampleOrBundled(extra->second);
+         params->sampleId = params->sample ? params->sample->id() : -1;
+      }
+
+      void SamplerModuleAdapter::rebindParams(int moduleId, void* paramsPtr) const
+      {
+         (void)moduleId;
+         auto* params = static_cast<SamplerParams*>(paramsPtr);
+         // The UI module copied the buffer to this heap under the same id before the snapshot.
+         params->sample = params->sampleId >= 0 ? SampleStore::instance().findById(params->sampleId) : nullptr;
       }
 
       int SamplerModuleAdapter::outputChannelCount(const void* paramsPtr, const WasmAudioProcessContext& context) const

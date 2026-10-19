@@ -167,6 +167,20 @@ namespace bespoke
             list.erase(it);
       }
 
+      const SpawnMenuChip& spawnMenuChip(int index)
+      {
+         static const SpawnMenuChip chips[kSpawnMenuChipCount] = {
+            { "All", -1 },
+            { "Synth", static_cast<int>(ModuleCategory::Synth) },
+            { "Note", static_cast<int>(ModuleCategory::NoteEffect) },
+            { "FX", static_cast<int>(ModuleCategory::AudioEffect) },
+            { "Mod", static_cast<int>(ModuleCategory::Modulator) },
+            { "Pulse", static_cast<int>(ModuleCategory::Pulse) },
+            { "Other", static_cast<int>(ModuleCategory::Other) },
+         };
+         return chips[std::max(0, std::min(kSpawnMenuChipCount - 1, index))];
+      }
+
       std::vector<ModuleTypeInfo> spawnMenuTypes(int category, const std::string& query)
       {
          std::vector<ModuleTypeInfo> result;

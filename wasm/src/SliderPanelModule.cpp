@@ -108,7 +108,10 @@ namespace bespoke
          const SliderSpec& spec = mSpecs[static_cast<size_t>(row)];
          const float trackW = std::max(1.0f, mWidth - 2.0f * kSidePad);
          const float t = std::max(0.0f, std::min(1.0f, (worldX - mX - kSidePad) / trackW));
-         mValues[static_cast<size_t>(row)] = snap(row, spec.minValue + t * (spec.maxValue - spec.minValue));
+         const float value = spec.logarithmic && spec.minValue > 0.0f
+                             ? spec.minValue * std::pow(spec.maxValue / spec.minValue, t)
+                             : spec.minValue + t * (spec.maxValue - spec.minValue);
+         mValues[static_cast<size_t>(row)] = snap(row, value);
       }
 
       void SliderPanelModule::formatValue(int row, char* buf, size_t len) const
@@ -177,7 +180,9 @@ namespace bespoke
             const float barY = screenY + (slidersTop() + static_cast<float>(row) * kRowStep) * scale;
             const float barH = kRowHeight * scale;
             const float range = spec.maxValue - spec.minValue;
-            const float t = range > 0.0f ? (mValues[row] - spec.minValue) / range : 0.0f;
+            float t = range > 0.0f ? (mValues[row] - spec.minValue) / range : 0.0f;
+            if (spec.logarithmic && spec.minValue > 0.0f && range > 0.0f)
+               t = std::log(std::max(mValues[row], spec.minValue) / spec.minValue) / std::log(spec.maxValue / spec.minValue);
             renderer.drawSlider(barX, barY, barW, barH, std::max(0.0f, std::min(1.0f, t)), track, fill);
 
             char valueText[32];

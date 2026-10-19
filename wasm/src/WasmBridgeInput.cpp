@@ -9,6 +9,7 @@
 #include "BespokeWasm/WasmBridgeInternal.h"
 #include "BespokeWasm/WasmInputRouter.h"
 #include "BespokeWasm/AudioGraphEngine.h"
+#include "BespokeWasm/AudioRemote.h"
 #include "BespokeWasm/WasmRuntimeState.h"
 
 #include <algorithm>
@@ -60,8 +61,8 @@ EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_on(int channel, int pitch, float vel
       if (listenChannel >= 0 && channel != listenChannel)
          return;
    }
-   state.audioGraphEngine->queueNote({ pitch, std::max(0.0f, std::min(1.0f, velocity)), true,
-                                       emscripten_get_now() / 1000.0, channel });
+   queuePerformanceNote({ pitch, std::max(0.0f, std::min(1.0f, velocity)), true, emscripten_get_now() / 1000.0,
+                          channel });
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_off(int channel, int pitch)
@@ -75,7 +76,7 @@ EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_off(int channel, int pitch)
       if (listenChannel >= 0 && channel != listenChannel)
          return;
    }
-   state.audioGraphEngine->queueNote({ pitch, 0.0f, false, emscripten_get_now() / 1000.0, channel });
+   queuePerformanceNote({ pitch, 0.0f, false, emscripten_get_now() / 1000.0, channel });
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_midi_cc(int channel, int cc, float value)

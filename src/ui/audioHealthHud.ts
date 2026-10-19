@@ -1,9 +1,8 @@
-import type { BespokeSynthModule } from '../../wasm/types/bespoke-synth';
-import { readAudioHealth, backendName } from '../audio/audioHealth';
+import { backendName, type AudioHealth } from '../audio/audioHealth';
 import type { WorkletRingStats } from '../audio/workletRingBackend';
 
 export function setupAudioHealthHud(
-  getModule: () => BespokeSynthModule | null,
+  getHealth: () => AudioHealth | null,
   getRingStats: () => WorkletRingStats | null = () => null,
 ): { stop: () => void } {
   let hud = document.getElementById('audioHealthHud');
@@ -15,7 +14,7 @@ export function setupAudioHealthHud(
   }
 
   const timer = window.setInterval(() => {
-    const health = readAudioHealth(getModule());
+    const health = getHealth();
     if (!health || !hud) return;
     const ring = getRingStats();
     const heapMb = health.heapBytes ? ` heap:${(health.heapBytes / (1024 * 1024)).toFixed(0)}MB` : '';
@@ -25,7 +24,9 @@ export function setupAudioHealthHud(
       `q:${health.queueDepthFrames}/${health.capacityFrames} ` +
       (ring ? `la:${ring.lookaheadFrames} ` : '') +
       `maxP:${health.maxProcessTimeMs.toFixed(2)}ms` +
-      heapMb;
+      heapMb +
+      (health.audioHeapBytes ? ` dsp:${(health.audioHeapBytes / (1024 * 1024)).toFixed(0)}MB` : '') +
+      (health.engineError ? ` err:${health.engineError}` : '');
   }, 250);
 
   return {

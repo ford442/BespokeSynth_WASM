@@ -140,9 +140,9 @@ export function setupScriptPanel(
         onStatus: (status) => {
           if (id === targetId) showStatus(status);
         },
-        onNote: (pitch, velocity, on) => {
-          if (on) live?.midiOut.noteOn(0, pitch, velocity);
-          else live?.midiOut.noteOff(0, pitch);
+        onNote: (pitch, velocity, on, route) => {
+          // Cabled script notes are reported by the graph; only keyboard-style ones are echoed here.
+          if (route === 2) live?.echoPerformanceNote(on, 0, pitch, velocity);
         },
       });
       hosts.set(id, host);

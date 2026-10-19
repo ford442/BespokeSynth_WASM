@@ -1,4 +1,9 @@
-export type AudioBackendId = 'sdl' | 'worklet';
+/**
+ * - `worklet`: the graph runs in a second WASM instance inside the AudioWorklet (Option A, default).
+ * - `ring`: the main-thread graph fills a SharedArrayBuffer ring the worklet plays (Option B).
+ * - `sdl`: Emscripten's SDL2 audio on the main thread (no cross-origin isolation needed).
+ */
+export type AudioBackendId = 'sdl' | 'worklet' | 'ring';
 
 /** Where the requested backend came from. */
 export type AudioBackendSource = 'url' | 'stored' | 'auto';
@@ -18,7 +23,7 @@ const STORAGE_KEY = 'bespokesynth.audio';
 export function getStoredAudioPreference(): AudioBackendId | null {
   try {
     const value = window.localStorage.getItem(STORAGE_KEY);
-    return value === 'sdl' || value === 'worklet' ? value : null;
+    return value === 'sdl' || value === 'worklet' || value === 'ring' ? value : null;
   } catch {
     return null;
   }
@@ -40,7 +45,7 @@ export function sharedArrayBufferAvailable(): boolean {
   return typeof SharedArrayBuffer !== 'undefined';
 }
 
-/** Whether the SAB-ring AudioWorklet backend can run in this page. */
+/** Whether the AudioWorklet backends (engine and SAB ring both use SharedArrayBuffer) can run. */
 export function workletSupport(): { ok: boolean; reason?: string } {
   if (typeof AudioWorkletNode === 'undefined') {
     return { ok: false, reason: 'AudioWorkletNode unavailable' };
@@ -59,15 +64,16 @@ export function workletSupport(): { ok: boolean; reason?: string } {
 
 function parseAudioParam(search: string): AudioBackendId | null {
   const explicit = new URLSearchParams(search).get('audio')?.toLowerCase();
-  if (explicit === 'worklet' || explicit === 'sab') return 'worklet';
+  if (explicit === 'worklet' || explicit === 'wasm') return 'worklet';
+  if (explicit === 'ring' || explicit === 'sab') return 'ring';
   if (explicit === 'sdl' || explicit === 'sdl2') return 'sdl';
   return null;
 }
 
 /**
  * Precedence: `?audio=` > stored preference > auto. Auto picks the worklet
- * whenever the page is cross-origin isolated, else SDL2. A worklet request
- * that cannot run resolves to SDL2 with `fallbackReason` set.
+ * engine whenever the page is cross-origin isolated, else SDL2. A worklet or
+ * ring request that cannot run resolves to SDL2 with `fallbackReason` set.
  */
 export function resolveAudioBackendChoice(search: string = window.location.search): AudioBackendChoice {
   const fromUrl = parseAudioParam(search);
@@ -78,7 +84,7 @@ export function resolveAudioBackendChoice(search: string = window.location.searc
   if (requested === 'sdl') return { backend: 'sdl', requested, source };
 
   const support = workletSupport();
-  if (support.ok) return { backend: 'worklet', requested, source };
+  if (support.ok) return { backend: requested, requested, source };
   return { backend: 'sdl', requested, source, fallbackReason: support.reason };
 }
 

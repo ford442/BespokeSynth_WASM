@@ -65,6 +65,19 @@ function setIsolation(on: boolean): void {
   assert.deepEqual([c.backend, c.source], ['sdl', 'stored'], 'URL override is persisted');
   c = resolveAudioBackendChoice('?audio=worklet');
   assert.deepEqual([c.backend, c.source], ['worklet', 'url'], 'URL beats stored preference');
+
+  c = resolveAudioBackendChoice('?audio=ring');
+  assert.deepEqual([c.backend, c.requested], ['ring', 'ring'], 'the main-thread SAB ring stays selectable');
+  c = resolveAudioBackendChoice('?audio=sab');
+  assert.equal(c.backend, 'ring', '?audio=sab keeps meaning the SAB ring');
+  persistUrlAudioPreference('?audio=ring');
+  c = resolveAudioBackendChoice('');
+  assert.deepEqual([c.backend, c.source], ['ring', 'stored'], 'ring preference is persisted');
+
+  setIsolation(false);
+  c = resolveAudioBackendChoice('?audio=ring');
+  assert.equal(c.backend, 'sdl', 'the ring needs isolation too');
+  assert.ok(c.fallbackReason);
 }
 
 console.log('audioMode/lookahead tests passed');

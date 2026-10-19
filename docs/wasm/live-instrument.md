@@ -26,7 +26,14 @@ The piano uses the same path as hardware MIDI (`bespoke_midi_note_on`), so Scale
 
 ## MIDI out and clock
 
-Pick an output in the MIDI popover. Local performance notes (QWERTY and script `noteOn`) are echoed to it. With `?midiClock=1`, `MidiClock` also sends Start/Stop on transport changes and 24 PPQ `0xF8` clock ticks. Ticks are scheduled up to 100 ms ahead with Web MIDI timestamps. Every sent message goes to a 64-entry log (`__bespoke.getMidiOutLog()`). Sequencer notes from inside the graph are not sent to MIDI out yet.
+Pick an output in the MIDI popover. Two paths feed it, and they never overlap:
+
+- **Performance notes** (QWERTY and keyboard-style script `noteOn`) are echoed as played by `LiveInstrument.echoPerformanceNote`.
+- **Graph notes** (`stepsequencer`, `drumseq`, `script` with a cable, `arpeggiator`, `chorder`, ...) are the notes the audio engine plays. While an output is selected, `GraphNotePump` polls `bespoke_drain_graph_notes` every 8 ms and sends them with a Web MIDI timestamp that adds the audio still queued ahead of the speakers (worklet ring depth, or the device latency with the worklet engine), so the hardware sounds with the browser. With no output selected the engine records nothing. Stopping the transport sends note-offs for anything still sounding.
+
+Dedup rules: the engine never reports performance notes, so a raw key and its graph note cannot both go out, with one exception handled in `PerformanceEcho` (`src/app/performanceEcho.ts`): when a `chorder`/`arpeggiator`/... has no Note cable it listens to the performance, and `bespoke_performance_notes_processed()` is 1. The raw key is then held back and the processor's output (reported by the engine) is what the port hears. A note-on already sent raw is always paired with its note-off, even if a processor is added while the key is down. `bespoke_script_note` returns 2 for the keyboard-style path (the host echoes) and 1 for notes queued on the script's own cables (the engine reports them).
+
+With `?midiClock=1`, `MidiClock` also sends Start/Stop on transport changes and 24 PPQ `0xF8` clock ticks. Ticks are scheduled up to 100 ms ahead with Web MIDI timestamps. Every sent message goes to a 64-entry log (`__bespoke.getMidiOutLog()`).
 
 ## Undo / redo
 
@@ -77,7 +84,7 @@ JavaScript livecoding in a sandboxed worker. It is off unless the URL has `?scri
 | `schedule(beatsFromNow, fn)` | one-shot, transport-relative (max 256 pending) |
 | `setControl(id, name, value)` | applied on the UI thread; not recorded for undo |
 | `getControl(id, name)` | returns a Promise |
-| `noteOn(pitch, velocity?, durationMs?)`, `noteOff(pitch)` | also echoed to MIDI out |
+| `noteOn(pitch, velocity?, durationMs?)`, `noteOff(pitch)` | also echoed to MIDI out (unless a Note processor owns the performance) |
 | `findModule(type)`, `modules()`, `transport`, `scriptModuleId` | read-only views |
 | `setTimeout(fn, ms)`, `clearTimeout(h)` | 5 ms – 60 s, max 64 pending |
 | `log(...args)` | 500 chars per line |

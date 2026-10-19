@@ -128,7 +128,8 @@ This project maintains **two separate implementations**:
 3. Output files:
    - `wasm/dist/index.html` - Entry page
    - `wasm/dist/BespokeSynthWASM.js` - JavaScript glue code
-   - `wasm/dist/BespokeSynthWASM.wasm` - WebAssembly binary (~3-5 MB)
+   - `wasm/dist/BespokeSynthWASM.wasm` - WebAssembly binary (~1.4 MB)
+   - `wasm/dist/BespokeSynthWASM_audio.js` / `.wasm` - DSP-only engine loaded into the AudioWorklet (~0.5 MB)
 
 ### Codespaces & Quick Builds
 
@@ -278,6 +279,8 @@ Module._bespoke_mouse_down(x, y, button);
 - **`WebGPURendererPipelines.cpp`** - Pipelines, bind group, SDF atlas texture, analyzer compute pass
 - **`WebGPUContext.cpp`** - WebGPU device initialization
 - **`SDL2AudioBackend.cpp`** - Audio callback and buffer management
+- **`AudioWorkletEngine.cpp`** - C API of the AudioWorklet engine module (`bespoke_audio_*`, exports in `wasm/exports_audio.txt`)
+- **`AudioGraphSnapshotCodec.cpp`** - Snapshot wire format between the two modules
 - **`Knob.cpp`** - Rotary control rendering and interaction
 
 ### WASM Headers (`wasm/include/`)
@@ -345,8 +348,9 @@ Edit `wasm/shaders/*.wgsl` directly. `scripts/embed_shaders.cmake` embeds them i
 
 ### 3. Audio Threading Model
 
-- The WASM synth core runs on the **main thread**; rendering and module graph updates are driven by the TypeScript `requestAnimationFrame` loop in `src/app/renderLoop.ts`.
-- **AudioWorklet** (`src/audio/workletRingBackend.ts`, default when `crossOriginIsolated`) plays a SharedArrayBuffer ring from a worklet thread. The WASM graph still runs on the main thread, which fills the ring up to an adaptive lookahead (`src/audio/lookahead.ts`).
+- The UI module (`BespokeSynthWASM`) runs on the **main thread**; rendering and module graph edits are driven by the TypeScript `requestAnimationFrame` loop in `src/app/renderLoop.ts`.
+- **Worklet engine** (`src/audio/workletEngineBackend.ts`, default when `crossOriginIsolated`, `?audio=worklet`): a second, DSP-only module (`BespokeSynthWASM_audio`, `wasm/src/AudioWorkletEngine.cpp`) runs `AudioGraphEngine` inside the AudioWorklet. The UI module posts encoded snapshots on every publish (`AudioGraphSnapshotCodec`) and decoded samples; notes go through a SharedArrayBuffer ring. Params that hold pointers must be rebound in `WasmModuleAdapter::rebindParams` (see `docs/wasm-audio.md`, Option A). Offline bounce still renders with the UI module's engine.
+- **Worklet ring** (`src/audio/workletRingBackend.ts`, `?audio=ring`, or fallback if the engine fails): the UI module's graph runs on the main thread and fills a SAB ring up to an adaptive lookahead (`src/audio/lookahead.ts`).
 - **SDL2 audio** (fallback without COOP/COEP, or `?audio=sdl`) uses Emscripten's synchronous audio callback on the main thread.
 - Avoid blocking operations in audio processing paths.
 
@@ -362,7 +366,7 @@ Check `src/index.ts` for error handling around module initialization.
 ### 4b. Heap and host strings
 
 - The heap starts at 64 MB and may grow to the `-sMAXIMUM_MEMORY` cap (2 GiB, `wasm/CMakeLists.txt`). Growth replaces `Module.HEAP*`/`wasmMemory.buffer`, so read views after any call that can allocate rather than caching them.
-- Pass strings to C with `module.stringToNewUTF8(str)` and `module._free(ptr)` (`withCStrings` in `src/app/wasmStrings.ts`). `allocateUTF8` is deprecated and no longer exported. The typed surface lives in `wasm/types/bespoke-synth.d.ts`; heap views come from `@types/emscripten`.
+- Pass strings to C with `module.stringToNewUTF8(str)` and `module._free(ptr)` (`withCStrings` in `src/app/wasmStrings.ts`). `allocateUTF8` is deprecated and no longer exported. The typed surface lives in `wasm/types/bespoke-synth.d.ts`; heap views come from `@types/emscripten`. At runtime only `HEAP8`, `HEAPF32` and `HEAPU8` are exported (`EXPORTED_RUNTIME_METHODS`); `HEAP32` is typed but `undefined`, so view `HEAPU8.buffer` as an `Int32Array` after the call (as `src/app/graphMidiOut.ts` does).
 
 ### 5. File System Sandboxing
 
@@ -385,6 +389,7 @@ See [docs/wasm/live-instrument.md](docs/wasm/live-instrument.md). In short:
 - **Engine state is pre-sized on the UI thread** after every snapshot publish (`AudioGraphEngine::prepareRuntimeStates` via `ModuleCanvas::setSnapshotListener`). Don't add allocations to `processBlock`.
 - **Scala tunings** use `libs/tuning-library` (git submodule). Only `wasm/src/TuningTable.cpp` is built with `-fwasm-exceptions`, and audio reads `GraphMusicScale::noteFrequency`.
 - **Input** uses Pointer Events (`bespoke_pointer_*`) for mouse, touch, and pen. Pinch and long-press are recognized in `src/app/inputBridge.ts`.
+- **Note processors and MIDI out**: `chorder`, `arpeggiator`, `notefilter` and `noterouter` are `WasmAudioRole::NoteProcessor` adapters (`processNotes`, planned upstream-first). The engine queues the notes it plays for the selected Web MIDI port (`setMidiOutCapture`); `GraphNotePump` in `src/app/graphMidiOut.ts` drains them, and `PerformanceEcho` keeps QWERTY/MIDI-in notes from going out twice. Loading a patch resets the live engine in place (`resetAudioGraphEngineForPatch`) - never swap in a fresh `AudioGraphEngine`, which would not be prepared. Unknown saved types load as `PlaceholderModule`s (see `docs/wasm/audio.md`).
 - **Script module** (`?script=1`) runs user JS in a sandboxed worker (`src/script/`). There is no `eval`/`Function` on the main thread.
 
 ### 7. VST Plugin Hosting Unavailable
@@ -493,6 +498,7 @@ wasm/build.sh
      ├─ BespokeSynthWASM.html → index.html
      ├─ BespokeSynthWASM.js
      ├─ BespokeSynthWASM.wasm
+     ├─ BespokeSynthWASM_audio.js / .wasm (AudioWorklet engine)
      └─ resource/ (if exists)
 ```
 
@@ -507,5 +513,6 @@ dist/
    ├─ index.html          (from wasm/dist/, fallback shell)
    ├─ BespokeSynthWASM.js   (Emscripten runtime)
    ├─ BespokeSynthWASM.wasm (binary)
+   ├─ BespokeSynthWASM_audio.js / .wasm (AudioWorklet engine)
    └─ resource/           (assets if present)
 ```

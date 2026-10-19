@@ -55,13 +55,14 @@ namespace bespoke
          }
 
          /**
-          * Order pulse sources so pulse processors (e.g. clockdivider) run after the sources feeding
-          * them. Nodes caught in a pulse cycle keep their original relative order; the edge that
-          * closes the cycle is ignored by the engine (it only reads earlier scratch slots).
+          * Order event emitters so processors (clockdivider for pulses; chorder, arp, filter,
+          * router for notes) run after the emitters feeding them. Nodes caught in a cycle keep
+          * their original relative order; the edge that closes the cycle is ignored by the engine
+          * (it only reads earlier scratch slots).
           */
-         std::vector<int> orderPulseSources(const AudioGraphSnapshot& snapshot,
+         std::vector<int> orderEventSources(const AudioGraphSnapshot& snapshot,
                                             const std::vector<int>& nodeIndices,
-                                            const std::unordered_map<int, std::vector<std::pair<int, int>>>& pulseInputsByDest)
+                                            const std::unordered_map<int, std::vector<std::pair<int, int>>>& inputsByDest)
          {
             std::unordered_map<int, int> positionByModuleId;
             for (int i = 0; i < static_cast<int>(nodeIndices.size()); ++i)
@@ -72,8 +73,8 @@ namespace bespoke
             for (int i = 0; i < static_cast<int>(nodeIndices.size()); ++i)
             {
                const int moduleId = snapshot.nodes[static_cast<size_t>(nodeIndices[static_cast<size_t>(i)])].id;
-               auto inputs = pulseInputsByDest.find(moduleId);
-               if (inputs == pulseInputsByDest.end())
+               auto inputs = inputsByDest.find(moduleId);
+               if (inputs == inputsByDest.end())
                   continue;
                for (const auto& [sourceId, sourcePort] : inputs->second)
                {
@@ -139,6 +140,7 @@ namespace bespoke
          std::unordered_map<int, std::vector<std::pair<int, int>>> noteInputsByDest;
          std::unordered_map<int, std::vector<std::pair<int, int>>> pulseInputsByDest;
          std::unordered_map<int, std::vector<int>> audioChildrenBySource;
+         std::unordered_map<int, std::vector<int>> noteDestsBySource;
          std::unordered_map<int, int> indegree;
          std::unordered_set<int> audioModuleIds;
 
@@ -157,13 +159,9 @@ namespace bespoke
 
             if (adapter->audioRole() == WasmAudioRole::ModulationSource)
                plan.modulationSourceNodeIndices.push_back(static_cast<int>(nodeIndex));
-            if (adapter->audioRole() == WasmAudioRole::NoteSource)
-            {
+            if (adapter->audioRole() == WasmAudioRole::NoteSource ||
+                adapter->audioRole() == WasmAudioRole::NoteProcessor)
                plan.noteSourceNodeIndices.push_back(static_cast<int>(nodeIndex));
-               EventSourcePlan sourcePlan;
-               sourcePlan.nodeIndex = static_cast<int>(nodeIndex);
-               plan.noteSourcePlans.push_back(sourcePlan);
-            }
             if (adapter->audioRole() == WasmAudioRole::PulseSource)
                plan.pulseSourceNodeIndices.push_back(static_cast<int>(nodeIndex));
          }
@@ -185,6 +183,7 @@ namespace bespoke
             else if (conn.sourcePortType == PortType::Note && conn.destPortType == PortType::Note)
             {
                noteInputsByDest[conn.destModuleId].push_back({ conn.sourceModuleId, conn.sourcePortIndex });
+               noteDestsBySource[conn.sourceModuleId].push_back(conn.destModuleId);
             }
             else if (conn.sourcePortType == PortType::Pulse && conn.destPortType == PortType::Pulse)
             {
@@ -269,7 +268,7 @@ namespace bespoke
 
          plan.modulationSlotCount = nextModSlot;
 
-         plan.pulseSourceNodeIndices = orderPulseSources(snapshot, plan.pulseSourceNodeIndices, pulseInputsByDest);
+         plan.pulseSourceNodeIndices = orderEventSources(snapshot, plan.pulseSourceNodeIndices, pulseInputsByDest);
 
          std::unordered_map<int, int> pulseScratchByModuleId;
          for (int scratch = 0; scratch < static_cast<int>(plan.pulseSourceNodeIndices.size()); ++scratch)
@@ -309,10 +308,67 @@ namespace bespoke
             }
          }
 
-         for (auto& sourcePlan : plan.noteSourcePlans)
+         // Note emitters, upstream-first: a processor reads only earlier scratch slots.
+         plan.noteSourceNodeIndices = orderEventSources(snapshot, plan.noteSourceNodeIndices, noteInputsByDest);
+         std::unordered_map<int, int> noteScratchByModuleId;
+         std::unordered_set<int> noteProcessorIds;
+         for (int slot = 0; slot < static_cast<int>(plan.noteSourceNodeIndices.size()); ++slot)
          {
-            const int destId = snapshot.nodes[static_cast<size_t>(sourcePlan.nodeIndex)].id;
-            fillPulseScratchSlots(sourcePlan.pulseSourceScratchSlots, sourcePlan.hasPulseCable, destId);
+            const auto& node = snapshot.nodes[static_cast<size_t>(plan.noteSourceNodeIndices[static_cast<size_t>(slot)])];
+            noteScratchByModuleId[node.id] = slot;
+            const WasmModuleAdapter* adapter = registry.adapterAt(node.typeIndex);
+            if (adapter && adapter->audioRole() == WasmAudioRole::NoteProcessor)
+               noteProcessorIds.insert(node.id);
+         }
+
+         plan.noteSourcePlans.resize(plan.noteSourceNodeIndices.size());
+         for (int slot = 0; slot < static_cast<int>(plan.noteSourceNodeIndices.size()); ++slot)
+         {
+            EventSourcePlan& sourcePlan = plan.noteSourcePlans[static_cast<size_t>(slot)];
+            sourcePlan.nodeIndex = plan.noteSourceNodeIndices[static_cast<size_t>(slot)];
+            const auto& node = snapshot.nodes[static_cast<size_t>(sourcePlan.nodeIndex)];
+            sourcePlan.isProcessor = noteProcessorIds.count(node.id) != 0;
+
+            if (sourcePlan.isProcessor)
+            {
+               const auto noteInputs = noteInputsByDest.find(node.id);
+               if (noteInputs == noteInputsByDest.end())
+               {
+                  plan.performanceNotesProcessed = true;
+               }
+               else
+               {
+                  sourcePlan.hasNoteCable = true;
+                  for (const auto& [sourceId, sourcePort] : noteInputs->second)
+                  {
+                     auto scratch = noteScratchByModuleId.find(sourceId);
+                     // Cycle edges (a later or equal slot) are dropped, like pulse cycles.
+                     if (scratch == noteScratchByModuleId.end() || scratch->second >= slot ||
+                         sourcePlan.noteSourceScratchSlots.full())
+                        continue;
+                     const auto& sourceNode = snapshot.nodes[static_cast<size_t>(
+                     plan.noteSourceNodeIndices[static_cast<size_t>(scratch->second)])];
+                     sourcePlan.noteSourceScratchSlots.push_back(scratch->second);
+                     sourcePlan.noteSourcePortFilters.push_back(
+                     noteOutputOrdinal(registry.adapterAt(sourceNode.typeIndex), sourcePort));
+                  }
+               }
+            }
+            else
+            {
+               fillPulseScratchSlots(sourcePlan.pulseSourceScratchSlots, sourcePlan.hasPulseCable, node.id);
+            }
+
+            // An emitter whose Note cables all end in processors is not played itself.
+            const auto dests = noteDestsBySource.find(node.id);
+            if (dests != noteDestsBySource.end() && !dests->second.empty())
+            {
+               sourcePlan.reportsToMidiOut = std::any_of(dests->second.begin(), dests->second.end(),
+                                                         [&noteProcessorIds](int destId)
+                                                         {
+                                                            return noteProcessorIds.count(destId) == 0;
+                                                         });
+            }
          }
 
          plan.steps.reserve(topoModuleIds.size());

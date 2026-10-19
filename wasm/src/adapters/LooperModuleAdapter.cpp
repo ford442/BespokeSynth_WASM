@@ -74,6 +74,12 @@ namespace bespoke
          params->command = static_cast<int>(std::lround(wasmControlValue(controls, "command", 0.0f)));
       }
 
+      void LooperModuleAdapter::rebindParams(int moduleId, void* paramsPtr) const
+      {
+         // The recording lives with whichever instance runs the audio: this heap's own arena.
+         static_cast<LooperParams*>(paramsPtr)->arena = LooperArenaPool::instance().ensure(moduleId);
+      }
+
       int LooperModuleAdapter::outputChannelCount(const void* paramsPtr, const WasmAudioProcessContext& context) const
       {
          const auto* params = static_cast<const LooperParams*>(paramsPtr);

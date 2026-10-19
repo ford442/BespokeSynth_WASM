@@ -109,6 +109,9 @@ namespace bespoke
          int redoDepth() const;
          void clearUndoHistory();
 
+         /** Placeholders on the canvas (patch modules of a type this build lacks). */
+         int placeholderCount() const;
+
          /** Script modules are hidden from the spawn menu unless ?script=1 enabled them. */
          void setScriptingEnabled(bool enabled);
          bool isScriptingEnabled() const;
@@ -200,7 +203,14 @@ namespace bespoke
          };
 
          int createModuleWithIdLocked(const std::string& type, float x, float y, int id);
+         int installModuleLocked(std::unique_ptr<Module> module, float x, float y, int id);
+         /** Patch load / undo restore: a type the registry lacks becomes a PlaceholderModule. */
+         int createModuleOrPlaceholderLocked(const std::string& type, float x, float y, int id);
+         bool isPlaceholderLocked(int moduleId) const;
+         void refreshPlaceholderBadgesLocked();
          bool connectLocked(int sourceId, int sourcePort, int destId, int destPort);
+         /** connectLocked, or keep the cable dangling when an end is a placeholder. */
+         void restoreCableLocked(const UndoConnection& cable);
          void deleteModuleLocked(int moduleId);
          UndoModuleState captureModuleLocked(const Module& module) const;
          void restoreModuleLocked(const UndoModuleState& state);
@@ -222,6 +232,8 @@ namespace bespoke
 
          std::unordered_map<int, std::unique_ptr<Module>> mModules;
          std::vector<Connection> mConnections;
+         /** Cables that touch a placeholder: not wired into the graph, but saved back unchanged. */
+         std::vector<StateConnection> mDanglingConnections;
          int mNextModuleId = 1;
          mutable std::recursive_mutex mMutex;
 

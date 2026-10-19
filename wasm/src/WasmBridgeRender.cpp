@@ -7,6 +7,7 @@
 
 #include "BespokeWasm/WasmBridge.h"
 #include "BespokeWasm/WasmBridgeInternal.h"
+#include "BespokeWasm/AudioRemote.h"
 #include "BespokeWasm/Renderer2D.h"
 #include "BespokeWasm/Theme.h"
 #include "BespokeWasm/PixelFont.h"
@@ -170,7 +171,8 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
    const bool useLegacy = state.legacyPanelsEnabled && state.viewMode != 0;
    if (!useLegacy && state.canvas)
    {
-      if (state.audioBackend)
+      // A worklet backend owns the device then; bespoke_play makes the same check.
+      if (state.audioBackend && !state.externalAudioActive)
       {
          const bool playing = state.canvas->isTransportPlaying();
          if (playing && !state.audioBackend->isRunning())
@@ -178,10 +180,8 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
          else if (!playing && state.audioBackend->isRunning())
             state.audioBackend->stop();
       }
-      // Engine-side peaks work for every backend (SDL and worklet) and are measured pre-limit.
-      if (state.audioGraphEngine)
-         state.canvas->setOutputMeter(state.audioGraphEngine->takeOutputPeak(0),
-                                      state.audioGraphEngine->takeOutputPeak(1));
+      // Engine-side peaks work for every backend (SDL, ring, worklet engine) and are measured pre-limit.
+      state.canvas->setOutputMeter(takePlayingOutputPeak(0), takePlayingOutputPeak(1));
       state.canvas->render(*state.renderer, state.width, state.height);
    }
    else if (useLegacy)

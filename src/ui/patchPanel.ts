@@ -1,5 +1,5 @@
 import type { BespokeSynthModule } from '../../wasm/types/bespoke-synth';
-import { getPatchStateJson, loadPatchStateJson } from '../patchState';
+import { getPatchStateJson, loadPatchStateJson, placeholderNotice } from '../patchState';
 import {
   PatchStorage,
   PATCH_DEFAULT_AUTOSAVE_NAME,
@@ -97,7 +97,7 @@ export function setupPatchPanel(
     if (loadPatchStateJson(getModule(), patch.json)) {
       callbacks.setSelectedPatchId(patch.id);
       callbacks.setLastAutoSaveJson(patch.json);
-      callbacks.showPatchStatus(`Loaded "${patch.name}"`);
+      callbacks.showPatchStatus(`Loaded "${patch.name}"${placeholderNotice(getModule())}`);
     } else {
       callbacks.showPatchStatus('Failed to load patch');
     }

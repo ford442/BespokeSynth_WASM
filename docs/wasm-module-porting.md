@@ -86,7 +86,7 @@ Report absolute bytes, delta bytes, and the retained module list in the PR. The 
 
 - `ModuleCanvas` remains the source of truth for WASM interaction and serialization.
 - Desktop module names may be reused only when the adapter documents supported controls and port semantics.
-- Unknown desktop module types must load as explicit placeholders, not silently map to a different DSP behavior.
+- Unknown desktop module types load as explicit placeholders, not as a different DSP behavior (implemented in wave 3: [wasm/audio.md](wasm/audio.md#unknown-module-types)). Never alias an unknown name onto `oscillator` or any other adapter.
 - A new module must include a graph/audio test and a saved-state compatibility fixture before it is marked ported.
 
 ## Implementation status (2026-08)
@@ -113,7 +113,7 @@ The adapter boundary is implemented in code:
 4. Add graph and/or adapter unit tests in `wasm/tests/` (pick the matching `test_*.cpp`, declare in `test_common.h`, call from `test_main.cpp`).
 5. Saved patches stay control-name JSON; bump `kPatchSchemaVersion` only when the on-disk map changes, and extend `migratePatchState()`.
 
-For a flat list of ranged controls, build the UI from a `SliderSpec` table (`SliderPanelModule`) and derive `controlDescriptors()` / `fillParams` from the same table (`controlDescriptorsFromSpecs`, `sliderSpecValue`). Multi-port audio, multi-output notes and pulse processors are covered in [wasm/audio.md](wasm/audio.md#per-port-routing).
+For a flat list of ranged controls, build the UI from a `SliderSpec` table (`SliderPanelModule`) and derive `controlDescriptors()` / `fillParams` from the same table (`controlDescriptorsFromSpecs`, `sliderSpecValue`). Multi-port audio, multi-output notes and pulse processors are covered in [wasm/audio.md](wasm/audio.md#per-port-routing); note processors (`WasmAudioRole::NoteProcessor`, `processNotes`) in [wasm/audio.md](wasm/audio.md#note-processors).
 
 ### Catalog wave 2 size record (2026-09)
 
@@ -138,6 +138,23 @@ Leave-one-out line items (raw / gzip). LTO makes these non-additive:
 | `clockdivider` | +997 | +400 |
 
 Retained modules: oscillator, noise, sampler, filter, gain, delay, adsr, lfo, reverb (freeverb), looper, stepsequencer, pulsetonote, transport, scale, output, **mixer, compressor, chorus, waveshaper, clockdivider, drumseq**. That is well inside the +250 KB compressed per ten DSP adapters budget.
+
+### Catalog wave 3 size record (2026-10)
+
+Measured Release (`-O3`, SIMD, **LTO off**) `BespokeSynthWASM.wasm` and `.data`, gzip -9 as the compressed-equivalent. The baseline is an LTO-off build of the tree just before the wave (the wave-2 table above is an LTO build, so the two tables do not chain):
+
+| Artifact | Before: raw | Before: gzip | After: raw | After: gzip | Delta raw | Delta gzip |
+| --- | --- | --- | --- | --- | --- | --- |
+| `BespokeSynthWASM.wasm` | 1,344,460 | 478,006 | 1,385,212 | 493,296 | **+40,752** | **+15,290** |
+| `BespokeSynthWASM.data` | 93,428 | 36,775 | 199,102 | 132,068 | **+105,674** | **+95,293** |
+
+- The `.wasm` delta covers six DSP/note adapters (`input`, `eq`, `chorder`, `arpeggiator`, `notefilter`, `noterouter`), the placeholder module, the note-processor plan and engine loop, the MIDI-out ring and bridge calls, the bundled-kit loader, and the spawn-menu chips. It is far inside the +250 KB compressed per ten DSP adapters budget.
+- The `.data` delta is the drum kit, billed separately from the DSP budget: four mono 16-bit 44.1 kHz WAVs under `wasm/resource-pack/kits/basic/` (kick 33,560, snare 21,212, hat 9,746, tom 37,088 bytes; 101,606 total, about 94 KB gzipped) plus the ~4 KB `wasm-drumkit.bsk` patch. `scripts/gen_drum_kit.py` regenerates the WAVs byte-for-byte.
+- The kit is addressed by content hash (`BundledKit.cpp`), so patches reference `extras.sampleHash` like any user sample and the sampler needs no special case. It is decoded lazily at the device rate in use when a sampler first asks for it.
+
+Retained modules: oscillator, noise, sampler, filter, gain, delay, adsr, lfo, reverb (freeverb), looper, stepsequencer, pulsetonote, transport, scale, output, mixer, compressor, chorus, waveshaper, clockdivider, drumseq, script, **input, eq, chorder, arpeggiator, notefilter, noterouter**.
+
+Deferred from the wave-3 table: a graph `midioutput` module. Graph notes reach the selected Web MIDI port through the host pump instead ([wasm/live-instrument.md](wasm/live-instrument.md#midi-out-and-clock)), which covers the acceptance cases without a second place to configure the port.
 
 ## Issue Comment Summary
 

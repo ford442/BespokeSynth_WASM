@@ -54,6 +54,7 @@ cmake --build . --parallel
 # The output files will be in wasm/build/:
 # - BespokeSynthWASM.js
 # - BespokeSynthWASM.wasm
+# - BespokeSynthWASM_audio.js / BespokeSynthWASM_audio.wasm (AudioWorklet engine)
 ```
 
 ## Step 3: Copy Output Files
@@ -62,11 +63,13 @@ After a successful build, copy the files from `wasm/build/` or `wasm/dist/`:
 
 ```bash
 # From the wasm directory
-ls -lh build/BespokeSynthWASM.*
+ls -lh build/BespokeSynthWASM*
 # You should see:
 # BespokeSynthWASM.js
 # BespokeSynthWASM.wasm
 # BespokeSynthWASM.data   # preload bundle (~4 KB) — required at runtime
+# BespokeSynthWASM_audio.js
+# BespokeSynthWASM_audio.wasm   # AudioWorklet engine; without it the app falls back to the main-thread ring
 ```
 
 ## Step 4: Deploy to Your Server
@@ -77,6 +80,8 @@ Upload the new files to replace the existing ones:
 - `https://test.1ink.us/modular/wasm/BespokeSynthWASM.js`
 - `https://test.1ink.us/modular/wasm/BespokeSynthWASM.wasm`
 - `https://test.1ink.us/modular/wasm/BespokeSynthWASM.data`
+- `https://test.1ink.us/modular/wasm/BespokeSynthWASM_audio.js`
+- `https://test.1ink.us/modular/wasm/BespokeSynthWASM_audio.wasm`
 
 **Deploy method options:**
 
@@ -85,6 +90,7 @@ Upload the new files to replace the existing ones:
 scp wasm/build/BespokeSynthWASM.js user@test.1ink.us:/path/to/modular/wasm/
 scp wasm/build/BespokeSynthWASM.wasm user@test.1ink.us:/path/to/modular/wasm/
 scp wasm/build/BespokeSynthWASM.data user@test.1ink.us:/path/to/modular/wasm/
+scp wasm/build/BespokeSynthWASM_audio.js wasm/build/BespokeSynthWASM_audio.wasm user@test.1ink.us:/path/to/modular/wasm/
 ```
 
 ### Option B: Using FTP/SFTP
@@ -92,10 +98,12 @@ Use your FTP client (FileZilla, WinSCP, etc.) to upload:
 - `wasm/build/BespokeSynthWASM.js` → `/modular/wasm/BespokeSynthWASM.js`
 - `wasm/build/BespokeSynthWASM.wasm` → `/modular/wasm/BespokeSynthWASM.wasm`
 - `wasm/build/BespokeSynthWASM.data` → `/modular/wasm/BespokeSynthWASM.data`
+- `wasm/build/BespokeSynthWASM_audio.js` → `/modular/wasm/BespokeSynthWASM_audio.js`
+- `wasm/build/BespokeSynthWASM_audio.wasm` → `/modular/wasm/BespokeSynthWASM_audio.wasm`
 
 ### Option C: Using rsync
 ```bash
-rsync -avz wasm/build/BespokeSynthWASM.* user@test.1ink.us:/path/to/modular/wasm/
+rsync -avz wasm/build/BespokeSynthWASM*.{js,wasm,data} user@test.1ink.us:/path/to/modular/wasm/
 ```
 
 ### Option D: Web-based File Manager
@@ -227,6 +235,7 @@ WebGPU is required and supported in:
 Typical file sizes after build:
 - `BespokeSynthWASM.js`: ~100KB - 500KB
 - `BespokeSynthWASM.wasm`: ~1MB - 2MB (depends on what's included)
+- `BespokeSynthWASM_audio.wasm`: ~0.5 MB; `BespokeSynthWASM_audio.js`: ~70 KB
 - `BespokeSynthWASM.data`: ~4 KB (slim `wasm/resource-pack/` preload: scales, starter patch, blank layout)
 
 The full desktop `resource/` tree is still ~32 MB on disk and is **not** packed into `.data`. See [docs/wasm/resources.md](wasm/resources.md).

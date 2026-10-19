@@ -43,6 +43,17 @@ int main()
    test_stereo_dsp_kernels();
    test_stereo_graph();
    test_stereo_patch_migration();
+   test_note_processor_registration();
+   test_note_processors_dsp();
+   test_note_processor_graph();
+   test_input_module();
+   test_eq_module();
+   test_bundled_drum_kit();
+   test_wave3_saved_state_fixture();
+   test_unknown_type_placeholders();
+   test_audio_graph_snapshot_codec();
+   // Last: it re-initializes the shared health counters and SampleStore device rate.
+   test_audio_worklet_engine_abi();
 
    printf("\n============================\n");
    printf("Results: %d passed, %d failed\n", gTestsPassed, gTestsFailed);

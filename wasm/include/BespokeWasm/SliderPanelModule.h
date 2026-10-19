@@ -44,6 +44,8 @@ namespace bespoke
          float defaultValue = 0.0f;
          SliderFormat format = SliderFormat::Percent;
          std::vector<const char*> choices;
+         /** Equal drag distance per octave / decade (frequencies). Requires minValue > 0. */
+         bool logarithmic = false;
       };
 
       /** Control descriptors (serialized names + defaults) straight from the slider table. */

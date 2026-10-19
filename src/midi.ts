@@ -233,6 +233,10 @@ export class MidiOutputRouter {
     return this.output?.id ?? null;
   }
 
+  hasOutput(): boolean {
+    return this.output !== null;
+  }
+
   send(bytes: number[], timestamp?: number): void {
     this.log.push({ time: timestamp ?? performance.now(), bytes: [...bytes] });
     if (this.log.length > MIDI_OUT_LOG_SIZE) this.log.shift();

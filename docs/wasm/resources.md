@@ -10,6 +10,8 @@ Emscripten packs `wasm/resource-pack/` into `BespokeSynthWASM.data` at `/resourc
 |------|---------|
 | `userdata_original/scales.json` | Scale data |
 | `userdata_original/savestate/wasm-starter.bsk` | Starter patch (`?patch=starter`, `bespoke_load_layout`) |
+| `userdata_original/savestate/wasm-drumkit.bsk` | Drum-kit demo (`?patch=drumkit`): drumseq → four kit samplers → mixer → compressor |
+| `kits/basic/{kick,snare,hat,tom}.wav` | Bundled one-shot drum kit, synthesized by `scripts/gen_drum_kit.py`; decoded on first use ([samples.md](samples.md#bundled-drum-kit)) |
 | `userdata_original/layouts/blank.json` | Blank layout stub |
 | `userdata_original/userdata_version.txt` | Version marker |
 | `fonts/ui_font.bsdf` | SDF UI font atlas + glyph metrics (`SdfFont`), baked by `scripts/bake_sdf_font.sh` |
@@ -21,7 +23,7 @@ Webpack copies the same pack to `dist/resource/` for HTTP access.
 Under repo-root `resource/` (not in the WASM pack):
 
 - Desktop example `.bsk` savestates (~21 MB)
-- Drum kits (~10 MB) — not bundled; the `sampler` module exists, so load your own WAV/FLAC/MP3 by drag-and-drop (see [samples.md](samples.md))
+- Desktop drum kits (~10 MB) — not bundled. A small synthesized four-piece kit (`kits/basic/`, ~100 KB) is; for anything else load your own WAV/FLAC/MP3 by drag-and-drop (see [samples.md](samples.md#bundled-drum-kit))
 - Controllers, python scripts, tooltips, TTF fonts
 
 TTFs never ship. `scripts/bake_sdf_font.sh` compiles a host tool

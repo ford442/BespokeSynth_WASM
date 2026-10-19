@@ -82,6 +82,11 @@ namespace bespoke::wasm
       /** When true, play/stop only toggles transport; JS owns the audio device (worklet). */
       bool externalAudioActive = false;
       float externalSampleRate = 44100.0f;
+      /** The AudioWorklet engine (a second WASM instance) plays the graph; ours stays idle. */
+      bool remoteAudioActive = false;
+      /** Worklet engine telemetry the host mirrors in once per frame (bespoke_set_remote_audio_status). */
+      double remoteBeat = 0.0;
+      float remoteOutputPeak[2]{ 0.0f, 0.0f };
       int oscillatorModuleId = -1;
       int gainModuleId = -1;
       int viewMode = 0;
@@ -101,4 +106,15 @@ namespace bespoke::wasm
    };
 
    WasmRuntimeState& runtimeState();
+
+   /** Rate the audio graph is processing at (the worklet's when JS owns the device). */
+   int currentDeviceSampleRate();
+   /** Tell SampleStore the current rate so loads that don't know it (bundled kit) match. */
+   void syncSampleStoreRate();
+   /**
+    * After a patch swap: restart the engine's clock and module runtime state (note-offs for notes still
+    * sounding on the MIDI output are queued first) and size state for the new graph. The engine keeps its
+    * prepared block size and its MIDI-out capture setting, so the patch is audible straight away.
+    */
+   void resetAudioGraphEngineForPatch();
 }

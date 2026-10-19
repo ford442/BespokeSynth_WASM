@@ -3,6 +3,7 @@
  */
 
 #include "BespokeWasm/modules/WasmModules.h"
+#include "BespokeWasm/BundledKit.h"
 #include "BespokeWasm/ModuleCanvasHelpers.h"
 #include "BespokeWasm/SampleBuffer.h"
 #include "BespokeWasm/SampleStore.h"
@@ -22,7 +23,7 @@ namespace bespoke
 
       void SamplerModule::refreshSample()
       {
-         mSample = mSampleHash.empty() ? nullptr : SampleStore::instance().findByHash(mSampleHash);
+         mSample = mSampleHash.empty() ? nullptr : findSampleOrBundled(mSampleHash);
          if (mSample)
             mSampleName = mSample->name();
       }

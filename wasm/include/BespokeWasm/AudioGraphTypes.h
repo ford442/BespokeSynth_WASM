@@ -90,6 +90,16 @@ namespace bespoke
          int nodeIndex = -1;
          SmallVec<int, 4> pulseSourceScratchSlots;
          bool hasPulseCable = false;
+         // Note processors: upstream emitters, always earlier slots of the same plan.
+         SmallVec<int, 4> noteSourceScratchSlots;
+         SmallVec<int, 4> noteSourcePortFilters; // parallel; -1 = any, else WasmNoteEvent::outputPort
+         bool hasNoteCable = false;
+         bool isProcessor = false;
+         /**
+          * Notes go to the selected MIDI output. False for an emitter whose every Note cable
+          * ends in a processor: the processor's output is what the patch plays.
+          */
+         bool reportsToMidiOut = true;
       };
 
       struct AudioProcessPlan
@@ -102,8 +112,11 @@ namespace bespoke
          int modulationSlotCount = 0;
          std::vector<PlanStep> steps;
          std::vector<int> modulationSourceNodeIndices;
+         // Note emitters (sources and processors), upstream-first so a processor runs after its feeders.
          std::vector<int> noteSourceNodeIndices;
-         std::vector<EventSourcePlan> noteSourcePlans;
+         std::vector<EventSourcePlan> noteSourcePlans; // parallel to noteSourceNodeIndices
+         /** A note processor with no Note cable listens to the performance (QWERTY / MIDI in). */
+         bool performanceNotesProcessed = false;
          std::vector<int> pulseSourceNodeIndices; // upstream-first (pulse processors after their sources)
          std::vector<EventSourcePlan> pulseSourcePlans; // parallel to pulseSourceNodeIndices
          std::vector<int> nodeIndexByModuleId;

@@ -48,21 +48,26 @@ export function setupRendererPanel(options: RendererPanelOptions): void {
   // The tone POC (?audioWorkletPoc=1) is a diagnostic and deliberately not listed here.
   audioSelect.innerHTML = `
     <option value="worklet">Audio: Worklet</option>
+    <option value="ring">Audio: Worklet ring (main-thread DSP)</option>
     <option value="sdl">Audio: SDL2</option>
   `;
   const choice = options.audioBackendChoice;
   audioSelect.value = choice.backend;
   if (choice.fallbackReason) {
-    const workletOption = audioSelect.querySelector<HTMLOptionElement>('option[value="worklet"]');
-    if (workletOption) {
-      workletOption.disabled = true;
-      workletOption.textContent = 'Audio: Worklet (unavailable)';
+    for (const value of ['worklet', 'ring']) {
+      const option = audioSelect.querySelector<HTMLOptionElement>(`option[value="${value}"]`);
+      if (option) {
+        option.disabled = true;
+        option.textContent += ' (unavailable)';
+      }
     }
     const sdlOption = audioSelect.querySelector<HTMLOptionElement>('option[value="sdl"]');
     if (sdlOption) sdlOption.textContent = 'Audio: SDL2 (fallback)';
     audioSelect.title = `AudioWorklet unavailable: ${choice.fallbackReason}. Using SDL2.`;
   } else {
-    audioSelect.title = 'Audio backend (reloads page). Worklet is the default when the page is cross-origin isolated.';
+    audioSelect.title =
+      'Audio backend (reloads page). Worklet (the graph runs in the AudioWorklet) is the default when the page ' +
+      'is cross-origin isolated; the ring keeps the graph on the main thread.';
   }
   audioSelect.addEventListener('change', () => {
     switchAudioPreference(audioSelect.value as AudioBackendId);
