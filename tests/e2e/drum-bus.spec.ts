@@ -7,17 +7,11 @@ test.describe('Drum bus render test (?renderTest=2)', () => {
     await waitForBespokeReady(page);
 
     const scene = await page.evaluate(() => {
-      const api = (window as Window & {
-        __bespoke?: {
-          getRenderTestScene?: () => number;
-          getModuleCount?: () => number;
-          getStateJson?: () => string | null;
-        };
-      }).__bespoke;
-      const stateJson = api?.getStateJson?.() ?? '';
+      const api = window.__bespoke;
+      const stateJson = api?.getStateJson() ?? '';
       return {
-        scene: api?.getRenderTestScene?.() ?? 0,
-        count: api?.getModuleCount?.() ?? 0,
+        scene: api?.getRenderTestScene() ?? 0,
+        count: api?.getModuleCount() ?? 0,
         types: ['drumseq', 'mixer', 'compressor', 'adsr', 'noise'].filter((t) => stateJson.includes(`"${t}"`)),
       };
     });
@@ -29,10 +23,8 @@ test.describe('Drum bus render test (?renderTest=2)', () => {
 
     // Offline render forces the transport on: Pulse → DrumSeq must make sound by itself.
     const level = await page.evaluate(() => {
-      const api = (window as Window & {
-        __bespoke?: { renderOfflineWav?: (opts?: { seconds?: number; bitsPerSample?: 16 }) => Uint8Array | null };
-      }).__bespoke;
-      const wav = api?.renderOfflineWav?.({ seconds: 2, bitsPerSample: 16 });
+      const api = window.__bespoke;
+      const wav = api?.renderOfflineWav({ seconds: 2, bitsPerSample: 16 });
       if (!wav) return null;
       const view = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
       let offset = 12;

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "noEmit": true,
+    "rootDir": ".",
+    "allowJs": true,
+    "checkJs": false,
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src/**/*.ts", "wasm/types/**/*", "tests/**/*.ts", "playwright.config.ts"]
+}

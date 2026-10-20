@@ -111,7 +111,7 @@ export class GraphNotePump {
   tick(): number {
     if (this.source) return this.tickSource(this.source);
     const module = this.getModule();
-    if (!module?._bespoke_drain_graph_notes || !module._bespoke_set_graph_note_capture) return 0;
+    if (!module) return 0;
     if (module !== this.module) {
       // A fresh module instance knows nothing of our buffer or capture request.
       this.module = module;
@@ -127,6 +127,7 @@ export class GraphNotePump {
     if (!wanted) return 0;
 
     if (!this.bufferPtr) this.bufferPtr = module._malloc(GRAPH_NOTE_BATCH * 4);
+    if (!this.bufferPtr) return 0; // heap exhausted; try again next tick
     const timestamp = this.now() + Math.max(0, this.latency());
     let sent = 0;
     for (let round = 0; round < MAX_ROUNDS; round += 1) {
@@ -164,7 +165,7 @@ export class GraphNotePump {
 
   private release(): void {
     if (this.source && this.capturing) this.source.setCapture(false);
-    if (this.module && this.capturing) this.module._bespoke_set_graph_note_capture?.(0);
+    if (this.module && this.capturing) this.module._bespoke_set_graph_note_capture(0);
     if (this.module && this.bufferPtr) this.module._free(this.bufferPtr);
     this.capturing = false;
     this.bufferPtr = 0;

@@ -128,6 +128,31 @@ void test_wave3_saved_state_fixture();
 void test_unknown_type_placeholders();
 void test_audio_graph_snapshot_codec();
 void test_audio_worklet_engine_abi();
+void test_timed_notes();
+void test_runtime_safety();
+void test_golden_renders();
+void test_golden_demos();
+void test_engine_foundation();
+void test_widget_painter();
+void test_fft();
+void test_fft_benchmark();
+void test_catalog_wave4_registration();
+void test_catalog_wave4_note_fx();
+void test_catalog_wave4_fx();
+void test_catalog_wave4_send_and_modulators();
+void test_catalog_wave4_voices();
+void test_catalog_wave4_eq_curve();
+void test_catalog_wave4_vocoder();
+void test_catalog_wave4_note_sequencer();
+void test_catalog_wave4_arp_fm_chain();
+void test_catalog_wave4_saved_state_fixture();
+void test_module_help_table();
+void test_module_help_wrap_text();
+void test_module_help_canvas();
+void test_desktop_import_header();
+void test_desktop_import_layout();
+void test_desktop_import_cables_and_collisions();
+void test_desktop_import_bundled_example();
 
 // --- Shared helpers ---
 
@@ -224,6 +249,7 @@ inline std::vector<float> render_graph(AudioGraphSnapshot graph, AudioGraphEngin
    AudioGraphEngine localEngine;
    AudioGraphEngine& activeEngine = engine ? *engine : localEngine;
    activeEngine.prepareForBlock(bufferSize, 128, 32);
+   activeEngine.prepareRuntimeStates(graph);
    std::vector<float> left(bufferSize, 0.0f);
    std::vector<float> right(bufferSize, 0.0f);
    float* outputs[2] = { left.data(), right.data() };
@@ -259,6 +285,7 @@ inline std::vector<float> render_blocks(AudioGraphSnapshot& graph, int blocks, i
    compileAudioProcessPlan(graph, graph.processPlan);
    AudioGraphEngine engine;
    engine.prepareForBlock(blockSize, 128, 32);
+   engine.prepareRuntimeStates(graph);
    std::vector<float> all;
    all.reserve(static_cast<size_t>(blocks * blockSize));
    std::vector<float> left(static_cast<size_t>(blockSize));

@@ -98,6 +98,73 @@ body {
     color: #888;
 }
 
+/* Demo gallery popover (src/ui/demoGallery.ts); reuses the MIDI popover frame */
+.demo-gallery-popover {
+    min-width: 300px;
+    max-width: min(92vw, 380px);
+    max-height: min(70vh, 560px);
+    overflow-y: auto;
+}
+
+.demo-gallery-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.demo-gallery-item {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 8px 0;
+}
+
+.demo-gallery-item + .demo-gallery-item {
+    border-top: 1px solid #34343e;
+}
+
+.demo-gallery-open {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    text-align: left;
+    padding: 4px 6px;
+    background: transparent;
+    color: inherit;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    font: inherit;
+}
+
+.demo-gallery-open:hover,
+.demo-gallery-open:focus-visible {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: #4a4a55;
+}
+
+.demo-gallery-title {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.demo-gallery-description {
+    font-size: 12px;
+    line-height: 1.4;
+    color: #b8b8c4;
+}
+
+.demo-gallery-modules {
+    font-size: 11px;
+    color: #8a8a98;
+}
+
+.demo-gallery-share {
+    flex: none;
+    margin-top: 4px;
+}
+
 /* MIDI status popover */
 .midi-control {
     position: relative;

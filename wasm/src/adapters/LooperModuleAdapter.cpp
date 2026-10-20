@@ -6,7 +6,7 @@
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
 #include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -27,25 +27,32 @@ namespace bespoke
             const double bar = 4.0;
             return std::ceil((beat + 1.0e-9) / bar) * bar;
          }
-      }
 
-      std::vector<WasmControlDescriptor> LooperModuleAdapter::controlDescriptors() const
-      {
-         return {
-            { "mix", 1.0f },
-            { "bars", 1.0f },
-            { "command", 0.0f },
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "mix", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 1.0f, .offset = offsetof(LooperParams, mix), .smoothingMs = kParamSmoothingMs, .flags = kParamClamp },
+            { .id = 1, .name = "bars", .minValue = 1.0f, .maxValue = 8.0f, .defaultValue = 1.0f, .kind = ParamKind::IntRound, .offset = offsetof(LooperParams, bars), .flags = kParamClamp },
+            // 0 none, 1 record, 2 overdub, 3 play, 4 stop
+            { .id = 2, .name = "command", .minValue = 0.0f, .maxValue = 4.0f, .defaultValue = 0.0f, .kind = ParamKind::IntRound, .offset = offsetof(LooperParams, command) },
          };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Audio, "In" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
       }
 
-      std::vector<PortDescriptor> LooperModuleAdapter::inputPorts() const
+      ParamTable LooperModuleAdapter::paramTable() const
       {
-         return { { PortType::Audio, "In" } };
+         return kParams;
       }
 
-      std::vector<PortDescriptor> LooperModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> LooperModuleAdapter::inputPorts() const
       {
-         return { { PortType::Audio, "Out" } };
+         return kInputs;
+      }
+
+      std::span<const PortDescriptor> LooperModuleAdapter::outputPorts() const
+      {
+         return kOutputs;
       }
 
       std::unique_ptr<Module> LooperModuleAdapter::createUiModule(int id) const
@@ -54,24 +61,13 @@ namespace bespoke
          return std::make_unique<LooperModule>(id);
       }
 
-      void LooperModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         fillParams(-1, controls, {}, dst);
-      }
-
-      void LooperModuleAdapter::fillParams(int moduleId,
-                                           const WasmControlMap& controls,
-                                           const WasmStringMap& extras,
-                                           void* dst) const
+      void LooperModuleAdapter::bindParams(int moduleId, const WasmStringMap& extras, void* paramsPtr) const
       {
          (void)extras;
-         auto* params = new (dst) LooperParams();
-         params->arena = LooperArenaPool::instance().find(moduleId);
-         if (!params->arena)
-            params->arena = LooperArenaPool::instance().ensure(moduleId);
-         params->mix = std::max(0.0f, std::min(1.0f, wasmControlValue(controls, "mix", 1.0f)));
-         params->bars = std::max(1, std::min(8, static_cast<int>(std::lround(wasmControlValue(controls, "bars", 1.0f)))));
-         params->command = static_cast<int>(std::lround(wasmControlValue(controls, "command", 0.0f)));
+         auto& params = paramsOf(paramsPtr);
+         params.arena = LooperArenaPool::instance().find(moduleId);
+         if (!params.arena)
+            params.arena = LooperArenaPool::instance().ensure(moduleId);
       }
 
       void LooperModuleAdapter::rebindParams(int moduleId, void* paramsPtr) const
@@ -80,21 +76,18 @@ namespace bespoke
          static_cast<LooperParams*>(paramsPtr)->arena = LooperArenaPool::instance().ensure(moduleId);
       }
 
+      void LooperModuleAdapter::collectResources(int moduleId, const void* paramsPtr, WasmResourceRefs& refs) const
+      {
+         const auto* params = static_cast<const LooperParams*>(paramsPtr);
+         if (params && params->arena)
+            refs.looperModuleIds.push_back(moduleId);
+      }
+
       int LooperModuleAdapter::outputChannelCount(const void* paramsPtr, const WasmAudioProcessContext& context) const
       {
          const auto* params = static_cast<const LooperParams*>(paramsPtr);
          const int loopChannels = params && params->arena && params->arena->hasLoop ? params->arena->channels : 1;
          return std::max(context.inputChannels, loopChannels);
-      }
-
-      void LooperModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) LooperAdapterRuntimeState();
-      }
-
-      void LooperModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<LooperAdapterRuntimeState*>(runtimeState)->~LooperAdapterRuntimeState();
       }
 
       void LooperModuleAdapter::processAudio(void* runtimeState,

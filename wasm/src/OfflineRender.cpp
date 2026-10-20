@@ -28,6 +28,7 @@ namespace bespoke
          }
 
          AudioGraphSnapshot graph = graphIn;
+         graph.generation = 0; // untracked: no live param changes reach an offline render
          graph.transportPlaying = true;
          if (graph.transportBPM <= 0.0f)
             graph.transportBPM = 120.0f;
@@ -45,6 +46,7 @@ namespace bespoke
                                  std::max(8, graph.processPlan.bufferSlotCount + 4),
                                  std::max(4, graph.processPlan.modulationSlotCount + 2));
          engine->resetClock();
+         engine->prepareRuntimeStates(graph);
 
          interleavedStereo.resize(static_cast<size_t>(frames) * 2u, 0.0f);
          std::vector<float> left(static_cast<size_t>(block));

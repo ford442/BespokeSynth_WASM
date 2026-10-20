@@ -1,14 +1,29 @@
 import assert from 'node:assert/strict';
 import {
+  CLOCK_BEAT,
+  CLOCK_BPM,
+  CLOCK_CLOSED,
+  CLOCK_FRAME_END,
+  CLOCK_SAMPLE_RATE,
+  CLOCK_SEQ,
   EVENT_NOTE,
   EVENT_RING_WORDS,
+  EVENT_SCRIPT_DIRECT_NOTE,
+  EVENT_SCRIPT_CLEAR,
   EVENT_WORDS,
   INPUT_RING_WORDS,
   MIDI_OUT_RING_WORDS,
   RING_READ,
   RING_WRITE,
+  SCRIPT_NOTE_ON,
+  SCRIPT_NOTE_TIMED,
+  SLOT_BEAT,
+  SLOT_BPM,
   SLOT_CALLBACK_COUNT,
+  SLOT_PLAYING,
   SLOT_SNAPSHOT_COUNT,
+  STATUS_DOUBLES,
+  STATUS_SLOT_COUNT,
   ST_INPUT_ACTIVE,
   ST_MIDI_CAPTURE,
   ST_PEAK_L,
@@ -17,9 +32,11 @@ import {
   ST_SEQ,
   createAnalysisRing,
   createSabRing,
+  createScriptChannel,
   createStatusBlock,
   floatBits,
   readAnalysisRing,
+  readScriptClock,
   ringDrainWords,
   ringPushRecord,
   takePeak,
@@ -33,9 +50,9 @@ import {
  * UTF8ToString). Growth swaps in a new ArrayBuffer, as -sGROWABLE_ARRAYBUFFERS=0 does.
  */
 class FakeEngine {
-  HEAP8!: Int8Array;
-  HEAPU8!: Uint8Array;
-  HEAPF32!: Float32Array;
+  HEAP8 = new Int8Array(0);
+  HEAPU8 = new Uint8Array(0);
+  HEAPF32 = new Float32Array(0);
   private top = 1024;
   private errorPtr = 0;
   blocks = 0;
@@ -43,10 +60,14 @@ class FakeEngine {
   inputActive = 0;
   midiCapture = 0;
   snapshots: Array<{ length: number; first: number; reset: number }> = [];
-  samples: Array<{ id: number; channels: number; frames: number; rate: number; pcm: number[] }> = [];
+  samples: Array<{ id: number; channels: number; frames: number; rate: number; pcm: number[]; generation: number }> =
+    [];
+  evicted: number[] = [];
   events: number[][] = [];
   input: number[] = [];
   pendingMidi: number[] = [];
+  blockFrames: number[] = [];
+  statusCount = 0;
 
   constructor() {
     this.grow(1 << 16);
@@ -54,7 +75,7 @@ class FakeEngine {
 
   private grow(bytes: number): void {
     const next = new ArrayBuffer(bytes);
-    if (this.HEAPU8) new Uint8Array(next).set(this.HEAPU8);
+    new Uint8Array(next).set(this.HEAPU8);
     this.HEAP8 = new Int8Array(next);
     this.HEAPU8 = new Uint8Array(next);
     this.HEAPF32 = new Float32Array(next);
@@ -100,10 +121,21 @@ class FakeEngine {
     return this.errorPtr;
   }
 
-  _bespoke_audio_adopt_sample(id: number, channels: number, frames: number, rate: number, ptr: number): number {
+  _bespoke_audio_adopt_sample(
+    id: number,
+    channels: number,
+    frames: number,
+    rate: number,
+    ptr: number,
+    generation: number,
+  ): number {
     const pcm = Array.from(new Float32Array(this.HEAPU8.buffer, ptr, channels * frames));
-    this.samples.push({ id, channels, frames, rate, pcm });
+    this.samples.push({ id, channels, frames, rate, pcm, generation });
     return 0;
+  }
+
+  _bespoke_audio_evict_sample(id: number): void {
+    this.evicted.push(id);
   }
 
   _bespoke_audio_apply_events(ptr: number, count: number): void {
@@ -124,8 +156,9 @@ class FakeEngine {
   }
 
   /** L = block number, R = -block number: a stale heap view shows up as an old block. */
-  _bespoke_audio_process(left: number, right: number, frames: number): void {
+  _bespoke_audio_process(left: number, right: number, frames: number, blockFrame: number): void {
     this.blocks += 1;
+    this.blockFrames.push(blockFrame);
     new Float32Array(this.HEAPU8.buffer, left, frames).fill(this.blocks);
     new Float32Array(this.HEAPU8.buffer, right, frames).fill(-this.blocks);
   }
@@ -139,10 +172,15 @@ class FakeEngine {
   _bespoke_audio_read_status(ptr: number, count: number): void {
     const status = new Float64Array(this.HEAPU8.buffer, ptr, count);
     status.fill(0);
+    this.statusCount = count;
+    status[SLOT_BEAT] = this.blocks / 4;
     status[1] = this.blocks;
     status[10] = 0.5; // peak L
     status[11] = 0.25; // peak R
     status[13] = this.snapshots.length;
+    status[SLOT_BPM] = 128;
+    status[SLOT_PLAYING] = 1;
+    status[count - 1] = 77; // the last histogram bucket
   }
 }
 
@@ -157,6 +195,7 @@ type ProcessorCtor = new (options: { processorOptions: Record<string, unknown> }
 const registered = new Map<string, ProcessorCtor>();
 const g = globalThis as Record<string, unknown>;
 g.sampleRate = 48000;
+g.currentFrame = 0;
 g.AudioWorkletProcessor = class {
   port: PortStub = {
     posted: [],
@@ -180,6 +219,12 @@ assert.ok(Engine, 'registers bespoke-audio-engine');
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const QUANTUM = 128;
 const quantum = (): Float32Array[][] => [[new Float32Array(QUANTUM).fill(9), new Float32Array(QUANTUM).fill(9)]];
+/** Runs one quantum the way the AudioWorklet does: currentFrame, then process(), then the clock moves on. */
+const render = (target: Processor, outputs: Float32Array[][] = quantum()) => {
+  const result = target.process([], outputs);
+  g.currentFrame = (g.currentFrame as number) + QUANTUM;
+  return result;
+};
 
 function makeShared() {
   return {
@@ -209,11 +254,11 @@ function makeProcessor(shared: ReturnType<typeof makeShared>, wireAbi = 77): Pro
 const shared = makeShared();
 const proc = makeProcessor(shared);
 proc.port.onmessage?.({
-  data: { type: 'sample', id: 3, channels: 1, frames: 4, rate: 44100, pcm: new Float32Array([1, 2, 3, 4]) },
+  data: { type: 'sample', id: 3, generation: 9, channels: 1, frames: 4, rate: 44100, pcm: new Float32Array([1, 2, 3, 4]) },
 });
 proc.port.onmessage?.({ data: { type: 'snapshot', bytes: new Uint8Array([5, 6, 7]).buffer, reset: true } });
 let out = quantum()[0];
-assert.equal(proc.process([], [out]), true);
+assert.equal(render(proc, [out]), true);
 assert.ok(out[0].every((v) => v === 0) && out[1].every((v) => v === 0), 'silent until ready');
 await tick();
 assert.equal(Atomics.load(shared.status.ints, ST_READY), 1, 'ready flag');
@@ -221,10 +266,12 @@ assert.deepEqual(proc.port.posted.at(-1), { type: 'ready', abi: 77 });
 assert.equal(fake.initRate, 48000, 'engine initialized at the context rate');
 assert.deepEqual(
   fake.samples,
-  [{ id: 3, channels: 1, frames: 4, rate: 44100, pcm: [1, 2, 3, 4] }],
-  'queued sample replayed',
+  [{ id: 3, channels: 1, frames: 4, rate: 44100, pcm: [1, 2, 3, 4], generation: 9 }],
+  'queued sample replayed with its generation',
 );
 assert.deepEqual(fake.snapshots, [{ length: 3, first: 5, reset: 1 }], 'queued snapshot replayed after the sample');
+proc.port.onmessage?.({ data: { type: 'evictSample', id: 3 } });
+assert.deepEqual(fake.evicted, [3], 'an eviction from the UI module drops the engine copy');
 
 // One quantum: events and mic samples in, stereo out, scope samples and status published.
 assert.ok(ringPushRecord(shared.events, EVENT_NOTE, 60 | (1 << 12), floatBits(1), 0));
@@ -233,7 +280,7 @@ for (let i = 0; i < 5; i += 1) shared.input.floats[i] = i / 10;
 Atomics.store(inputHeader, RING_WRITE, 5);
 Atomics.store(shared.status.ints, ST_INPUT_ACTIVE, 1);
 out = quantum()[0];
-proc.process([], [out]);
+render(proc, [out]);
 assert.deepEqual(fake.events, [[EVENT_NOTE, 60 | (1 << 12), floatBits(1), 0]], 'note record reaches the engine');
 assert.equal(Atomics.load(shared.events.header, RING_READ), 4, 'event ring consumed');
 assert.deepEqual(
@@ -256,14 +303,18 @@ assert.equal(takePeak(shared.status, ST_PEAK_L), 0.5);
 assert.equal(takePeak(shared.status, ST_PEAK_R), 0.25);
 assert.equal(takePeak(shared.status, ST_PEAK_L), 0, 'peaks are taken');
 assert.equal(Atomics.load(shared.status.ints, ST_SEQ), 1);
+assert.deepEqual(fake.blockFrames, [QUANTUM], 'blocks render on the AudioContext frame clock (currentFrame)');
+assert.ok(STATUS_DOUBLES >= STATUS_SLOT_COUNT, 'the status block holds every engine slot');
+assert.equal(fake.statusCount, STATUS_SLOT_COUNT);
+assert.equal(shared.status.doubles[STATUS_SLOT_COUNT - 1], 77, 'the whole block-time histogram is published');
 
 // MIDI out only drains while the host asks for it.
 fake.pendingMidi = [11, 12, 13];
-proc.process([], [quantum()[0]]);
+render(proc, [quantum()[0]]);
 const midi = new Int32Array(64);
 assert.equal(ringDrainWords(shared.midiOut, midi), 0, 'no capture: notes stay in the engine');
 Atomics.store(shared.status.ints, ST_MIDI_CAPTURE, 1);
-proc.process([], [quantum()[0]]);
+render(proc, [quantum()[0]]);
 assert.equal(fake.midiCapture, 1);
 assert.deepEqual(Array.from(midi.subarray(0, ringDrainWords(shared.midiOut, midi))), [11, 12, 13]);
 
@@ -272,7 +323,7 @@ const big = new Uint8Array(200_000).fill(1);
 proc.port.onmessage?.({ data: { type: 'snapshot', bytes: big.buffer, reset: false } });
 assert.equal(fake.snapshots.at(-1)?.length, 200_000);
 out = quantum()[0];
-proc.process([], [out]);
+render(proc, [out]);
 assert.ok(
   out[0].every((v) => v === fake.blocks),
   'output follows heap growth',
@@ -283,15 +334,107 @@ assert.equal(count, QUANTUM * 3);
 // A rejected snapshot is reported with the engine's reason and keeps the engine running.
 proc.port.onmessage?.({ data: { type: 'snapshot', bytes: new Uint8Array([0xee]).buffer, reset: false } });
 assert.deepEqual(proc.port.posted.at(-1), { type: 'error', message: 'bad snapshot' });
-assert.equal(proc.process([], [quantum()[0]]), true);
+assert.equal(render(proc, [quantum()[0]]), true);
 
 // Mono destination: only the left channel exists.
 const mono = [new Float32Array(QUANTUM)];
-proc.process([], [mono]);
+render(proc, [mono]);
 assert.ok(
   mono[0].every((v) => v === fake.blocks),
   'mono output gets the left channel',
 );
+
+// Script channels: a worker's records go straight to the engine, stamped with the registered module.
+{
+  const channel = createScriptChannel();
+  const events = fake.events.length;
+  proc.port.onmessage?.({ data: { type: 'scriptChannel', moduleId: 42, ring: channel.ring.sab, clock: channel.clock.sab } });
+  assert.equal(readScriptClock(channel.clock), null, 'no clock before the first quantum');
+  const frame = (g.currentFrame as number) + 300;
+  // The worker's own record format; word 3 is ignored (it cannot pick the module).
+  assert.ok(ringPushRecord(channel.ring, 64 | SCRIPT_NOTE_ON | SCRIPT_NOTE_TIMED, floatBits(0.5), frame, 999));
+  assert.ok(ringPushRecord(channel.ring, 64, 0, 0, 0));
+  // ScriptClear on the main ring in the same quantum lands after the script's own notes.
+  assert.ok(ringPushRecord(shared.events, EVENT_SCRIPT_CLEAR, 42, 0, 0));
+  const start = g.currentFrame as number;
+  render(proc);
+  assert.deepEqual(
+    fake.events.slice(events),
+    [
+      [EVENT_SCRIPT_DIRECT_NOTE, 43 | (64 << 20) | (1 << 27) | (1 << 28), floatBits(0.5), frame],
+      [EVENT_SCRIPT_DIRECT_NOTE, 43 | (64 << 20), 0, 0],
+      [EVENT_SCRIPT_CLEAR, 42, 0, 0],
+    ],
+    'script records become ScriptDirectNote events ahead of the main ring',
+  );
+  assert.equal(Atomics.load(channel.ring.header, RING_READ), 8, 'script ring consumed');
+  const clock = readScriptClock(channel.clock);
+  assert.deepEqual(
+    clock,
+    { beat: fake.blocks / 4, bpm: 128, playing: true, frameEnd: start + QUANTUM, sampleRate: 48000 },
+    'the clock carries the transport at the next quantum\'s first frame',
+  );
+  assert.equal(Atomics.load(channel.clock.ints, CLOCK_SEQ) % 2, 0, 'seqlock is even after a write');
+  assert.equal(channel.clock.doubles[CLOCK_FRAME_END], start + QUANTUM);
+  assert.ok(channel.clock.doubles[CLOCK_BEAT] > 0 && channel.clock.doubles[CLOCK_BPM] === 128);
+  assert.equal(channel.clock.doubles[CLOCK_SAMPLE_RATE], 48000);
+
+  // A header no ring can have (written by user code) is reset, never followed.
+  Atomics.store(channel.ring.header, RING_WRITE, 5);
+  render(proc);
+  assert.equal(fake.events.length, events + 3, 'a corrupt header delivers nothing');
+  assert.equal(Atomics.load(channel.ring.header, RING_WRITE), 0);
+  assert.equal(Atomics.load(channel.ring.header, RING_READ), 0);
+  // A huge write index is out of range for the processor's own capacity, whatever the header claims.
+  Atomics.store(channel.ring.header, 2, 1 << 30);
+  Atomics.store(channel.ring.header, RING_WRITE, 1 << 20);
+  render(proc);
+  assert.equal(fake.events.length, events + 3);
+
+  // At most one quantum's share per script: a flood waits for later quanta.
+  Atomics.store(channel.ring.header, 2, 256 * EVENT_WORDS);
+  Atomics.store(channel.ring.header, RING_WRITE, 0);
+  Atomics.store(channel.ring.header, RING_READ, 0);
+  for (let i = 0; i < 100; i += 1) ringPushRecord(channel.ring, 60 | SCRIPT_NOTE_ON, floatBits(1), 0, 0);
+  const before = fake.events.length;
+  render(proc);
+  assert.equal(fake.events.length - before, 32, 'per-quantum cap per script');
+  render(proc);
+  render(proc);
+  render(proc);
+  assert.equal(fake.events.length - before, 100, 'the rest follow');
+
+  // Re-registering the same module replaces its channel; closing drops it.
+  const replacement = createScriptChannel();
+  proc.port.onmessage?.({
+    data: { type: 'scriptChannel', moduleId: 42, ring: replacement.ring.sab, clock: replacement.clock.sab },
+  });
+  ringPushRecord(channel.ring, 61 | SCRIPT_NOTE_ON, 0, 0, 0);
+  ringPushRecord(replacement.ring, 62 | SCRIPT_NOTE_ON, 0, 0, 0);
+  const atReplace = fake.events.length;
+  render(proc);
+  assert.deepEqual(fake.events.slice(atReplace), [[EVENT_SCRIPT_DIRECT_NOTE, 43 | (62 << 20) | (1 << 27), 0, 0]]);
+  Atomics.store(replacement.clock.ints, CLOCK_CLOSED, 1);
+  ringPushRecord(replacement.ring, 63 | SCRIPT_NOTE_ON, 0, 0, 0);
+  const seqAtClose = Atomics.load(replacement.clock.ints, CLOCK_SEQ);
+  render(proc);
+  assert.equal(fake.events.length, atReplace + 1, 'a closed channel is dropped unread');
+  assert.equal(Atomics.load(replacement.clock.ints, CLOCK_SEQ), seqAtClose, 'and its clock stops');
+
+  // Bad registrations are ignored.
+  for (const bad of [
+    { moduleId: -1, ring: replacement.ring.sab, clock: replacement.clock.sab },
+    { moduleId: 1.5, ring: replacement.ring.sab, clock: replacement.clock.sab },
+    { moduleId: 7, ring: new ArrayBuffer(64), clock: replacement.clock.sab },
+    { moduleId: 7, ring: replacement.ring.sab, clock: new SharedArrayBuffer(8) },
+    { moduleId: 7, ring: new SharedArrayBuffer(20), clock: replacement.clock.sab },
+  ]) {
+    proc.port.onmessage?.({ data: { type: 'scriptChannel', ...bad } });
+  }
+  ringPushRecord(replacement.ring, 63 | SCRIPT_NOTE_ON, 0, 0, 0);
+  render(proc);
+  assert.equal(fake.events.length, atReplace + 1, 'invalid channels never register');
+}
 
 // Wrong pairing: the UI and audio modules come from different builds.
 fake = new FakeEngine();

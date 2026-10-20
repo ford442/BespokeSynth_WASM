@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Quick Start
 
 ### Development Environment
-- **Node.js**: 18+ required (check via `node --version`)
+- **Node.js**: 22.6+ required (check via `node --version`; unit tests use `--experimental-strip-types`)
 - **npm**: 9+ (check via `npm --version`)
 - **Emscripten SDK**: Required for WASM builds (see [Building WASM](#building-wasm))
 
@@ -39,16 +39,16 @@ This project maintains **two separate implementations**:
    - Full BespokeSynth using JUCE framework
    - C++ audio processing
    - NanoVG vector graphics
-   - Not part of WASM build
+   - Mostly not part of the WASM build (see below)
 
 2. **WASM/Web Build** (`wasm/` directory)
    - Simplified port for browser
    - Emscripten toolchain
    - WebGPU rendering
    - SDL2 audio backend
-   - Currently **architecturally independent** from desktop build
+   - Own modules, UI, rendering and audio graph, but **not fully independent** of `Source/`: `wasm/CMakeLists.txt` compiles 18 desktop `Source/*.cpp` DSP/utility files into the UI module (`CORE_SOURCES`: `SynthGlobals`, `OpenFrameworksPort`, `ChannelBuffer`, `RollingBuffer`, `ADSR`, `BiquadFilter`, `Oscillator`, `LFO`, `Scale`, `Transport`, `MathUtils`, `Ramp`, `PerlinNoise`, `PeakTracker`, `JumpBlender`, `Curve`, `FileStream`, `ModulationChain`), and `BiquadFilter`/`Oscillator` into the AudioWorklet engine and the C++ unit tests. `Source/` is also on the include path.
 
-**Key Constraint**: Changes in `Source/` do not automatically apply to WASM. The WASM build is a distinct branch with its own modules, rendering, and audio systems.
+**Key Constraint**: Most of `Source/` (modules, UI, JUCE integration) does not apply to WASM; the WASM build has its own modules (`WasmModuleAdapter`s), rendering, and audio systems. The shared DSP files above do, so a change to one of them changes both builds and must stay WASM-safe (see [docs/wasm/module-porting.md](docs/wasm/module-porting.md)).
 
 ### Layered Architecture
 
@@ -282,6 +282,7 @@ Module._bespoke_mouse_down(x, y, button);
 - **`AudioWorkletEngine.cpp`** - C API of the AudioWorklet engine module (`bespoke_audio_*`, exports in `wasm/exports_audio.txt`)
 - **`AudioGraphSnapshotCodec.cpp`** - Snapshot wire format between the two modules
 - **`Knob.cpp`** - Rotary control rendering and interaction
+- **`WidgetPainter.cpp`** - Knobs, sliders, cables, meters and scopes, drawn once over `Renderer2D` primitives (`drawQuad(ShaderKind, ...)`, paths, text); the backends only map `ShaderKind`s to their pipelines. `tests/RecordingRenderer.h` records calls for unit tests
 
 ### WASM Headers (`wasm/include/`)
 - **`WasmBridge.h`** - C API declarations
@@ -294,7 +295,7 @@ Module._bespoke_mouse_down(x, y, button);
 - **`wasm/CMakeLists.txt`** - WASM build recipe
 - **`webpack.config.js`** - TypeScript/web bundling
 - **`tsconfig.json`** - TypeScript compiler options
-- **`.eslintrc.js`** - Linting rules
+- **`eslint.config.mjs`** - Linting rules (ESLint 9 flat config, type-aware)
 
 ### Shaders (`wasm/shaders/`)
 - **`render2d.wgsl`** - All WebGPU render shaders
@@ -317,7 +318,7 @@ The WASM build **defaults to WebGPU** when available:
 - Firefox Nightly with `dom.webgpu.enabled` = true
 - Safari 17+ (experimental)
 
-If WebGPU init fails, the app automatically falls back to **WebGL2** unless `?renderer=webgpu` was explicitly requested. Force WebGL2 with `?renderer=webgl` for Playwright screenshots and agent visual inspection.
+If WebGPU init fails, the app automatically falls back to **WebGL2** unless `?renderer=webgpu` was explicitly requested. That covers shader/pipeline errors, which error scopes catch (`WebGPUContext::pushErrorScopes`). A device lost after init (or a lost WebGL2 context) moves the renderer to WebGL2 on a fresh `#canvas` via `bespoke_reinit_renderer(1)`, keeping the patch. Both canvases are opaque, and screenshots are `canvas.toDataURL()` right after `bespoke_render()`; there is no C++ capture API. Force WebGL2 with `?renderer=webgl` for Playwright screenshots and agent visual inspection.
 
 ### 1b. Renderer selection & screenshots
 
@@ -350,9 +351,15 @@ Edit `wasm/shaders/*.wgsl` directly. `scripts/embed_shaders.cmake` embeds them i
 
 - The UI module (`BespokeSynthWASM`) runs on the **main thread**; rendering and module graph edits are driven by the TypeScript `requestAnimationFrame` loop in `src/app/renderLoop.ts`.
 - **Worklet engine** (`src/audio/workletEngineBackend.ts`, default when `crossOriginIsolated`, `?audio=worklet`): a second, DSP-only module (`BespokeSynthWASM_audio`, `wasm/src/AudioWorkletEngine.cpp`) runs `AudioGraphEngine` inside the AudioWorklet. The UI module posts encoded snapshots on every publish (`AudioGraphSnapshotCodec`) and decoded samples; notes go through a SharedArrayBuffer ring. Params that hold pointers must be rebound in `WasmModuleAdapter::rebindParams` (see `docs/wasm-audio.md`, Option A). Offline bounce still renders with the UI module's engine.
+- **Timed notes**: `NoteMessage::timestamp` (AudioContext seconds) makes the engine split the block so a note starts on its frame (`processBlock(..., hostTimeSeconds)`, `test_timed_notes`). QWERTY/MIDI in get start times from `NoteClock` (`src/audio/noteClock.ts`); Script workers write timed notes into their own SAB ring that the worklet drains (`ScriptEngineLink`). Untimed notes and clockless hosts behave as before.
+- **RT checks**: the engine block is an `AudioRtScope`; `new`/`delete` and `RtMutex` locks inside it abort in unit tests and are counted in Debug (`rtAllocations`/`rtLocks` in `getAudioHealth()`). Use `RtMutex` for any mutex the UI thread shares with audio state.
 - **Worklet ring** (`src/audio/workletRingBackend.ts`, `?audio=ring`, or fallback if the engine fails): the UI module's graph runs on the main thread and fills a SAB ring up to an adaptive lookahead (`src/audio/lookahead.ts`).
 - **SDL2 audio** (fallback without COOP/COEP, or `?audio=sdl`) uses Emscripten's synchronous audio callback on the main thread.
 - Avoid blocking operations in audio processing paths.
+- **Stop is a hard mute**: a stopped transport renders silence. Notes played while stopped fold into a per-key final state that plays once on Play (no burst). A full note ring drops the newest note (`noteDropCount`).
+- **Fan-in**: no cable limit; plan steps index flat input vectors sized at compile (see `docs/wasm-audio.md#fan-in`).
+- **Control fast path**: control changes travel as `ParamChange` records (SPSC queue / worklet events ring) applied at block start; only topology changes republish and recompile. Adapter params are `constexpr ParamDescriptor` tables (`WasmParams.h`, ids stable) - add a row there, not a hand-written name switch. See `docs/wasm/audio.md#params-and-the-control-fast-path`.
+- **Resource lifetime**: samples are addressed by `SampleHandle` (id + generation); `SampleStore` and `LooperArenaPool` evict unpinned buffers LRU against a 256 MB budget after the engine has moved past every snapshot that named them (`ResourceLifetime.h`, `docs/wasm/samples.md`). Report new resources from `WasmModuleAdapter::collectResources`.
 
 ### 4. WASM Module Instantiation
 
@@ -365,8 +372,8 @@ Check `src/index.ts` for error handling around module initialization.
 
 ### 4b. Heap and host strings
 
-- The heap starts at 64 MB and may grow to the `-sMAXIMUM_MEMORY` cap (2 GiB, `wasm/CMakeLists.txt`). Growth replaces `Module.HEAP*`/`wasmMemory.buffer`, so read views after any call that can allocate rather than caching them.
-- Pass strings to C with `module.stringToNewUTF8(str)` and `module._free(ptr)` (`withCStrings` in `src/app/wasmStrings.ts`). `allocateUTF8` is deprecated and no longer exported. The typed surface lives in `wasm/types/bespoke-synth.d.ts`; heap views come from `@types/emscripten`. At runtime only `HEAP8`, `HEAPF32` and `HEAPU8` are exported (`EXPORTED_RUNTIME_METHODS`); `HEAP32` is typed but `undefined`, so view `HEAPU8.buffer` as an `Int32Array` after the call (as `src/app/graphMidiOut.ts` does).
+- The heap starts at 32 MB and may grow to the `-sMAXIMUM_MEMORY` cap (2 GiB, `wasm/CMakeLists.txt`). Growth replaces `Module.HEAP*`/`wasmMemory.buffer`, so read views after any call that can allocate rather than caching them.
+- Pass strings to C with `module.stringToNewUTF8(str)` and `module._free(ptr)` (`withCStrings` in `src/app/wasmStrings.ts`). `allocateUTF8` is deprecated and no longer exported. The typed surface lives in `wasm/types/bespoke-synth.d.ts`; heap views come from `@types/emscripten`. At runtime only `HEAP8`, `HEAPF32` and `HEAPU8` are exported (`EXPORTED_RUNTIME_METHODS`); the d.ts declares only those, so view `HEAPU8.buffer` as an `Int32Array` after the call (as `src/app/graphMidiOut.ts` does). `_malloc` returns 0 once the heap cannot grow; use `wasmMalloc` (`src/app/wasmStrings.ts`), which throws.
 
 ### 5. File System Sandboxing
 
@@ -391,6 +398,9 @@ See [docs/wasm/live-instrument.md](docs/wasm/live-instrument.md). In short:
 - **Input** uses Pointer Events (`bespoke_pointer_*`) for mouse, touch, and pen. Pinch and long-press are recognized in `src/app/inputBridge.ts`.
 - **Note processors and MIDI out**: `chorder`, `arpeggiator`, `notefilter` and `noterouter` are `WasmAudioRole::NoteProcessor` adapters (`processNotes`, planned upstream-first). The engine queues the notes it plays for the selected Web MIDI port (`setMidiOutCapture`); `GraphNotePump` in `src/app/graphMidiOut.ts` drains them, and `PerformanceEcho` keeps QWERTY/MIDI-in notes from going out twice. Loading a patch resets the live engine in place (`resetAudioGraphEngineForPatch`) - never swap in a fresh `AudioGraphEngine`, which would not be prepared. Unknown saved types load as `PlaceholderModule`s (see `docs/wasm/audio.md`).
 - **Script module** (`?script=1`) runs user JS in a sandboxed worker (`src/script/`). There is no `eval`/`Function` on the main thread.
+- **Module help**: `scripts/bake_module_help.py` bakes `resource/tooltips_*.txt` plus `scripts/module_help_wasm.txt` into `resource-pack/help/module_help.json` (`ModuleHelp`). The spawn menu shows descriptions; hovering a control or title bar shows its tooltip (`Module::controlNameAt`, so give new modules an override when controls aren't sliders). Locale comes from `navigator.language`. Give a new module a description and a tooltip per control: CI's `--check` requires that for wave-4 modules and a coverage floor (`MIN_COVERAGE`) for the rest.
+- **Demo gallery** (`src/ui/demoGallery.ts`) lists `resource-pack/demos/`, written by `scripts/gen_demos.py`. Each demo is a golden render in `wasm/tests/golden/demos.json` (`test_golden_demos`).
+- **Desktop `.bsk` import** (`DesktopSavestate.cpp`, `bespoke_import_desktop_savestate`) maps desktop types and params through `kTypeMap`; everything else loads as a labelled placeholder that round-trips.
 
 ### 7. VST Plugin Hosting Unavailable
 
@@ -415,7 +425,11 @@ npm run lint            # Check all TypeScript files
 npm run lint -- --fix   # Auto-fix issues where possible
 ```
 
-Configured in `.eslintrc.js`. Rules enforce strict mode, no unused variables, consistent naming.
+Configured in `eslint.config.mjs` (ESLint 9 flat config + `typescript-eslint` 8, type-aware via `tsconfig.json` and `tsconfig.tests.json`). `no-unnecessary-condition` and `no-floating-promises` are errors: call `module._bespoke_*()` directly (everything in `wasm/exports.txt` is always exported, and `npm run test:exports` checks the d.ts against it).
+
+### WASM size budget
+
+`npm run test:size` (`scripts/check_wasm_size.py`) gzips the release `.wasm` files in `wasm/dist` against `wasm/size-budget.json`. It warns over budget and fails more than 10% over. Record a raised allowance in `docs/wasm/module-porting.md`.
 
 ### TypeScript
 
@@ -472,9 +486,9 @@ Output appears in browser console.
 ```
 npm run build
   ├─ build:wasm (cd wasm && ./build.sh)   # the only WASM compile
-  │  ├─ emcmake cmake ..
-  │  ├─ cmake --build . --parallel 55
-  │  └─ Copy outputs to wasm/dist/
+  │  ├─ emcmake cmake (build dir wasm/build/<flavor>)
+  │  ├─ cmake --build --parallel <min(nproc, 8), or $BESPOKE_WASM_JOBS>
+  │  └─ Replace wasm/dist/ with the new outputs
   └─ build:webpack (webpack --mode production)
      ├─ Load src/index.ts as entry
      ├─ Compile TypeScript via ts-loader (type errors fail the build)
@@ -488,18 +502,18 @@ npm run build
 ```
 wasm/build.sh
   ├─ Source emsdk_env.sh (activate Emscripten)
-  ├─ mkdir build && cd build
-  ├─ emcmake cmake .. \
-  │  ├─ -DCMAKE_BUILD_TYPE=Release
-  │  ├─ -DBESPOKE_WASM_WEBGPU=ON
-  │  └─ -DBESPOKE_WASM_SDL2_AUDIO=ON
-  ├─ cmake --build . --parallel 55
-  └─ Copy to wasm/dist/:
+  ├─ Check emcc >= .emscripten-version and the emdawnwebgpu port
+  ├─ emcmake cmake wasm -B wasm/build/<release|debug|profile> \
+  │  ├─ -DCMAKE_BUILD_TYPE=<Release|Debug|Profile>
+  │  ├─ -DBESPOKE_WASM_BUILD_FLAVOR=<Release|Debug|Profile>
+  │  └─ -DBESPOKE_WASM_LTO / _CLOSURE / _SIMD (env vars of the same name, all default ON)
+  ├─ cmake --build --parallel <min(nproc, 8), or $BESPOKE_WASM_JOBS>
+  └─ After a successful build, wipe and refill wasm/dist/:
      ├─ BespokeSynthWASM.html → index.html
      ├─ BespokeSynthWASM.js
      ├─ BespokeSynthWASM.wasm
-     ├─ BespokeSynthWASM_audio.js / .wasm (AudioWorklet engine)
-     └─ resource/ (if exists)
+     ├─ BespokeSynthWASM.data (preloaded resource pack, mounted at /resource)
+     └─ BespokeSynthWASM_audio.js / .wasm (AudioWorklet engine)
 ```
 
 ### Output Structure After Build
@@ -508,11 +522,12 @@ wasm/build.sh
 dist/
 ├─ index.html             (from src/index.html via webpack)
 ├─ bundle.[hash].js       (compiled TypeScript)
-├─ bundle.[hash].js.map   (source map)
+├─ bundle.[hash].js.map   (source map, --mode development only)
+├─ audio/                 (worklet processors from src/audio/processors)
 └─ wasm/
    ├─ index.html          (from wasm/dist/, fallback shell)
    ├─ BespokeSynthWASM.js   (Emscripten runtime)
    ├─ BespokeSynthWASM.wasm (binary)
-   ├─ BespokeSynthWASM_audio.js / .wasm (AudioWorklet engine)
-   └─ resource/           (assets if present)
+   ├─ BespokeSynthWASM.data (preloaded resource pack; the only copy that ships)
+   └─ BespokeSynthWASM_audio.js / .wasm (AudioWorklet engine)
 ```

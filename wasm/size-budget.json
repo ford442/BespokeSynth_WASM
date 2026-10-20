@@ -1,0 +1,9 @@
+{
+  "comment": "Release .wasm size budget, gzip -9 bytes, checked by scripts/check_wasm_size.py in CI. baseline is the last release build before catalogue wave 3 (#127); allowance is that wave's budget (about +450 KB compressed for ~18 adapters) shared by both modules, which compile the same adapters. CI fails above budget + 10%. Raise the allowance in the PR that needs it, with the reason in docs/wasm/module-porting.md.",
+  "baseline": {
+    "BespokeSynthWASM.wasm": 413819,
+    "BespokeSynthWASM_audio.wasm": 209475
+  },
+  "allowance": 460800,
+  "failOverBudgetPercent": 10
+}

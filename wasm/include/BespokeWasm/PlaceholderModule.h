@@ -3,7 +3,7 @@
  *
  * A patch that names a type the adapter registry lacks (a desktop-only module, or one
  * from a newer build) loads this instead of being dropped or aliased onto another
- * module (ADR: docs/wasm-module-porting.md). It has no ports and no DSP. It keeps the
+ * module (ADR: docs/wasm/module-porting.md). It has no ports and no DSP. It keeps the
  * original type name, position, controls and extras, and the canvas keeps the cables
  * that touched it, so saving writes the patch back as it came in.
  *

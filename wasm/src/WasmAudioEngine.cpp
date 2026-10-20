@@ -14,7 +14,6 @@ namespace bespoke::wasm
 {
    namespace
    {
-      std::atomic<float> gAudioCpuLoad{ 0.0f };
       std::chrono::steady_clock::time_point gLastCallbackTime{};
       bool gHasLastCallbackTime = false;
 
@@ -64,7 +63,7 @@ namespace bespoke::wasm
             ? static_cast<float>(frames) / sampleRate
             : 0.0f;
          const float instantaneous = bufferDuration > 0.0f ? elapsed / bufferDuration : 0.0f;
-         gAudioCpuLoad.store(gAudioCpuLoad.load() * 0.9f + instantaneous * 0.1f);
+         state.audioCpuLoad.store(state.audioCpuLoad.load() * 0.9f + instantaneous * 0.1f);
          audioHealthOnCallback(elapsed, bufferDuration, intervalSeconds);
          if (state.audioGraphEngine)
             audioHealthSetNoteDropCount(state.audioGraphEngine->noteDropCount());
@@ -128,6 +127,6 @@ namespace bespoke::wasm
 
    float wasmAudioCpuLoad()
    {
-      return gAudioCpuLoad.load();
+      return runtimeState().audioCpuLoad.load();
    }
 }

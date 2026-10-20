@@ -1,4 +1,5 @@
 import type { BespokeSynthModule } from '../../wasm/types/bespoke-synth';
+import { NoteClock, type NoteClockContext } from '../audio/noteClock';
 import { MidiClock, MidiOutputRouter } from '../midi';
 import { GraphNotePump } from './graphMidiOut';
 import { PerformanceEcho } from './performanceEcho';
@@ -20,6 +21,9 @@ export class LiveInstrument {
   readonly graphNotes: GraphNotePump;
   readonly piano: QwertyPiano;
   private clock: MidiClock | null = null;
+  private audioClock: () => NoteClockContext | null = () => null;
+  /** Start times for QWERTY and MIDI-in notes on the AudioWorklet engine's clock. */
+  readonly noteClock = new NoteClock(() => this.audioClock());
   private readonly echo: PerformanceEcho;
   private readonly getModule: () => BespokeSynthModule | null;
   private readonly listeners = new Set<(state: QwertyPianoState) => void>();
@@ -29,12 +33,12 @@ export class LiveInstrument {
     this.graphNotes = new GraphNotePump(getModule, this.midiOut);
     this.echo = new PerformanceEcho(
       this.midiOut,
-      () => (getModule()?._bespoke_performance_notes_processed?.() ?? 0) === 1,
+      () => (getModule()?._bespoke_performance_notes_processed() ?? 0) === 1,
     );
     this.piano = new QwertyPiano(
       {
-        noteOn: (channel, pitch, velocity) => this.noteOn(channel, pitch, velocity),
-        noteOff: (channel, pitch) => this.noteOff(channel, pitch),
+        noteOn: (channel, pitch, velocity, eventTime) => this.noteOn(channel, pitch, velocity, eventTime),
+        noteOff: (channel, pitch, eventTime) => this.noteOff(channel, pitch, eventTime),
       },
       (state) => this.listeners.forEach((listener) => listener(state)),
     );
@@ -44,16 +48,27 @@ export class LiveInstrument {
     this.listeners.add(listener);
   }
 
-  noteOn(channel: number, pitch: number, velocity: number): void {
+  /** `eventTime`: when it was played (Event.timeStamp); the engine starts it that far apart from the others. */
+  noteOn(channel: number, pitch: number, velocity: number, eventTime?: number): void {
     const ch = this.playChannel(channel);
-    this.getModule()?._bespoke_midi_note_on?.(ch, pitch, velocity);
+    this.getModule()?._bespoke_midi_note_on(ch, pitch, velocity, this.noteTime(eventTime));
     this.echoPerformanceNote(true, ch, pitch, velocity);
   }
 
-  noteOff(channel: number, pitch: number): void {
+  noteOff(channel: number, pitch: number, eventTime?: number): void {
     const ch = this.playChannel(channel);
-    this.getModule()?._bespoke_midi_note_off?.(ch, pitch);
+    this.getModule()?._bespoke_midi_note_off(ch, pitch, this.noteTime(eventTime));
     this.echoPerformanceNote(false, ch, pitch, 0);
+  }
+
+  /** AudioContext seconds to start a note played at `eventTime`, or 0 (at once) without the AudioWorklet engine. */
+  noteTime(eventTime?: number): number {
+    return this.noteClock.stamp(eventTime);
+  }
+
+  /** The AudioWorklet engine's context while it plays (null otherwise: notes are not timed). */
+  setAudioClock(getContext: () => NoteClockContext | null): void {
+    this.audioClock = getContext;
   }
 
   /**
@@ -71,7 +86,7 @@ export class LiveInstrument {
 
   /** Local notes follow the graph's note-channel filter so they are never filtered out. */
   private playChannel(channel: number): number {
-    const listen = this.getModule()?._bespoke_get_midi_note_channel?.() ?? -1;
+    const listen = this.getModule()?._bespoke_get_midi_note_channel() ?? -1;
     return listen >= 0 ? listen : channel;
   }
 
@@ -79,8 +94,8 @@ export class LiveInstrument {
   enableClockIfRequested(): boolean {
     if (!isMidiClockRequested() || this.clock) return this.clock !== null;
     this.clock = new MidiClock(this.midiOut, {
-      isPlaying: () => (this.getModule()?._bespoke_is_transport_playing?.() ?? 0) === 1,
-      bpm: () => this.getModule()?._bespoke_get_tempo?.() ?? 120,
+      isPlaying: () => (this.getModule()?._bespoke_is_transport_playing() ?? 0) === 1,
+      bpm: () => this.getModule()?._bespoke_get_tempo() ?? 120,
     });
     this.clock.start();
     return true;

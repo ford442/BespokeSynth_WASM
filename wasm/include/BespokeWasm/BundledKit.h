@@ -1,5 +1,5 @@
 /**
- * BespokeSynth WASM - Bundled drum kit
+ * BespokeSynth WASM - Bundled drum kit (and tonal samples)
  *
  * A four-piece one-shot kit (kick, snare, hat, tom) ships in the resource pack under
  * /resource/kits/basic. Patches reference it like any other sample, by `sampleHash`
@@ -34,6 +34,14 @@ namespace bespoke
 
       /** Directory the kit is read from (the preloaded resource pack). */
       const char* bundledKitDirectory();
+
+      /**
+       * Pitched samples that ship next to the kit (scripts/gen_tonal_samples.py), resolved
+       * by hash the same way. `rootPitch` is the note they were recorded at.
+       */
+      constexpr int kBundledTonalSampleCount = 1;
+      const BundledKitSample* bundledTonalSamples();
+      const char* bundledTonalDirectory();
 
       /**
        * SampleStore::findByHash, falling back to decoding the matching bundled kit file at

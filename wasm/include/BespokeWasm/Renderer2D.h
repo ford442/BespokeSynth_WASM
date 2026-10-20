@@ -56,6 +56,37 @@ struct Vertex2D
    Color color;
 };
 
+/** The widget fragment shaders both backends implement (render2d.wgsl and its GLSL port). */
+enum class ShaderKind : uint8_t
+{
+   Solid,
+   KnobHighlight,
+   DialTicks,
+   WireGlow,
+   ConnectionPulse,
+   SliderTrack,
+   SliderFill,
+   SliderHandle,
+   Button,
+   ButtonHover,
+   ToggleSwitch,
+   ToggleThumb,
+   VUMeter,
+   ADSRGrid,
+   PanelBackground,
+   PanelBordered,
+   LEDOn,
+   LEDOff,
+   SpectrumBar,
+   SpectrumPeak,
+   ProgressBar,
+   ModWheel,
+   ScopeGrid,
+   FaderGroove,
+   FaderCap,
+   Count
+};
+
 enum class RendererBackendType
 {
    WebGPU = 0,
@@ -71,8 +102,9 @@ enum class WebGLDebugMode
 };
 
 /**
- * NanoVG-like immediate-mode 2D renderer interface.
- * ModuleCanvas, Knob, and demo panels render through this API.
+ * NanoVG-like immediate-mode 2D renderer interface: paths, text, transforms, scissor and
+ * shader quads. ModuleCanvas, Knob, and demo panels render through this API; composite
+ * widgets (knobs, sliders, cables, meters) go through WidgetPainter on top of it.
  */
 class Renderer2D
 {
@@ -126,37 +158,17 @@ public:
    virtual float textWidth(const char* string) = 0;
    virtual float textHeight() const = 0;
 
-   virtual void drawKnob(float cx, float cy, float radius, float value, const Color& bgColor, const Color& fgColor) = 0;
-   virtual void drawWire(float x1, float y1, float x2, float y2, const Color& color, float thickness = 2.0f) = 0;
-   virtual void drawCableWithSag(float x1, float y1, float x2, float y2, const Color& color, float thickness = 3.0f, float sag = 0.3f) = 0;
-   virtual void drawSlider(float x, float y, float w, float h, float value, const Color& bgColor, const Color& fgColor) = 0;
-   virtual void drawVUMeter(float x, float y, float w, float h, float level, const Color& lowColor, const Color& highColor) = 0;
-
-   virtual void drawButton(float x, float y, float w, float h, const char* label, bool pressed, bool hover) = 0;
-   virtual void drawToggle(float x, float y, float w, float h, bool state) = 0;
-   virtual void drawFader(float x, float y, float w, float h, float value) = 0;
-   virtual void drawModWheel(float x, float y, float w, float h, float value) = 0;
-   virtual void drawADSR(float x, float y, float w, float h, float a, float d, float s, float r) = 0;
-   virtual void drawWaveform(float x, float y, float w, float h, const float* data, int count, bool filled) = 0;
-   virtual void drawSpectrum(float x, float y, float w, float h, const float* data, int count) = 0;
-   virtual void drawScope(float x, float y, float w, float h, const float* data, int count) = 0;
-   virtual void drawPanel(float x, float y, float w, float h, bool bordered) = 0;
-   virtual void drawLED(float x, float y, float w, float h, bool on) = 0;
-   virtual void drawProgressBar(float x, float y, float w, float h, float value) = 0;
-
-   virtual void drawXYPad(float x, float y, float w, float h, float cx, float cy) = 0;
-   virtual void drawFilterResponse(float x, float y, float w, float h) = 0;
-   virtual void drawLFOWaveform(float x, float y, float w, float h) = 0;
-   virtual void drawSequencerStep(float x, float y, float w, float h, bool active) = 0;
-   virtual void drawSpectrumWaterfall(float x, float y, float w, float h) = 0;
-   virtual void drawPianoKey(float x, float y, float w, float h, bool black, bool pressed) = 0;
-   virtual void drawSpectrumRainbow(float x, float y, float w, float h, float* data, int count) = 0;
-   virtual void drawCircularScope(float x, float y, float w, float h) = 0;
-   virtual void drawEchoTrail(float x, float y, float w, float h) = 0;
+   /**
+    * One quad shaded by `kind`'s fragment shader, tinted with the current fill color, under
+    * the current transform and scissor. Composite widgets are built from this and the path
+    * calls above by WidgetPainter; backends only map kinds to their pipelines.
+    */
+   virtual void drawQuad(ShaderKind kind, float x, float y, float w, float h) = 0;
+   virtual Color currentFillColor() const = 0;
 
    // Live output analyzer (AudioAnalysis ring). A backend that analyses on the GPU
    // draws straight from its own buffers and returns true; otherwise it returns
-   // false and the caller falls back to drawWaveform/drawSpectrum with CPU data.
+   // false and the caller falls back to WidgetPainter::drawWaveform/drawSpectrum with CPU data.
    virtual bool drawLiveWaveform(float x, float y, float w, float h, const Color& traceColor)
    {
       (void)x;

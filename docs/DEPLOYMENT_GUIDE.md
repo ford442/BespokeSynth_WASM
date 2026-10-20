@@ -45,8 +45,7 @@ cd build
 # Configure with Emscripten
 emcmake cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
-    -DBESPOKE_WASM_WEBGPU=ON \
-    -DBESPOKE_WASM_SDL2_AUDIO=ON
+    -DBESPOKE_WASM_BUILD_FLAVOR=Release
 
 # Build
 cmake --build . --parallel
@@ -143,9 +142,24 @@ Header always set Cross-Origin-Resource-Policy "same-origin"
   Cross-Origin-Resource-Policy: same-origin
 ```
 
-**GitHub Pages** cannot set response headers, so it always runs on SDL2.
+**GitHub Pages** cannot set response headers. Without the service worker below it runs on SDL2.
 
-`COEP: require-corp` blocks cross-origin images, fonts, and scripts that do not opt in with CORP/CORS. Host assets on the same origin. These headers do **not** turn on pthreads (`BESPOKE_WASM_THREADS` stays OFF).
+#### Hosts without header control (service worker)
+
+Build with the opt-in COOP/COEP service worker:
+
+```bash
+BESPOKE_COI_SW=1 npm run build:web-only   # or: npx webpack --mode production --env coiServiceWorker
+```
+
+This copies `coi-serviceworker.js` to the site root and loads it first in `<head>`. On the first visit it registers itself and reloads the page once. From then on it re-serves every response with COOP/COEP/CORP added, so the page is cross-origin isolated and the AudioWorklet engine runs. Limits:
+
+- The first load runs without isolation until the reload.
+- It needs HTTPS (or `localhost`), service workers enabled, and a browser that honours headers added by a service worker. If the reload still isn't isolated, the page stays on SDL2 and does not reload again (a `sessionStorage` flag).
+- Cross-origin `no-cors` resources (opaque responses) can't be changed, so COEP still blocks them. Host assets on the same origin.
+- On hosts that send the real headers it does nothing; leave it off there.
+
+`COEP: require-corp` blocks cross-origin images, fonts, and scripts that do not opt in with CORP/CORS. Host assets on the same origin. These headers do **not** turn on pthreads; the build has none.
 
 ## Step 5: Verify the Deployment
 
@@ -261,7 +275,7 @@ After successful deployment:
 If you encounter problems:
 
 1. Check the console logs for specific error messages
-2. Review `WASM_FIX_SUMMARY.md` for technical details
+2. Review [`archive/WASM_FIX_SUMMARY.md`](archive/WASM_FIX_SUMMARY.md) for historical technical details
 3. Check the troubleshooting section in `README_NPM.md`
 4. Open an issue on GitHub with:
    - Browser and version

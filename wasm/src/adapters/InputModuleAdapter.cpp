@@ -7,9 +7,10 @@
 #include "BespokeWasm/InputAudioBus.h"
 #include "BespokeWasm/ModuleCanvasHelpers.h"
 #include "BespokeWasm/Theme.h"
+#include "BespokeWasm/WidgetPainter.h"
 #include <algorithm>
 #include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -20,12 +21,21 @@ namespace bespoke
          constexpr float kStatusHeight = 24.0f;
          constexpr float kMeterHeight = 6.0f;
 
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "gain", .minValue = 0.0f, .maxValue = 2.0f, .defaultValue = 1.0f, .offset = offsetof(InputParams, gain), .smoothingMs = kParamSmoothingMs, .flags = kParamClamp },
+            { .id = 1, .name = "mute", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.0f, .kind = ParamKind::Choice1, .offset = offsetof(InputParams, mute), .flags = kParamClamp },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
+
          const std::vector<SliderSpec>& inputSpecs()
          {
-            static const std::vector<SliderSpec> specs = {
-               { "gain", "Gain", 0.0f, 2.0f, 1.0f, SliderFormat::Percent },
-               { "mute", "Mic", 0.0f, 1.0f, 0.0f, SliderFormat::Choice, { "Live", "Muted" } },
-            };
+            static const std::vector<SliderSpec> specs = slidersFromParams(kParams,
+                                                                           {
+                                                                           { "gain", "Gain", SliderFormat::Percent },
+                                                                           { "mute", "Mic", SliderFormat::Choice, { "Live", "Muted" } },
+                                                                           });
             return specs;
          }
       }
@@ -58,37 +68,29 @@ namespace bespoke
             return;
          }
          const float level = std::max(0.0f, std::min(1.0f, mLevel));
-         renderer.drawSlider(barX, top + 8.0f * scale, barW, kMeterHeight * scale, level,
-                             Color(0.2f, 0.2f, 0.22f, 1.0f),
-                             level > 0.9f ? Color(0.9f, 0.3f, 0.25f, 0.9f) : Color(0.35f, 0.75f, 0.45f, 0.9f));
+         WidgetPainter(renderer).drawSlider(barX, top + 8.0f * scale, barW, kMeterHeight * scale, level,
+                                            Color(0.2f, 0.2f, 0.22f, 1.0f),
+                                            level > 0.9f ? Color(0.9f, 0.3f, 0.25f, 0.9f) : Color(0.35f, 0.75f, 0.45f, 0.9f));
       }
 
-      std::vector<WasmControlDescriptor> InputModuleAdapter::controlDescriptors() const
+      ParamTable InputModuleAdapter::paramTable() const
       {
-         return controlDescriptorsFromSpecs(inputSpecs());
+         return kParams;
       }
 
-      std::vector<PortDescriptor> InputModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> InputModuleAdapter::inputPorts() const
       {
          return {};
       }
 
-      std::vector<PortDescriptor> InputModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> InputModuleAdapter::outputPorts() const
       {
-         return { { PortType::Audio, "Out" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> InputModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<InputModule>(id, inputSpecs());
-      }
-
-      void InputModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         const auto& specs = inputSpecs();
-         auto* params = new (dst) InputParams();
-         params->gain = sliderSpecValue(specs, controls, "gain");
-         params->mute = std::lround(sliderSpecValue(specs, controls, "mute")) == 1;
       }
 
       void InputModuleAdapter::processAudio(void* runtimeState,

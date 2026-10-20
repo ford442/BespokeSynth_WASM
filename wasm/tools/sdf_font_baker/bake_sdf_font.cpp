@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <initializer_list>
 #include <vector>
 
 namespace
@@ -81,7 +82,10 @@ namespace
    }
 
    // ASCII plus the handful of symbols the UI prints (degrees, micro, times,
-   // en dash, bullet, ellipsis, arrows, flat, sharp).
+   // en dash, bullet, ellipsis, arrows, flat, sharp), then what the translated module
+   // help needs (scripts/bake_module_help.py keeps FONT_CHARSET in step): Latin-1
+   // punctuation and letters, the Turkish letters outside it, basic Cyrillic and
+   // typographic quotes. ASCII stays first so its atlas cells do not move.
    std::vector<uint32_t> charset()
    {
       std::vector<uint32_t> cps;
@@ -90,6 +94,21 @@ namespace
       const uint32_t extras[] = { 0x00B0, 0x00B5, 0x00D7, 0x2013, 0x2022, 0x2026,
                                   0x2190, 0x2191, 0x2192, 0x2193, 0x266D, 0x266F };
       cps.insert(cps.end(), std::begin(extras), std::end(extras));
+      for (uint32_t c : { 0x00A1u, 0x00ABu, 0x00BBu, 0x00BFu })
+         cps.push_back(c);
+      for (uint32_t c = 0x00C0; c <= 0x00FF; ++c)
+      {
+         if (c != 0x00D7 && c != 0x00F7)
+            cps.push_back(c);
+      }
+      for (uint32_t c : { 0x011Eu, 0x011Fu, 0x0130u, 0x0131u, 0x015Eu, 0x015Fu })
+         cps.push_back(c);
+      cps.push_back(0x0401);
+      for (uint32_t c = 0x0410; c <= 0x044F; ++c)
+         cps.push_back(c);
+      cps.push_back(0x0451);
+      for (uint32_t c : { 0x2018u, 0x2019u, 0x201Cu, 0x201Du })
+         cps.push_back(c);
       return cps;
    }
 

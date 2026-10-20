@@ -37,6 +37,18 @@ namespace bespoke
          snprintf(line, sizeof(line), "Mix %.0f%%", mMix * 100.0f);
          drawText(renderer, textX, textBaselineForLine(contentTop, 2, valueFont, scale),
                   line, UITheme::kTextValue, valueFont);
+         if (mPingpong > 0.0f)
+         {
+            snprintf(line, sizeof(line), "Ping-pong %.0f%%", mPingpong * 100.0f);
+            drawText(renderer, textX, textBaselineForLine(contentTop, 3, valueFont, scale),
+                     line, UITheme::kTextSecondary, valueFont);
+         }
+      }
+
+      std::string DelayModule::controlNameAt(float worldX, float worldY) const
+      {
+         return textLineControlAt(worldX, worldY, kTitleBarHeight + 14.0f, UITheme::kValueFontSize,
+                                  { "time", "feedback", "mix", "pingpong" });
       }
 
       void DelayModule::setControlValue(const std::string& name, float value)
@@ -47,6 +59,8 @@ namespace bespoke
             mFeedback = value;
          else if (name == "mix")
             mMix = value;
+         else if (name == "pingpong")
+            mPingpong = value;
       }
 
       float DelayModule::getControlValue(const std::string& name) const
@@ -57,6 +71,8 @@ namespace bespoke
             return mFeedback;
          if (name == "mix")
             return mMix;
+         if (name == "pingpong")
+            return mPingpong;
          return 0.0f;
       }
 

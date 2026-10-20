@@ -1,7 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
 import { gotoApp, waitForBespokeReady } from './helpers';
+import type { AudioHealth } from '../../src/audio/audioHealth';
+import type { WorkletRingStats } from '../../src/audio/workletRingBackend';
 
-type Health = Record<string, number> & { engineError?: string };
+type Health = AudioHealth;
 
 interface StallResult {
   backend: number | undefined;
@@ -13,8 +15,8 @@ interface StallResult {
   before: Health;
   during: Health;
   after: Health;
-  ringBefore: Record<string, number> | null;
-  ringAfter: Record<string, number> | null;
+  ringBefore: WorkletRingStats | null;
+  ringAfter: WorkletRingStats | null;
 }
 
 /**
@@ -24,16 +26,7 @@ interface StallResult {
  */
 async function stallMainThread(page: Page, stallMs: number): Promise<StallResult> {
   return page.evaluate(async (stall) => {
-    const api = (
-      window as unknown as {
-        __bespoke: {
-          play: () => Promise<void>;
-          getAudioHealth: () => Health | null;
-          getAudioRingStats: () => Record<string, number> | null;
-          getSampleRate: () => number;
-        };
-      }
-    ).__bespoke;
+    const api = window.__bespoke!;
     await api.play();
     await new Promise((resolve) => setTimeout(resolve, 1400));
     const idleStart = api.getAudioHealth()!;
@@ -72,10 +65,7 @@ test.describe('Audio worklet path', () => {
     await page.waitForTimeout(600);
 
     const health = await page.evaluate(() => {
-      const w = window as Window & {
-        __bespoke?: { getAudioHealth?: () => Record<string, number> | null; play?: () => Promise<void> };
-      };
-      return w.__bespoke?.getAudioHealth?.() ?? null;
+      return window.__bespoke?.getAudioHealth() ?? null;
     });
 
     expect(health).toBeTruthy();
@@ -91,18 +81,10 @@ test.describe('Audio worklet path', () => {
 
     const result = await page.evaluate(async () => {
       const w = window as Window & {
-        __bespoke?: {
-          runAudioWorkletPoc?: (opts?: { stallMs?: number; settleMs?: number }) => Promise<{
-            ok: boolean;
-            reason?: string;
-            framesDelta: number;
-            expectedMinDelta: number;
-          }>;
-        };
-        __bespokeAudioWorkletPoc?: { ok: boolean; framesDelta: number; expectedMinDelta: number };
+        __bespokeAudioWorkletPoc?: { ok: boolean; reason?: string; framesDelta: number; expectedMinDelta: number };
       };
       if (w.__bespokeAudioWorkletPoc) return w.__bespokeAudioWorkletPoc;
-      return w.__bespoke?.runAudioWorkletPoc?.({ stallMs: 100, settleMs: 250 }) ?? {
+      return window.__bespoke?.runAudioWorkletPoc({ stallMs: 100, settleMs: 250 }) ?? {
         ok: false,
         reason: 'no api',
         framesDelta: 0,
@@ -126,18 +108,14 @@ test.describe('Audio worklet path', () => {
     expect(isolated.sab).toBe(true);
 
     await page.evaluate(async () => {
-      const w = window as Window & { __bespoke?: { play?: () => Promise<void> } };
-      await w.__bespoke?.play?.();
+      await window.__bespoke?.play();
     });
     await page.waitForTimeout(800);
 
     const health = await page.evaluate(() => {
-      const w = window as Window & {
-        __bespoke?: { getAudioHealth?: () => Record<string, number> | null; getAudioBackend?: () => string };
-      };
       return {
-        backend: w.__bespoke?.getAudioBackend?.(),
-        health: w.__bespoke?.getAudioHealth?.() ?? null,
+        backend: window.__bespoke?.getAudioBackend(),
+        health: window.__bespoke?.getAudioHealth() ?? null,
       };
     });
 
@@ -155,17 +133,7 @@ test.describe('Audio worklet path', () => {
     await waitForBespokeReady(page);
 
     const result = await page.evaluate(async () => {
-      const api = (
-        window as unknown as {
-          __bespoke: {
-            play: () => Promise<void>;
-            getAudioBackend: () => string;
-            getAudioHealth: () => Health | null;
-            getTransportBeat: () => number;
-            getOutputWaveform: (count?: number) => number[];
-          };
-        }
-      ).__bespoke;
+      const api = window.__bespoke!;
       await api.play();
       await new Promise((resolve) => setTimeout(resolve, 500));
       const beatA = api.getTransportBeat();
@@ -251,10 +219,7 @@ test.describe('Audio worklet path', () => {
     await waitForBespokeReady(page);
 
     const choice = await page.evaluate(() => {
-      const w = window as Window & {
-        __bespoke?: { getAudioBackendChoice?: () => { backend: string; source: string; fallbackReason?: string } };
-      };
-      return w.__bespoke?.getAudioBackendChoice?.() ?? null;
+      return window.__bespoke?.getAudioBackendChoice() ?? null;
     });
     expect(choice).toEqual({ backend: 'worklet', requested: 'worklet', source: 'auto' });
     await expect(page.locator('#audioSelect')).toHaveValue('worklet');
@@ -265,11 +230,8 @@ test.describe('Audio worklet path', () => {
     await waitForBespokeReady(page);
 
     const state = await page.evaluate(() => {
-      const w = window as Window & {
-        crossOriginIsolated?: boolean;
-        __bespoke?: { getAudioBackendChoice?: () => { backend: string; fallbackReason?: string } };
-      };
-      return { coi: w.crossOriginIsolated === true, choice: w.__bespoke?.getAudioBackendChoice?.() ?? null };
+      const w = window as Window & { crossOriginIsolated?: boolean };
+      return { coi: w.crossOriginIsolated === true, choice: window.__bespoke?.getAudioBackendChoice() ?? null };
     });
     expect(state.coi).toBe(false);
     expect(state.choice?.backend).toBe('sdl');
@@ -293,23 +255,15 @@ test.describe('Audio worklet path', () => {
     await waitForBespokeReady(page);
 
     await page.evaluate(async () => {
-      const w = window as Window & { __bespoke?: { play?: () => Promise<void> } };
-      await w.__bespoke?.play?.();
+      await window.__bespoke?.play();
     });
     await page.waitForTimeout(30_000);
 
     const result = await page.evaluate(() => {
-      const w = window as Window & {
-        __bespoke?: {
-          getAudioBackend?: () => string;
-          getAudioHealth?: () => Record<string, number> | null;
-          getAudioRingStats?: () => Record<string, number> | null;
-        };
-      };
       return {
-        backend: w.__bespoke?.getAudioBackend?.(),
-        health: w.__bespoke?.getAudioHealth?.() ?? null,
-        ring: w.__bespoke?.getAudioRingStats?.() ?? null,
+        backend: window.__bespoke?.getAudioBackend(),
+        health: window.__bespoke?.getAudioHealth() ?? null,
+        ring: window.__bespoke?.getAudioRingStats() ?? null,
       };
     });
     console.log('30s soak:', JSON.stringify(result));

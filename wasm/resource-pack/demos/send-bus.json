@@ -1,0 +1,189 @@
+{
+ "filetype": "bespokesynth",
+ "format": "bespokesynth-wasm-state",
+ "version": 5,
+ "wasm": {
+  "view_mode": 0,
+  "canvas": {
+   "offset_x": 0.0,
+   "offset_y": 0.0,
+   "scale": 0.8
+  }
+ },
+ "transport": {
+  "bpm": 96.0,
+  "playing": false
+ },
+ "modules": [
+  {
+   "id": 1,
+   "type": "transport",
+   "position": {
+    "x": 30.0,
+    "y": 20.0
+   },
+   "controls": {
+    "bpm": 96.0,
+    "swing": 0.0
+   }
+  },
+  {
+   "id": 2,
+   "type": "notesequencer",
+   "position": {
+    "x": 30.0,
+    "y": 180.0
+   },
+   "controls": {
+    "interval": 2.0,
+    "len0": 0.5,
+    "len1": 0.5,
+    "len2": 0.5,
+    "len3": 0.5,
+    "len4": 0.5,
+    "len5": 0.5,
+    "len6": 0.5,
+    "len7": 0.5,
+    "octave": 4.0,
+    "steps": 8.0,
+    "tone0": 0.0,
+    "tone1": 4.0,
+    "tone2": 2.0,
+    "tone3": 7.0,
+    "tone4": 0.0,
+    "tone5": 4.0,
+    "tone6": 9.0,
+    "tone7": 7.0,
+    "vel0": 0.9,
+    "vel1": 0.0,
+    "vel2": 0.7,
+    "vel3": 0.0,
+    "vel4": 0.9,
+    "vel5": 0.6,
+    "vel6": 0.0,
+    "vel7": 0.7
+   }
+  },
+  {
+   "id": 3,
+   "type": "karplusstrong",
+   "position": {
+    "x": 300.0,
+    "y": 180.0
+   },
+   "controls": {
+    "feedback": 0.97,
+    "filter": 2.0,
+    "source": 1.0,
+    "vol": 1.8
+   }
+  },
+  {
+   "id": 4,
+   "type": "send",
+   "position": {
+    "x": 580.0,
+    "y": 180.0
+   },
+   "controls": {
+    "amount": 0.5
+   }
+  },
+  {
+   "id": 5,
+   "type": "reverb",
+   "position": {
+    "x": 820.0,
+    "y": 320.0
+   },
+   "controls": {
+    "mix": 1.0,
+    "room": 0.92
+   }
+  },
+  {
+   "id": 6,
+   "type": "pingpongdelay",
+   "position": {
+    "x": 1060.0,
+    "y": 320.0
+   },
+   "controls": {
+    "feedback": 0.55,
+    "interval": 2.0,
+    "mix": 1.0
+   }
+  },
+  {
+   "id": 7,
+   "type": "output",
+   "position": {
+    "x": 1320.0,
+    "y": 180.0
+   },
+   "controls": {}
+  }
+ ],
+ "connections": [
+  {
+   "source": {
+    "module": 2,
+    "port": 0
+   },
+   "destination": {
+    "module": 3,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 3,
+    "port": 0
+   },
+   "destination": {
+    "module": 4,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 4,
+    "port": 0
+   },
+   "destination": {
+    "module": 7,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 4,
+    "port": 1
+   },
+   "destination": {
+    "module": 5,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 5,
+    "port": 0
+   },
+   "destination": {
+    "module": 6,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 6,
+    "port": 0
+   },
+   "destination": {
+    "module": 7,
+    "port": 0
+   }
+  }
+ ]
+}

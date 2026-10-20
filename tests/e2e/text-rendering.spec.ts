@@ -46,7 +46,7 @@ async function waitForBespokeReady(
 
 async function captureCanvasPng(page: import('@playwright/test').Page): Promise<Buffer> {
   await page.evaluate(() => {
-    (window as Window & { __bespoke?: { renderFrame?: () => void } }).__bespoke?.renderFrame?.();
+    window.__bespoke?.renderFrame();
   });
   const canvas = page.locator('#canvas');
   return canvas.screenshot({ type: 'png' });
@@ -78,18 +78,15 @@ async function runTextRenderingCase(page: import('@playwright/test').Page, textC
   await waitForBespokeReady(page, errors);
 
   const reported = await page.evaluate(() => {
-    const w = window as Window & { __bespoke?: { getRendererBackend?: () => string; getFontMode?: () => string } };
-    return { backend: w.__bespoke?.getRendererBackend?.(), font: w.__bespoke?.getFontMode?.() };
+    return { backend: window.__bespoke?.getRendererBackend(), font: window.__bespoke?.getFontMode() };
   });
   expect(reported.backend).toBe('webgl');
   expect(reported.font).toBe(textCase.font);
 
   // The font regression panel always draws with the 5x7 font, in both modes.
   await page.evaluate(() => {
-    const api = (window as Window & {
-      __bespoke?: { setFontTestVisible?: (v: boolean) => void };
-    }).__bespoke;
-    api?.setFontTestVisible?.(true);
+    const api = window.__bespoke;
+    api?.setFontTestVisible(true);
   });
 
   await page.waitForTimeout(500);
@@ -129,11 +126,11 @@ interface TitleExtent {
  */
 async function measureTitleExtents(page: import('@playwright/test').Page): Promise<TitleExtent[]> {
   await page.evaluate(() => {
-    (window as Window & { __bespoke?: { renderFrame?: () => void } }).__bespoke?.renderFrame?.();
+    window.__bespoke?.renderFrame();
   });
   return page.evaluate(() => {
     const TITLE_BAR_HEIGHT = 18; // Module::kTitleBarHeight at 100% zoom
-    const api = (window as unknown as { __bespoke: Record<string, (...a: unknown[]) => unknown> }).__bespoke;
+    const api = window.__bespoke!;
     const canvas = document.querySelector<HTMLCanvasElement>('#canvas')!;
     const ratio = canvas.width / canvas.getBoundingClientRect().width;
     const copy = document.createElement('canvas');

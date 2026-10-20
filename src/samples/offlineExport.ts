@@ -17,12 +17,14 @@ export function renderOfflineWav(module: BespokeSynthModule, options: OfflineRen
   if (module._bespoke_render_offline(seconds, sampleRate) !== 1) {
     return null;
   }
-  const length = module._bespoke_get_offline_wav_size();
-  const dataPtr = module._bespoke_get_offline_wav(0);
-  if (!dataPtr || length <= 0) return null;
-  const copy = module.HEAPU8.slice(dataPtr, dataPtr + length);
-  module._bespoke_free_offline_render();
-  return copy;
+  try {
+    const length = module._bespoke_get_offline_wav_size();
+    const dataPtr = module._bespoke_get_offline_wav(0);
+    if (!dataPtr || length <= 0) return null;
+    return module.HEAPU8.slice(dataPtr, dataPtr + length);
+  } finally {
+    module._bespoke_free_offline_render();
+  }
 }
 
 export function downloadOfflineWav(module: BespokeSynthModule, options: OfflineRenderOptions = {}): boolean {

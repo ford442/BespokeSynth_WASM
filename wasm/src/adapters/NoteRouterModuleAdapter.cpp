@@ -6,8 +6,7 @@
 #include "BespokeWasm/NoteProcessorUtil.h"
 #include "BespokeWasm/SliderPanelModule.h"
 #include <algorithm>
-#include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -15,14 +14,31 @@ namespace bespoke
    {
       namespace
       {
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "outputs", .minValue = 2.0f, .maxValue = static_cast<float>(kNoteRouterOutputs), .defaultValue = 2.0f, .kind = ParamKind::IntRound, .offset = offsetof(NoteRouterParams, outputs), .flags = kParamClamp },
+            { .id = 1, .name = "mode", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.0f, .kind = ParamKind::IntRound, .offset = offsetof(NoteRouterParams, mode), .flags = kParamClamp },
+            { .id = 2, .name = "split", .minValue = 0.0f, .maxValue = 127.0f, .defaultValue = 60.0f, .kind = ParamKind::IntRound, .offset = offsetof(NoteRouterParams, split), .flags = kParamClamp },
+            { .id = 3, .name = "zone", .minValue = 1.0f, .maxValue = 48.0f, .defaultValue = 12.0f, .kind = ParamKind::IntRound, .offset = offsetof(NoteRouterParams, zone), .flags = kParamClamp },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Note, "Notes" } };
+         constexpr PortDescriptor kOutputs[] = {
+            { PortType::Note, "Out 1" },
+            { PortType::Note, "Out 2" },
+            { PortType::Note, "Out 3" },
+            { PortType::Note, "Out 4" },
+         };
+
          const std::vector<SliderSpec>& noteRouterSpecs()
          {
-            static const std::vector<SliderSpec> specs = {
-               { "outputs", "Outputs", 2.0f, static_cast<float>(kNoteRouterOutputs), 2.0f, SliderFormat::Integer },
-               { "mode", "Mode", 0.0f, 1.0f, 0.0f, SliderFormat::Choice, { "Round robin", "Pitch split" } },
-               { "split", "Split", 0.0f, 127.0f, 60.0f, SliderFormat::Integer },
-               { "zone", "Zone", 1.0f, 48.0f, 12.0f, SliderFormat::Integer },
-            };
+            static const std::vector<SliderSpec> specs = slidersFromParams(kParams,
+                                                                           {
+                                                                           { "outputs", "Outputs", SliderFormat::Integer },
+                                                                           { "mode", "Mode", SliderFormat::Choice, { "Round robin", "Pitch split" } },
+                                                                           { "split", "Split", SliderFormat::Integer },
+                                                                           { "zone", "Zone", SliderFormat::Integer },
+                                                                           });
             return specs;
          }
       }
@@ -36,49 +52,24 @@ namespace bespoke
          return std::min(outputs - 1, 1 + (pitch - params.split) / zone);
       }
 
-      std::vector<WasmControlDescriptor> NoteRouterModuleAdapter::controlDescriptors() const
+      ParamTable NoteRouterModuleAdapter::paramTable() const
       {
-         return controlDescriptorsFromSpecs(noteRouterSpecs());
+         return kParams;
       }
 
-      std::vector<PortDescriptor> NoteRouterModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> NoteRouterModuleAdapter::inputPorts() const
       {
-         return { { PortType::Note, "Notes" } };
+         return kInputs;
       }
 
-      std::vector<PortDescriptor> NoteRouterModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> NoteRouterModuleAdapter::outputPorts() const
       {
-         return {
-            { PortType::Note, "Out 1" },
-            { PortType::Note, "Out 2" },
-            { PortType::Note, "Out 3" },
-            { PortType::Note, "Out 4" },
-         };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> NoteRouterModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<SliderPanelModule>(id, typeId(), displayName(), category(), noteRouterSpecs(), 160.0f);
-      }
-
-      void NoteRouterModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         const auto& specs = noteRouterSpecs();
-         auto* params = new (dst) NoteRouterParams();
-         params->outputs = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "outputs")));
-         params->mode = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "mode")));
-         params->split = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "split")));
-         params->zone = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "zone")));
-      }
-
-      void NoteRouterModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) NoteRouterRuntimeState();
-      }
-
-      void NoteRouterModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<NoteRouterRuntimeState*>(runtimeState)->~NoteRouterRuntimeState();
       }
 
       void NoteRouterModuleAdapter::processNotes(void* runtimeState,
@@ -102,6 +93,12 @@ namespace bespoke
             if (in.pitch < 0 || in.pitch > 127)
                continue;
             int8_t& route = state.route[in.pitch];
+            if (isPitchBendEvent(in))
+            {
+               if (route >= 0)
+                  writer.pushBend(in.pitch, in.pitchBend, in.channel, route);
+               continue;
+            }
             if (in.isNoteOn)
             {
                if (route >= 0) // retrigger: end the old note where it went
@@ -117,7 +114,7 @@ namespace bespoke
                   state.next = (target + 1) % outputs;
                }
                route = static_cast<int8_t>(target);
-               writer.push(in.pitch, in.velocity, true, in.channel, target);
+               writer.push(in.pitch, in.velocity, true, in.channel, target, in.pitchBend);
             }
             else if (route >= 0)
             {

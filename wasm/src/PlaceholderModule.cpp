@@ -54,6 +54,9 @@ namespace bespoke
       void PlaceholderModule::setStringProperty(const std::string& name, const std::string& value)
       {
          mExtras[name] = value;
+         // A desktop import keeps the module's name; the title bar shows it.
+         if (name == "label" && !value.empty())
+            mName = value;
       }
 
       std::string PlaceholderModule::getStringProperty(const std::string& name) const

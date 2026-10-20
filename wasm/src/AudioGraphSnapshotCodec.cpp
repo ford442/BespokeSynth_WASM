@@ -131,21 +131,22 @@ namespace bespoke
             bool mOk = true;
          };
 
-         template <typename T, int N>
-         bool countOk(const SmallVec<T, N>& v)
+         bool rangeOk(PlanRange range, size_t listSize)
          {
-            return v.count >= 0 && v.count <= N;
+            return range.begin <= listSize && range.count <= listSize - range.begin;
          }
 
-         bool eventPlanOk(const EventSourcePlan& source, int nodeCount)
+         bool slotsBelow(const std::vector<int>& slots, int limit)
          {
-            return source.nodeIndex >= -1 && source.nodeIndex < nodeCount && countOk(source.pulseSourceScratchSlots) &&
-                   countOk(source.noteSourceScratchSlots) && countOk(source.noteSourcePortFilters);
+            return std::all_of(slots.begin(), slots.end(), [limit](int slot)
+                               {
+                                  return slot >= -1 && slot < limit;
+                               });
          }
 
          /**
-          * The engine indexes nodes and walks SmallVecs straight from the plan (slot indices it
-          * range-checks itself), so a damaged snapshot must not reach it.
+          * The engine indexes nodes, flat input lists and event scratch straight from the plan,
+          * so a damaged snapshot must not reach it.
           */
          bool planIsWellFormed(const AudioGraphSnapshot& graph)
          {
@@ -155,25 +156,40 @@ namespace bespoke
             {
                return index >= -1 && index < nodeCount;
             };
-            if (!nodeOk(plan.outputNodeIndex) || plan.bufferSlotCount < 0 || plan.modulationSlotCount < 0)
+            if (!nodeOk(plan.outputNodeIndex) || plan.bufferSlotCount < 0 || plan.modulationSlotCount < 0 ||
+                plan.maxAudioFanIn < 0)
+               return false;
+            const size_t audioInputs = plan.audioInputSlots.size();
+            if (plan.audioInputPorts.size() != audioInputs || plan.audioInputMix.size() != audioInputs ||
+                plan.notePortFilters.size() != plan.noteScratchSlots.size())
+               return false;
+            if (!slotsBelow(plan.noteScratchSlots, static_cast<int>(plan.noteSourcePlans.size())) ||
+                !slotsBelow(plan.pulseScratchSlots, static_cast<int>(plan.pulseSourceNodeIndices.size())))
                return false;
             for (const PlanStep& step : plan.steps)
             {
-               if (step.nodeIndex < 0 || step.nodeIndex >= nodeCount || !countOk(step.inputBufferSlots) ||
-                   !countOk(step.inputBufferPorts) || !countOk(step.modulationSourceSlots) ||
-                   !countOk(step.noteSourceSlots) || !countOk(step.noteSourceScratchSlots) ||
-                   !countOk(step.noteSourcePortFilters) || !countOk(step.pulseSourceSlots) ||
-                   !countOk(step.pulseSourceScratchSlots))
+               if (step.nodeIndex < 0 || step.nodeIndex >= nodeCount || !rangeOk(step.audioInputs, audioInputs) ||
+                   static_cast<int>(step.audioInputs.count) > plan.maxAudioFanIn ||
+                   !rangeOk(step.modulationSources, plan.modulationSourceSlots.size()) ||
+                   !rangeOk(step.noteSources, plan.noteScratchSlots.size()) ||
+                   !rangeOk(step.pulseSources, plan.pulseScratchSlots.size()) ||
+                   !rangeOk(step.auxOutputs, plan.auxOutputSlots.size()))
                   return false;
             }
-            for (const auto* plans : { &plan.noteSourcePlans, &plan.pulseSourcePlans })
+            if (!slotsBelow(plan.auxOutputSlots, plan.bufferSlotCount))
+               return false;
+            for (const auto* plans : { &plan.noteSourcePlans, &plan.pulseSourcePlans, &plan.modulationSourcePlans })
             {
                for (const EventSourcePlan& source : *plans)
                {
-                  if (!eventPlanOk(source, nodeCount))
+                  if (!nodeOk(source.nodeIndex) || !rangeOk(source.noteSources, plan.noteScratchSlots.size()) ||
+                      !rangeOk(source.pulseSources, plan.pulseScratchSlots.size()))
                      return false;
                }
             }
+            if (plan.noteSourcePlans.size() != plan.noteSourceNodeIndices.size() ||
+                plan.modulationSourcePlans.size() != plan.modulationSourceNodeIndices.size())
+               return false;
             for (const auto* indices : { &plan.modulationSourceNodeIndices, &plan.noteSourceNodeIndices,
                                          &plan.pulseSourceNodeIndices, &plan.nodeIndexByModuleId })
             {
@@ -201,6 +217,8 @@ namespace bespoke
          hash = mixAbi(hash, sizeof(EventSourcePlan));
          hash = mixAbi(hash, sizeof(GraphMusicScale));
          hash = mixAbi(hash, sizeof(WasmNoteEvent));
+         hash = mixAbi(hash, sizeof(PlanRange));
+         hash = mixAbi(hash, sizeof(PlanChannelMix));
          return hash;
       }
 
@@ -210,6 +228,8 @@ namespace bespoke
          Writer w(out);
          w.value(kMagic);
          w.value(audioGraphWireAbi());
+         w.value(graph.generation);
+         w.value(graph.paramSeq);
 
          w.value(static_cast<uint8_t>(graph.transportPlaying ? 1 : 0));
          w.value(graph.transportBPM);
@@ -244,6 +264,7 @@ namespace bespoke
          w.value(static_cast<int32_t>(plan.outputBufferSlot));
          w.value(static_cast<int32_t>(plan.bufferSlotCount));
          w.value(static_cast<int32_t>(plan.modulationSlotCount));
+         w.value(static_cast<int32_t>(plan.maxAudioFanIn));
          w.array(plan.steps);
          w.array(plan.modulationSourceNodeIndices);
          w.array(plan.noteSourceNodeIndices);
@@ -251,6 +272,15 @@ namespace bespoke
          w.array(plan.pulseSourceNodeIndices);
          w.array(plan.pulseSourcePlans);
          w.array(plan.nodeIndexByModuleId);
+         w.array(plan.audioInputSlots);
+         w.array(plan.audioInputPorts);
+         w.array(plan.audioInputMix);
+         w.array(plan.modulationSourceSlots);
+         w.array(plan.noteScratchSlots);
+         w.array(plan.notePortFilters);
+         w.array(plan.pulseScratchSlots);
+         w.array(plan.auxOutputSlots);
+         w.array(plan.modulationSourcePlans);
       }
 
       bool decodeAudioGraphSnapshot(const uint8_t* bytes,
@@ -278,6 +308,8 @@ namespace bespoke
          }
 
          AudioGraphSnapshot decoded;
+         r.value(decoded.generation);
+         r.value(decoded.paramSeq);
          uint8_t playing = 0;
          r.value(playing);
          decoded.transportPlaying = playing != 0;
@@ -314,6 +346,7 @@ namespace bespoke
          int32_t outputBufferSlot = -1;
          int32_t bufferSlotCount = 0;
          int32_t modulationSlotCount = 0;
+         int32_t maxAudioFanIn = 0;
          r.value(valid);
          r.value(hasCycle);
          r.value(performanceNotes);
@@ -321,6 +354,7 @@ namespace bespoke
          r.value(outputBufferSlot);
          r.value(bufferSlotCount);
          r.value(modulationSlotCount);
+         r.value(maxAudioFanIn);
          r.array(plan.steps);
          r.array(plan.modulationSourceNodeIndices);
          r.array(plan.noteSourceNodeIndices);
@@ -328,6 +362,15 @@ namespace bespoke
          r.array(plan.pulseSourceNodeIndices);
          r.array(plan.pulseSourcePlans);
          r.array(plan.nodeIndexByModuleId);
+         r.array(plan.audioInputSlots);
+         r.array(plan.audioInputPorts);
+         r.array(plan.audioInputMix);
+         r.array(plan.modulationSourceSlots);
+         r.array(plan.noteScratchSlots);
+         r.array(plan.notePortFilters);
+         r.array(plan.pulseScratchSlots);
+         r.array(plan.auxOutputSlots);
+         r.array(plan.modulationSourcePlans);
          if (!r.ok())
          {
             error = "truncated audio graph snapshot";
@@ -340,6 +383,7 @@ namespace bespoke
          plan.outputBufferSlot = outputBufferSlot;
          plan.bufferSlotCount = bufferSlotCount;
          plan.modulationSlotCount = modulationSlotCount;
+         plan.maxAudioFanIn = maxAudioFanIn;
 
          for (auto& node : decoded.nodes)
          {

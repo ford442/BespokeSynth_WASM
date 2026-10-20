@@ -108,8 +108,6 @@ function fakeSink(initial: boolean) {
 
 {
   const sink = fakeSink(true);
-  const pump = new GraphNotePump(() => ({}) as BespokeSynthModule, sink);
-  assert.equal(pump.tick(), 0, 'an older build without the exports is a no-op');
   const missing = new GraphNotePump(() => null, sink);
   assert.equal(missing.tick(), 0, 'no module yet is a no-op');
 }

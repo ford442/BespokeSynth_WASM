@@ -7,23 +7,28 @@
 
 #include "BespokeWasm/AudioRemote.h"
 #include "BespokeWasm/AudioWorkletEngine.h"
+#include "BespokeWasm/ModuleCanvas.h"
 #include "BespokeWasm/ScriptNoteQueue.h"
 #include "BespokeWasm/WasmRuntimeState.h"
 
+#include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <emscripten.h>
 
 // The host installs Module.bespokeAudioRemote while the worklet engine is live
-// (src/audio/workletEngineBackend.ts); without it these are no-ops.
+// (src/audio/workletEngineBackend.ts); without it these are no-ops. Host-defined
+// names use bracket access: Closure (Release) renames dotted properties.
 // clang-format off
-EM_JS(void, bespoke_js_remote_audio_event, (int type, int a, int b, int c), {
+EM_JS(int, bespoke_js_remote_audio_event, (int type, int a, int b, int c), {
    var remote = Module['bespokeAudioRemote'];
-   if (remote) remote.event(type, a, b, c);
+   if (!remote) return 0;
+   return remote['event'](type, a, b, c) === false ? 0 : 1;
 });
 
 EM_JS(void, bespoke_js_remote_audio_graph, (int reset), {
    var remote = Module['bespokeAudioRemote'];
-   if (remote) remote.graphChanged(reset !== 0);
+   if (remote) remote['graphChanged'](reset !== 0);
 });
 // clang-format on
 
@@ -40,9 +45,9 @@ namespace bespoke
             return bits;
          }
 
-         void sendEvent(AudioEngineEventType type, int a, int b, int c)
+         bool sendEvent(AudioEngineEventType type, int a, int b, int c)
          {
-            bespoke_js_remote_audio_event(static_cast<int>(type), a, b, c);
+            return bespoke_js_remote_audio_event(static_cast<int>(type), a, b, c) != 0;
          }
       }
 
@@ -56,12 +61,25 @@ namespace bespoke
          auto& state = runtimeState();
          if (state.remoteAudioActive)
          {
-            const int packed = (note.pitch & 0x7f) | ((note.channel & 0x0f) << 8) | ((note.isNoteOn ? 1 : 0) << 12);
-            sendEvent(AudioEngineEventType::Note, packed, floatBits(note.velocity), 0);
+            int packed = (note.pitch & 0x7f) | ((note.channel & 0x0f) << 8) | ((note.isNoteOn ? 1 : 0) << 12);
+            int frame = 0;
+            const float rate = state.externalSampleRate;
+            if (note.timestamp > 0.0 && rate > 0.0f)
+            {
+               // The record carries the low 32 bits of the start frame; the engine unwraps them.
+               packed |= kAudioEngineNoteTimed;
+               frame = static_cast<int>(static_cast<uint32_t>(std::llround(note.timestamp * rate)));
+            }
+            sendEvent(AudioEngineEventType::Note, packed, floatBits(note.velocity), frame);
             return;
          }
-         if (state.audioGraphEngine)
-            state.audioGraphEngine->queueNote(note);
+         if (!state.audioGraphEngine)
+            return;
+         state.audioGraphEngine->queueNote(note);
+         // SDL and the main-thread ring stop calling processBlock with the transport, on this
+         // thread; fold the note now so a long stopped session cannot fill the ring.
+         if (!state.canvas || !state.canvas->isTransportPlaying())
+            state.audioGraphEngine->absorbQueuedNotesWhileStopped();
       }
 
       bool queueScriptNote(int moduleId, const WasmNoteEvent& note)
@@ -81,6 +99,28 @@ namespace bespoke
          clearScriptNotes(moduleId);
          if (runtimeState().remoteAudioActive)
             sendEvent(AudioEngineEventType::ScriptClear, moduleId, 0, 0);
+      }
+
+      bool queueParamChange(const ParamChange& change)
+      {
+         auto& state = runtimeState();
+         if (state.remoteAudioActive)
+         {
+            if (change.moduleId < -1 || change.moduleId >= 0xFFFFF || change.paramId >= 0x1000)
+               return false;
+            const int packed = ((change.moduleId + 1) & 0xFFFFF) | (static_cast<int>(change.paramId) << 20);
+            return sendEvent(AudioEngineEventType::ParamChange, packed, floatBits(change.value),
+                             static_cast<int>(change.seq));
+         }
+         if (!state.audioGraphEngine || !state.audioGraphEngine->queueParamChange(change))
+            return false;
+         // SDL and the main-thread ring stop calling processBlock with the transport; apply now.
+         if (!state.canvas || !state.canvas->isTransportPlaying())
+         {
+            if (const auto graph = state.canvas ? state.canvas->getAudioGraphSnapshot() : nullptr)
+               state.audioGraphEngine->applyQueuedParams(*graph);
+         }
+         return true;
       }
 
       void notifyAudioGraphPublished()

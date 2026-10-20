@@ -7,13 +7,7 @@ test.describe('Host layer single path', () => {
     await waitForBespokeReady(page);
 
     const counts = await page.evaluate(async () => {
-      const w = window as Window & {
-        __bespoke?: {
-          resetHostCounters?: () => void;
-          getHostMouseDownCount?: () => number;
-        };
-      };
-      w.__bespoke?.resetHostCounters?.();
+      window.__bespoke?.resetHostCounters();
 
       const canvas = document.getElementById('canvas');
       if (!canvas) throw new Error('canvas missing');
@@ -46,7 +40,7 @@ test.describe('Host layer single path', () => {
       await new Promise((resolve) => requestAnimationFrame(resolve));
 
       return {
-        mouseDown: w.__bespoke?.getHostMouseDownCount?.() ?? -1,
+        mouseDown: window.__bespoke?.getHostMouseDownCount() ?? -1,
       };
     });
 
@@ -58,13 +52,6 @@ test.describe('Host layer single path', () => {
     await waitForBespokeReady(page);
 
     const counts = await page.evaluate(async () => {
-      const w = window as Window & {
-        __bespoke?: {
-          getHostRenderCount?: () => number;
-          getHostFrameCount?: () => number;
-        };
-      };
-
       const waitFrames = (n: number) =>
         new Promise<void>((resolve) => {
           let remaining = n;
@@ -76,14 +63,14 @@ test.describe('Host layer single path', () => {
           requestAnimationFrame(tick);
         });
 
-      const startWasm = w.__bespoke?.getHostRenderCount?.() ?? 0;
-      const startHost = w.__bespoke?.getHostFrameCount?.() ?? 0;
+      const startWasm = window.__bespoke?.getHostRenderCount() ?? 0;
+      const startHost = window.__bespoke?.getHostFrameCount() ?? 0;
 
       await waitFrames(8);
 
       return {
-        wasmDelta: (w.__bespoke?.getHostRenderCount?.() ?? 0) - startWasm,
-        hostDelta: (w.__bespoke?.getHostFrameCount?.() ?? 0) - startHost,
+        wasmDelta: (window.__bespoke?.getHostRenderCount() ?? 0) - startWasm,
+        hostDelta: (window.__bespoke?.getHostFrameCount() ?? 0) - startHost,
       };
     });
 
@@ -97,31 +84,25 @@ test.describe('Host layer single path', () => {
     await waitForBespokeReady(page);
 
     const letter = await page.evaluate(async () => {
-      const w = window as Window & {
-        __bespoke?: { getLastKeyCodes?: () => { down: number; up: number } };
-      };
       const canvas = document.getElementById('canvas');
       if (!canvas) throw new Error('canvas missing');
       canvas.focus();
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', bubbles: true }));
       document.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', code: 'KeyA', bubbles: true }));
-      return w.__bespoke?.getLastKeyCodes?.();
+      return window.__bespoke?.getLastKeyCodes();
     });
     expect(letter?.down).toBe(65);
     expect(letter?.up).toBe(65);
     expect(letter?.down).toBe(letter?.up);
 
     const shift = await page.evaluate(async () => {
-      const w = window as Window & {
-        __bespoke?: { getLastKeyCodes?: () => { down: number; up: number } };
-      };
       document.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', bubbles: true, shiftKey: true }),
       );
       document.dispatchEvent(
         new KeyboardEvent('keyup', { key: 'Shift', code: 'ShiftLeft', bubbles: true }),
       );
-      return w.__bespoke?.getLastKeyCodes?.();
+      return window.__bespoke?.getLastKeyCodes();
     });
     expect(shift?.down).toBe(16);
     expect(shift?.up).toBe(16);

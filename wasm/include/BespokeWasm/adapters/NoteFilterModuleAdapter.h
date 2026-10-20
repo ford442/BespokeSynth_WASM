@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/AdapterStorage.h"
 #include <cstdint>
 
 namespace bespoke
@@ -31,7 +31,7 @@ namespace bespoke
          uint64_t passed[2]{}; // bit per pitch: its note-on went through
       };
 
-      class NoteFilterModuleAdapter : public WasmModuleAdapter
+      class NoteFilterModuleAdapter : public AdapterStorage<NoteFilterParams, NoteFilterRuntimeState>
       {
       public:
          const char* typeId() const override { return "notefilter"; }
@@ -40,17 +40,11 @@ namespace bespoke
          WasmAudioRole audioRole() const override { return WasmAudioRole::NoteProcessor; }
          bool quantizesNotesToScale() const override { return false; }
 
-         std::vector<WasmControlDescriptor> controlDescriptors() const override;
-         std::vector<PortDescriptor> inputPorts() const override;
-         std::vector<PortDescriptor> outputPorts() const override;
+         ParamTable paramTable() const override;
+         std::span<const PortDescriptor> inputPorts() const override;
+         std::span<const PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
 
-         size_t paramsSize() const override { return sizeof(NoteFilterParams); }
-         void fillParams(const WasmControlMap& controls, void* dst) const override;
-
-         size_t runtimeStateSize() const override { return sizeof(NoteFilterRuntimeState); }
-         void initRuntimeState(void* runtimeState) const override;
-         void destroyRuntimeState(void* runtimeState) const override;
          void processNotes(void* runtimeState,
                            const void* params,
                            const WasmNoteProcessBlock& block,

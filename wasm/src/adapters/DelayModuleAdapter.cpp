@@ -7,9 +7,8 @@
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
 #include <cmath>
-#include <cstdint>
+#include <cstddef>
 #include <cstring>
-#include <new>
 
 namespace bespoke
 {
@@ -27,28 +26,34 @@ namespace bespoke
 
          float* delayLine(DelayAdapterRuntimeState& state, int channel)
          {
-            return reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(&state) + sizeof(DelayAdapterRuntimeState)) +
-                   static_cast<size_t>(channel) * DelayModuleAdapter::kMaxDelaySamples;
+            return state.lines[channel];
          }
-      }
 
-      std::vector<WasmControlDescriptor> DelayModuleAdapter::controlDescriptors() const
-      {
-         return {
-            { "time", 0.25f },
-            { "feedback", 0.35f },
-            { "mix", 0.35f },
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "time", .minValue = 0.01f, .maxValue = 2.0f, .defaultValue = 0.25f, .offset = offsetof(DelayParams, time) },
+            { .id = 1, .name = "feedback", .minValue = 0.0f, .maxValue = 0.95f, .defaultValue = 0.35f, .offset = offsetof(DelayParams, feedback) },
+            { .id = 2, .name = "mix", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.35f, .offset = offsetof(DelayParams, mix), .smoothingMs = kParamSmoothingMs },
+            { .id = 3, .name = "pingpong", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.0f, .offset = offsetof(DelayParams, pingpong), .smoothingMs = kParamSmoothingMs },
          };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Audio, "In" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
       }
 
-      std::vector<PortDescriptor> DelayModuleAdapter::inputPorts() const
+      ParamTable DelayModuleAdapter::paramTable() const
       {
-         return { { PortType::Audio, "In" } };
+         return kParams;
       }
 
-      std::vector<PortDescriptor> DelayModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> DelayModuleAdapter::inputPorts() const
       {
-         return { { PortType::Audio, "Out" } };
+         return kInputs;
+      }
+
+      std::span<const PortDescriptor> DelayModuleAdapter::outputPorts() const
+      {
+         return kOutputs;
       }
 
       std::unique_ptr<Module> DelayModuleAdapter::createUiModule(int id) const
@@ -56,29 +61,10 @@ namespace bespoke
          return std::make_unique<DelayModule>(id);
       }
 
-      void DelayModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
+      int DelayModuleAdapter::outputChannelCount(const void* paramsPtr, const WasmAudioProcessContext& context) const
       {
-         auto* params = new (dst) DelayParams();
-         params->time = wasmControlValue(controls, "time", 0.25f);
-         params->feedback = wasmControlValue(controls, "feedback", 0.35f);
-         params->mix = wasmControlValue(controls, "mix", 0.35f);
-      }
-
-      size_t DelayModuleAdapter::runtimeStateSize() const
-      {
-         return sizeof(DelayAdapterRuntimeState) + sizeof(float) * kMaxDelaySamples * 2;
-      }
-
-      void DelayModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         auto* state = new (runtimeState) DelayAdapterRuntimeState();
-         state->usedCapacity = kMaxDelaySamples;
-         std::memset(delayLine(*state, 0), 0, sizeof(float) * kMaxDelaySamples * 2);
-      }
-
-      void DelayModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<DelayAdapterRuntimeState*>(runtimeState)->~DelayAdapterRuntimeState();
+         const auto* params = static_cast<const DelayParams*>(paramsPtr);
+         return (context.inputChannels == 2 || (params && params->pingpong > 0.0f)) ? 2 : 1;
       }
 
       void DelayModuleAdapter::processAudio(void* runtimeState,
@@ -129,6 +115,36 @@ namespace bespoke
          kDelayChunk, static_cast<size_t>(std::max(1.0f, std::ceil(delaySamples) - 1.0f)));
 
          const size_t total = static_cast<size_t>(context.numSamples);
+         const float pingpong = clampFloat(params.pingpong, 0.0f, 1.0f);
+         if (pingpong > 0.0f && context.numChannels == 2)
+         {
+            // Cross-coupled lines: each line's feedback blends towards the other side, and the
+            // input moves onto the left line, so at 1 the echoes alternate L, R, L...
+            float* lineL = delayLine(state, 0);
+            float* lineR = delayLine(state, 1);
+            float* outL = channels[0];
+            float* outR = channels[1];
+            size_t writeIndex = state.writeIndex;
+            size_t readIndex = readStart;
+            for (size_t i = 0; i < total; ++i)
+            {
+               const size_t next = (readIndex + 1) % capacity;
+               const float dL = lineL[readIndex] * (1.0f - frac) + lineL[next] * frac;
+               const float dR = lineR[readIndex] * (1.0f - frac) + lineR[next] * frac;
+               const float inL = outL[i];
+               const float inR = outR[i];
+               const float mono = 0.5f * (inL + inR);
+               lineL[writeIndex] = inL * (1.0f - pingpong) + mono * pingpong + feedback * (dL * (1.0f - pingpong) + dR * pingpong);
+               lineR[writeIndex] = inR * (1.0f - pingpong) + feedback * (dR * (1.0f - pingpong) + dL * pingpong);
+               outL[i] = inL * (1.0f - mix) + dL * mix;
+               outR[i] = inR * (1.0f - mix) + dR * mix;
+               writeIndex = (writeIndex + 1) % capacity;
+               readIndex = next;
+            }
+            state.writeIndex = writeIndex;
+            return;
+         }
+
          size_t writeEnd = state.writeIndex;
          for (int ch = 0; ch < context.numChannels; ++ch)
          {

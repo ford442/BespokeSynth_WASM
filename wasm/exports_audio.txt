@@ -6,6 +6,7 @@ bespoke_audio_init
 bespoke_audio_apply_snapshot
 bespoke_audio_last_error
 bespoke_audio_adopt_sample
+bespoke_audio_evict_sample
 bespoke_audio_apply_events
 bespoke_audio_push_input
 bespoke_audio_set_input_active

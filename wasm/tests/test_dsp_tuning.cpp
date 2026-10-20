@@ -195,6 +195,7 @@ static float render_tuned_note(const GraphMusicScale& scale, int pitch)
    constexpr float kRate = 44100.0f;
    AudioGraphEngine engine;
    engine.prepareForBlock(kBlock, 128, 32);
+   engine.prepareRuntimeStates(graph);
    engine.queueNote({ pitch, 1.0f, true, 0.0, 0 });
    std::vector<float> left(kBlock), right(kBlock), all;
    float* outputs[2] = { left.data(), right.data() };

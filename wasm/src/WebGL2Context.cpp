@@ -71,7 +71,9 @@ void configureContextAttributes(EmscriptenWebGLContextAttributes& attrs)
    emscripten_webgl_init_context_attributes(&attrs);
    attrs.majorVersion = 2;
    attrs.minorVersion = 0;
-   attrs.alpha = EM_TRUE;
+   // Opaque like the WebGPU surface: with an alpha channel, straight-alpha blending
+   // into a premultiplied buffer left colour > alpha (see-through PNGs).
+   attrs.alpha = EM_FALSE;
    attrs.depth = EM_FALSE;
    attrs.stencil = EM_FALSE;
    attrs.antialias = EM_FALSE;
@@ -307,7 +309,8 @@ void WebGL2Context::beginFrame()
    glClearColor(0.12f, 0.12f, 0.14f, 1.0f);
    glClear(GL_COLOR_BUFFER_BIT);
    glEnable(GL_BLEND);
-   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+   // Same blend state as the WebGPU pipelines: straight-alpha colour, premultiplied alpha.
+   glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 void WebGL2Context::endFrame()

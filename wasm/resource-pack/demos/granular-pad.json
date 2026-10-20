@@ -1,0 +1,132 @@
+{
+ "filetype": "bespokesynth",
+ "format": "bespokesynth-wasm-state",
+ "version": 5,
+ "wasm": {
+  "view_mode": 0,
+  "canvas": {
+   "offset_x": 0.0,
+   "offset_y": 0.0,
+   "scale": 0.8
+  }
+ },
+ "transport": {
+  "bpm": 72.0,
+  "playing": false
+ },
+ "modules": [
+  {
+   "id": 1,
+   "type": "transport",
+   "position": {
+    "x": 30.0,
+    "y": 20.0
+   },
+   "controls": {
+    "bpm": 72.0,
+    "swing": 0.0
+   }
+  },
+  {
+   "id": 2,
+   "type": "notesequencer",
+   "position": {
+    "x": 30.0,
+    "y": 180.0
+   },
+   "controls": {
+    "interval": 0.0,
+    "len0": 1.0,
+    "len1": 1.0,
+    "len2": 1.0,
+    "len3": 1.0,
+    "octave": 3.0,
+    "steps": 4.0,
+    "tone0": 0.0,
+    "tone1": 2.0,
+    "tone2": 4.0,
+    "tone3": 1.0,
+    "vel0": 0.8,
+    "vel1": 0.8,
+    "vel2": 0.8,
+    "vel3": 0.8
+   }
+  },
+  {
+   "id": 3,
+   "type": "seaofgrain",
+   "position": {
+    "x": 300.0,
+    "y": 180.0
+   },
+   "controls": {
+    "attack": 300.0,
+    "lenMs": 120.0,
+    "mode": 1.0,
+    "octaves": 1.0,
+    "overlap": 8.0,
+    "pos": 0.4,
+    "posRandom": 40.0,
+    "release": 1500.0,
+    "volume": 0.7
+   },
+   "extras": {
+    "sampleHash": "5108d536d9bc7975f804e7b4e39ec5b813666ad8369936876f643faf25aa78f3"
+   }
+  },
+  {
+   "id": 4,
+   "type": "reverb",
+   "position": {
+    "x": 620.0,
+    "y": 180.0
+   },
+   "controls": {
+    "damping": 0.5,
+    "mix": 0.5,
+    "room": 0.9
+   }
+  },
+  {
+   "id": 5,
+   "type": "output",
+   "position": {
+    "x": 860.0,
+    "y": 180.0
+   },
+   "controls": {}
+  }
+ ],
+ "connections": [
+  {
+   "source": {
+    "module": 2,
+    "port": 0
+   },
+   "destination": {
+    "module": 3,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 3,
+    "port": 0
+   },
+   "destination": {
+    "module": 4,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 4,
+    "port": 0
+   },
+   "destination": {
+    "module": 5,
+    "port": 0
+   }
+  }
+ ]
+}

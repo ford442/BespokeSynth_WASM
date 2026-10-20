@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/AdapterStorage.h"
 
 namespace bespoke
 {
@@ -26,7 +26,7 @@ namespace bespoke
          double noteOffBeat = -1.0;
       };
 
-      class PulseToNoteModuleAdapter : public WasmModuleAdapter
+      class PulseToNoteModuleAdapter : public AdapterStorage<PulseToNoteParams, PulseToNoteRuntimeState>
       {
       public:
          const char* typeId() const override { return "pulsetonote"; }
@@ -34,17 +34,11 @@ namespace bespoke
          ModuleCategory category() const override { return ModuleCategory::NoteEffect; }
          WasmAudioRole audioRole() const override { return WasmAudioRole::NoteSource; }
 
-         std::vector<WasmControlDescriptor> controlDescriptors() const override;
-         std::vector<PortDescriptor> inputPorts() const override;
-         std::vector<PortDescriptor> outputPorts() const override;
+         ParamTable paramTable() const override;
+         std::span<const PortDescriptor> inputPorts() const override;
+         std::span<const PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
 
-         size_t paramsSize() const override { return sizeof(PulseToNoteParams); }
-         void fillParams(const WasmControlMap& controls, void* dst) const override;
-
-         size_t runtimeStateSize() const override { return sizeof(PulseToNoteRuntimeState); }
-         void initRuntimeState(void* runtimeState) const override;
-         void destroyRuntimeState(void* runtimeState) const override;
          void emitNotesForBeatRange(void* runtimeState,
                                     const void* params,
                                     double beatStart,

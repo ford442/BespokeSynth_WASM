@@ -8,6 +8,7 @@
 #include "BespokeWasm/modules/WasmModules.h"
 #include "BespokeWasm/ModuleCanvasHelpers.h"
 #include "BespokeWasm/Theme.h"
+#include "BespokeWasm/WidgetPainter.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -45,10 +46,10 @@ namespace bespoke
          float meterY = screenY + (kTitleBarHeight + 15) * scale;
          for (int ch = 0; ch < 2; ++ch)
          {
-            renderer.drawVUMeter(meterX + 25 * scale * ch, meterY, 15 * scale, 45 * scale,
-                                 std::min(1.0f, mMeter[ch]),
-                                 Color(0.2f, 0.8f, 0.3f, 1.0f),
-                                 Color(1.0f, 0.2f, 0.1f, 1.0f));
+            WidgetPainter(renderer).drawVUMeter(meterX + 25 * scale * static_cast<float>(ch), meterY, 15 * scale, 45 * scale,
+                                                std::min(1.0f, mMeter[ch]),
+                                                Color(0.2f, 0.8f, 0.3f, 1.0f),
+                                                Color(1.0f, 0.2f, 0.1f, 1.0f));
          }
 
          const float meterLabelFont = 9.0f * scale;

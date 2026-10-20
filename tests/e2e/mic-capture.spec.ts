@@ -86,7 +86,7 @@ test.describe('Mic capture', () => {
 
     // Only Input -> Output, so anything the output plays came through the mic.
     await page.evaluate(() => {
-      const api = (window as unknown as { __bespoke: Record<string, (...a: unknown[]) => unknown> }).__bespoke;
+      const api = window.__bespoke!;
       const modules = api.getModules() as Array<{ id: number; type: string }>;
       for (const m of modules) {
         if (!['output', 'transport', 'scale'].includes(m.type)) api.deleteModule(m.id);
@@ -98,7 +98,7 @@ test.describe('Mic capture', () => {
     await page.locator('#playBtn').click();
     const peak = () =>
       page.evaluate(() => {
-        const api = (window as unknown as { __bespoke: { getOutputWaveform: (n: number) => number[] } }).__bespoke;
+        const api = window.__bespoke!;
         return api.getOutputWaveform(2048).reduce((max, v) => Math.max(max, Math.abs(v)), 0);
       });
     await page.waitForTimeout(300);
@@ -124,9 +124,9 @@ test.describe('Mic capture', () => {
 
     const state = await page.evaluate(() => ({
       spy: (window as unknown as { __micSpy: MicSpy }).__micSpy,
-      health: (window as unknown as { __bespoke: { getAudioHealth: () => Record<string, number> } }).__bespoke.getAudioHealth(),
+      health: window.__bespoke!.getAudioHealth(),
     }));
-    expect(state.health.backend).toBe(3);
+    expect(state.health!.backend).toBe(3);
     expect(state.spy.chunks).toBe(0);
     expect(state.spy.scriptProcessors).toBe(before);
   });

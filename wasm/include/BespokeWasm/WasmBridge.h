@@ -60,9 +60,10 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_legacy_panels(void);
 EMSCRIPTEN_KEEPALIVE void bespoke_set_control_value(int moduleId, const char* controlName, float value);
 EMSCRIPTEN_KEEPALIVE float bespoke_get_control_value(int moduleId, const char* controlName);
 
-// Web MIDI input, normalized velocity/value range is [0, 1].
-EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_on(int channel, int pitch, float velocity);
-EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_off(int channel, int pitch);
+// Web MIDI input, normalized velocity/value range is [0, 1]. `time`: AudioContext seconds the note
+// starts at (0 = now); only the AudioWorklet engine places notes inside a block.
+EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_on(int channel, int pitch, float velocity, double time);
+EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_off(int channel, int pitch, double time);
 EMSCRIPTEN_KEEPALIVE void bespoke_midi_cc(int channel, int cc, float value);
 
 // State management
@@ -147,12 +148,11 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_webgl_preserve_drawing_buffer(int enabled)
 EMSCRIPTEN_KEEPALIVE void bespoke_set_webgl_debug_mode(int mode);
 EMSCRIPTEN_KEEPALIVE int bespoke_get_webgl_debug_mode(void);
 
-// Returns active backend type after capture attempt.
-//  1 = WebGL2 (use canvas.toDataURL in JS)
-//  0 = WebGPU (RGBA pixels via bespoke_get_screenshot_pixels)
-// -1 = error
-EMSCRIPTEN_KEEPALIVE int bespoke_capture_screenshot(int* outWidth, int* outHeight);
-EMSCRIPTEN_KEEPALIVE const unsigned char* bespoke_get_screenshot_pixels(int* outByteLength);
+// Renderer-only re-initialization after a lost GPU device or WebGL context. The host
+// replaces #canvas first (a canvas keeps its first context type); the module graph,
+// audio and undo history are untouched. backend: 1 = WebGL2 (synchronous; returns 0 on
+// success, -5 on failure). WebGPU is not re-requested here: a lost device falls back.
+EMSCRIPTEN_KEEPALIVE int bespoke_reinit_renderer(int backend);
 
 // Canonical render-test scene for visual regression (resets user modules)
 /** scene: 0 off, 1 canonical synth voice, 2 drumseq → mixer → compressor. */
@@ -172,6 +172,15 @@ EMSCRIPTEN_KEEPALIVE int bespoke_assign_sample(int moduleId, const char* hash);
 EMSCRIPTEN_KEEPALIVE int bespoke_find_first_module(const char* type);
 EMSCRIPTEN_KEEPALIVE int bespoke_set_module_string(int moduleId, const char* key, const char* value);
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_module_string(int moduleId, const char* key);
+// Module help (resource/help/module_help.json): locale is a BCP 47 tag ("de-DE"; only "de" is used).
+EMSCRIPTEN_KEEPALIVE void bespoke_set_help_locale(const char* tag);
+// Tooltip text for what the pointer rests on, "" for none (the canvas draws it after a short dwell).
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_hover_help(void);
+// Desktop .bsk (or desktop layout .json) bytes: the layout part loads, unsupported modules
+// become placeholders. 0 on success, -2 on a file it cannot read (the reason is logged).
+EMSCRIPTEN_KEEPALIVE int bespoke_import_desktop_savestate(const unsigned char* bytes, int length);
+// Text of a file in the preloaded resource pack (path under /resource/), "" when missing.
+EMSCRIPTEN_KEEPALIVE const char* bespoke_read_resource_text(const char* path);
 EMSCRIPTEN_KEEPALIVE void bespoke_push_input_audio(const float* frames, int framesCount);
 // Whether the host's microphone capture is running (drives the Input module's status line).
 EMSCRIPTEN_KEEPALIVE void bespoke_set_input_capture_active(int active);

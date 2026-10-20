@@ -11,6 +11,7 @@
 #include "BespokeWasm/Theme.h"
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <new>
@@ -29,6 +30,16 @@ namespace bespoke
          }
 
          constexpr int kChunk = 64;
+
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "room", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.7f, .offset = offsetof(ReverbParams, roomSize) },
+            { .id = 1, .name = "damping", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.3f, .offset = offsetof(ReverbParams, damping) },
+            { .id = 2, .name = "mix", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.35f, .offset = offsetof(ReverbParams, mix), .smoothingMs = kParamSmoothingMs },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Audio, "In" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
       }
 
       /**
@@ -78,6 +89,12 @@ namespace bespoke
          (void)lineH;
       }
 
+      std::string ReverbModule::controlNameAt(float worldX, float worldY) const
+      {
+         return textLineControlAt(worldX, worldY, kTitleBarHeight + 18.0f, UITheme::kValueFontSize,
+                                  { "room", "damping", "mix" });
+      }
+
       void ReverbModule::setControlValue(const std::string& name, float value)
       {
          if (name == "room")
@@ -99,23 +116,19 @@ namespace bespoke
          return 0.0f;
       }
 
-      std::vector<WasmControlDescriptor> ReverbModuleAdapter::controlDescriptors() const
+      ParamTable ReverbModuleAdapter::paramTable() const
       {
-         return {
-            { "room", 0.7f },
-            { "damping", 0.3f },
-            { "mix", 0.35f },
-         };
+         return kParams;
       }
 
-      std::vector<PortDescriptor> ReverbModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> ReverbModuleAdapter::inputPorts() const
       {
-         return { { PortType::Audio, "In" } };
+         return kInputs;
       }
 
-      std::vector<PortDescriptor> ReverbModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> ReverbModuleAdapter::outputPorts() const
       {
-         return { { PortType::Audio, "Out" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> ReverbModuleAdapter::createUiModule(int id) const
@@ -123,12 +136,9 @@ namespace bespoke
          return std::make_unique<ReverbModule>(id);
       }
 
-      void ReverbModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
+      void ReverbModuleAdapter::initParams(void* params) const
       {
-         auto* params = new (dst) ReverbParams();
-         params->roomSize = wasmControlValue(controls, "room", 0.7f);
-         params->damping = wasmControlValue(controls, "damping", 0.3f);
-         params->mix = wasmControlValue(controls, "mix", 0.35f);
+         new (params) ReverbParams();
       }
 
       size_t ReverbModuleAdapter::runtimeStateSize() const

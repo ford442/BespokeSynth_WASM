@@ -5,8 +5,7 @@
 #include "BespokeWasm/adapters/NoteFilterModuleAdapter.h"
 #include "BespokeWasm/NoteProcessorUtil.h"
 #include "BespokeWasm/SliderPanelModule.h"
-#include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -14,13 +13,24 @@ namespace bespoke
    {
       namespace
       {
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "low", .minValue = 0.0f, .maxValue = 127.0f, .defaultValue = 0.0f, .kind = ParamKind::IntRound, .offset = offsetof(NoteFilterParams, low), .flags = kParamClamp },
+            { .id = 1, .name = "high", .minValue = 0.0f, .maxValue = 127.0f, .defaultValue = 127.0f, .kind = ParamKind::IntRound, .offset = offsetof(NoteFilterParams, high), .flags = kParamClamp },
+            { .id = 2, .name = "mode", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.0f, .kind = ParamKind::Choice1, .offset = offsetof(NoteFilterParams, passOutside), .flags = kParamClamp },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Note, "Notes" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Note, "Notes" } };
+
          const std::vector<SliderSpec>& noteFilterSpecs()
          {
-            static const std::vector<SliderSpec> specs = {
-               { "low", "Low", 0.0f, 127.0f, 0.0f, SliderFormat::Integer },
-               { "high", "High", 0.0f, 127.0f, 127.0f, SliderFormat::Integer },
-               { "mode", "Pass", 0.0f, 1.0f, 0.0f, SliderFormat::Choice, { "Inside", "Outside" } },
-            };
+            static const std::vector<SliderSpec> specs = slidersFromParams(kParams,
+                                                                           {
+                                                                           { "low", "Low", SliderFormat::Integer },
+                                                                           { "high", "High", SliderFormat::Integer },
+                                                                           { "mode", "Pass", SliderFormat::Choice, { "Inside", "Outside" } },
+                                                                           });
             return specs;
          }
       }
@@ -31,43 +41,24 @@ namespace bespoke
          return inside != params.passOutside;
       }
 
-      std::vector<WasmControlDescriptor> NoteFilterModuleAdapter::controlDescriptors() const
+      ParamTable NoteFilterModuleAdapter::paramTable() const
       {
-         return controlDescriptorsFromSpecs(noteFilterSpecs());
+         return kParams;
       }
 
-      std::vector<PortDescriptor> NoteFilterModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> NoteFilterModuleAdapter::inputPorts() const
       {
-         return { { PortType::Note, "Notes" } };
+         return kInputs;
       }
 
-      std::vector<PortDescriptor> NoteFilterModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> NoteFilterModuleAdapter::outputPorts() const
       {
-         return { { PortType::Note, "Notes" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> NoteFilterModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<SliderPanelModule>(id, typeId(), displayName(), category(), noteFilterSpecs(), 150.0f);
-      }
-
-      void NoteFilterModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         const auto& specs = noteFilterSpecs();
-         auto* params = new (dst) NoteFilterParams();
-         params->low = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "low")));
-         params->high = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "high")));
-         params->passOutside = std::lround(sliderSpecValue(specs, controls, "mode")) == 1;
-      }
-
-      void NoteFilterModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) NoteFilterRuntimeState();
-      }
-
-      void NoteFilterModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<NoteFilterRuntimeState*>(runtimeState)->~NoteFilterRuntimeState();
       }
 
       void NoteFilterModuleAdapter::processNotes(void* runtimeState,
@@ -91,12 +82,18 @@ namespace bespoke
                continue;
             uint64_t& word = state.passed[in.pitch >> 6];
             const uint64_t bit = uint64_t{ 1 } << (in.pitch & 63);
+            if (isPitchBendEvent(in))
+            {
+               if (word & bit)
+                  writer.pushBend(in.pitch, in.pitchBend, in.channel);
+               continue;
+            }
             if (in.isNoteOn)
             {
                if (!passes(params, in.pitch))
                   continue;
                word |= bit;
-               writer.push(in.pitch, in.velocity, true, in.channel);
+               writer.push(in.pitch, in.velocity, true, in.channel, 0, in.pitchBend);
             }
             else if (word & bit)
             {

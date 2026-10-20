@@ -33,20 +33,29 @@ Pulses follow the same cable rule. Transport exposes a `Clock` Pulse output. `pu
 
 ### Per-port routing
 
-- **Audio inputs.** By default the engine sums every audio cable into the module's channels. An adapter that returns `sumsAudioInputs() == false` (mixer, compressor) gets zeroed channels plus `context.audioInputs[]`, one `{ channels[2], numChannels, port }` per cable, where `port` is the destination input index. `accumulateAudioInputPort(context, port, dst, numChannels)` sums one port; `audioInputPortChannels(context, port)` reports its width. Up to 8 audio cables per module.
+- **Audio inputs.** By default the engine sums every audio cable into the module's channels. An adapter that returns `sumsAudioInputs() == false` (mixer, compressor) gets zeroed channels plus `context.audioInputs[]`, one `{ channels[2], numChannels, port }` per cable, where `port` is the destination input index. `accumulateAudioInputPort(context, port, dst, numChannels)` sums one port; `audioInputPortChannels(context, port)` reports its width. There is no cable limit: plan steps hold ranges into flat input vectors owned by the plan, sized when it compiles.
 - **Note outputs.** A source with more than one `Note` output (drumseq) tags each event with `WasmNoteEvent::outputPort` (its ordinal among the Note outputs). The plan stores a per-cable filter (`PlanStep::noteSourcePortFilters`), so a cable from drumseq *Hat* only delivers hat notes. Single-output sources are unfiltered.
 - **Pulse processors.** A `PulseSource` may take Pulse inputs. The plan orders pulse sources upstream-first (`pulseSourceNodeIndices` + `pulseSourcePlans`) and the engine passes the upstream pulses of the same block to `emitPulsesForBeatRange(..., inputPulses, inputPulseCount)`. A pulse cycle is cut: a source only reads slots evaluated before it.
 - **Scale.** `quantizesNotesToScale()` defaults to true; drumseq returns false because its pitches are trigger ids.
 
 Oscillator is 8-voice (oldest-age steal, pitch-matched note-off). Sampler still has its own allocator.
 
+## Params and the control fast path
+
+Each adapter declares a `constexpr ParamDescriptor` table (`WasmParams.h`): `{ .id, .name, .minValue, .maxValue, .defaultValue, .kind, .offset, .smoothingMs, .flags }`. The id is the row index (`paramTableIdsAreIndices`) and is stable across builds; `.offset` places the value in the adapter's POD params struct, and `.kind` says how a float is stored there (`Float`, `Int`, `Bool`, ...). A row with no offset is UI-only (serialized, never read by audio). Adapters derive from `AdapterStorage<TParams, TState>` (`AdapterStorage.h`), which generates the block sizes, placement-new and destruction. Port lists are `constexpr PortDescriptor` spans too, so compatibility checks don't allocate.
+
+- **Topology republishes.** Spawn, delete, connect, disconnect, enable and type changes rebuild the snapshot and compile a new plan (`publishAudioGraphSnapshotLocked`).
+- **Values don't.** A control change sends `{moduleId, paramId, value, seq}` through the canvas param sink (`ModuleCanvas::setParamSink`): an SPSC queue into the UI module's engine, or the event ring into the worklet engine. `AudioGraphEngine` applies queued changes at block start; params with `smoothingMs > 0` glide with a one-pole, block-rate smoother. A full queue falls back to a republish.
+- **Adoption.** Each snapshot carries `generation` and the `paramSeq` it already contains. The engine keeps a short history of applied changes and re-applies any newer than the snapshot after adopting it, so a knob value is never rolled back by a publish that crossed it in flight.
+- **Counters.** `__bespoke.getEngineStats()` reports plan compiles, publishes, `prepareRuntimeStates` calls, param changes sent/applied/dropped/stale, and resident resource bytes. A knob drag compiles no plans.
+
 ## Stereo bus
 
 Audio buffers are **planar stereo**. Each `AudioProcessPlan` slot owns `2 × blockSize` floats in `AudioGraphEngine::mAudioArena` (L, then R), sized in `prepareForBlock` on the UI thread. Modulation slots stay mono.
 
 - **Channel count per block.** Before `processAudio` the engine fills `context.audioInputs` / `context.inputChannels` and asks `outputChannelCount(params, context)`. The default follows the widest input, so a mono chain (osc → filter → gain → output) stays mono and costs what it did before. The adapter then writes `context.numChannels` buffers in `processAudio(state, params, float* const* channels, context)`; `channels[1]` is null for a mono block.
-- **Up/downmix at cable boundaries.** A mono slot hands out its L buffer as R (`WasmAudioInput::channels[1] == channels[0]`), so upmixing is free. A stereo cable into a one-channel block is summed to mid, (L + R) / 2.
-- **Who widens.** `mixer` (pan), `chorus` (voice A → L, voice B → R, scaled by `width`), `reverb` (Freeverb's L/R tails), and `sampler`/`looper` with stereo material. `gain`, `filter`, `waveshaper`, `adsr`, `delay` process each channel; `compressor` is linked (one detector on max |L|,|R|, one gain) and follows the width of its main input.
+- **Up/downmix at cable boundaries.** Ports declare `PortChannels::Any | Mono | Stereo`. The plan, not the adapter, picks a `PlanChannelMix` per cable: a stereo cable into a mono port is summed to mid, (L + R) / 2, and a mono cable into a stereo port is L on both sides. A mono slot hands out its L buffer as R (`WasmAudioInput::channels[1] == channels[0]`), so upmixing is free.
+- **Who widens.** `panner` (test module: one stereo output, equal-power `pan`), `mixer` (pan), `delay` (`pingpong` > 0 cross-couples the feedback paths), `chorus` (voice A → L, voice B → R, scaled by `width`), `reverb` (Freeverb's L/R tails), and `sampler`/`looper` with stereo material. `gain`, `filter`, `waveshaper`, `adsr`, `delay` process each channel; `compressor` is linked (one detector on max |L|,|R|, one gain) and follows the width of its main input.
 - **Output.** The Output sink copies L/R to the device independently. `bespoke_process_audio_block` and offline render still write interleaved stereo; the worklet ring is unchanged.
 - **Tests / helpers.** `WasmModuleAdapter::processMono` runs one channel (modulation sources, unit tests). `DspSimd.h` adds `accumulatePanned`, `midDownmix` and `peakAbs` next to the mono kernels; `test_stereo.cpp` checks them against scalar loops.
 
@@ -157,6 +166,48 @@ The host side is `GraphNotePump` (`src/app/graphMidiOut.ts`): every 8 ms it foll
 ### Loading a patch
 
 `bespoke_load_state_json` calls `resetAudioGraphEngineForPatch()` (`WasmRuntimeState.cpp`): the live engine is reset in place (`resetClock`: transport clock, queued input notes, every module's runtime state, plus note-offs for anything still sounding on the MIDI output) and its state is re-sized for the new graph. It keeps the block size set at init and its MIDI-out capture setting. Before this, a load swapped in a brand-new `AudioGraphEngine` that was never `prepareForBlock`'d, so `processBlock` returned early and a loaded patch stayed silent (and reported no graph notes) until something else re-prepared the engine.
+
+## Catalog wave 4 (#127: voices, note FX, stereo FX, vocoder, send, modulators)
+
+The issue calls this "catalogue wave 3"; the code and tests call it wave 4 (`test_catalog_wave4.cpp`), after the Input/EQ wave above. Every module has a graph test, a slot in the saved-state fixture, a spawn-menu entry with a description, and hover help ([live-instrument.md](live-instrument.md#module-help)).
+
+| Type id | Spawn category | Ports (in → out) | Behavior |
+| --- | --- | --- | --- |
+| `fmsynth` | Synth | Note → Audio | Desktop `FMVoice` kernel: carrier, harmonic ratio + tweak, two modulators with their own index envelope. Up to 8 voices (`voices`), oldest stolen |
+| `karplusstrong` | Synth | Note → Audio | Plucked string: sine/noise/mix/saw excitation, loop filter with group-delay compensation (pitch within 10 cents), `release` damps after the note-off |
+| `seaofgrain` | Synth | Note → Audio (stereo) | Granular voices (16 grains each) over a `SampleStore` buffer; keys set grain pitch (`mode` 1) or position (`mode` 0). Defaults to the bundled tonal pad; drop a file on it to replace |
+| `notechance` | Note | Note → Note | Passes each note with probability `chance`; `deterministic` repeats a `length`-step pattern from `seed` |
+| `capo` | Note | Note → Note | Transposes by `capo` semitones, or scale degrees with `diatonic`; `retrigger` re-sounds held notes when it moves |
+| `pitchbender` | Note | Note → Note | Adds `bend` × `range` semitones to every note, as bend events while notes sound |
+| `notesequencer` | Pulse | → Note | 16-step pitch grid with velocity and length lanes; rows walk the Scale (`mode` 0) or semitones |
+| `bitcrush` | FX | Audio → Audio | Bit depth (`crush`) and sample-and-hold (`downsamp`) |
+| `distortion` | FX | Audio → Audio | Desktop distortion types (clean … grungy), preamp, fuzz, optional input DC removal |
+| `stereowidth` | FX | Audio (stereo) → Audio | Mid/side `width` 0–2 plus a Haas delay (`widen`) that widens a mono source |
+| `pingpongdelay` | FX | Audio (stereo) → Audio | Tempo-synced (or ms) delay whose echoes alternate left/right; the first echo is left |
+| `vocoder` | FX | Carrier + Modulator → Audio | STFT (1024 / hop 256, PFFFT) with log-spaced bands; the carrier takes the modulator's smoothed band envelope |
+| `send` | FX | Audio → Out + Send | Splits a signal: `amount` goes to the Send output, `crossfade` dips the main output |
+| `envelope` | Mod | Note + Pulse → Mod | ADSR between `low` and `high`. A note-on starts it, the last note-off releases it; a pulse fires a one-shot on its frame |
+| `ramper` | Mod | Note + Pulse → Mod | `start` → `target` over `length` beats when triggered, or a transport-locked sawtooth (`mode` 1) |
+
+`eq` now draws its combined response curve (`EqModuleAdapter::responseDb`, `WidgetPainter::drawResponseCurve`).
+
+### Engine additions
+
+- **Pitch bend events.** `WasmNoteEvent::kind == NoteEventKind::PitchBend` re-bends the sounding note at `pitch` (semitones in `pitchBend`); a note-on carries its starting bend. Note processors forward them, and voices fold them into `PolyVoiceSlot::frequency`.
+- **Aux outputs.** An adapter may declare up to `kMaxAuxAudioOutputs` (3) audio outputs past its first. The plan gives each a slot (`AudioProcessPlan::auxOutputSlots`) and the adapter writes `context.auxOutputs`. `send` is the first user.
+- **Modulation sources with events.** `modulationSourcePlans` (parallel to `modulationSourceNodeIndices`) lists the Note/Pulse cables into each modulation source, so `envelope` and `ramper` see notes and pulses from the same block, upstream-first. Uncabled, they follow the performance notes like note processors do.
+- **`gain` Mod input** is additive: `clamp(gain + mod, 0, 1)` per sample (the every-dsp golden was re-recorded once for it).
+- The snapshot wire format is version 3 (aux slots and modulation event plans).
+
+### Shared infrastructure
+
+| Piece | File | Used by |
+| --- | --- | --- |
+| `PolyVoiceAdapter<Derived, Params, Voice>` | `PolyVoiceAdapter.h` | fmsynth, karplusstrong, seaofgrain: allocation and stealing, per-voice amp `dsp::Envelope`, Scale pitch + bend |
+| `NoteTransformAdapter<Derived, Params, Extra>` | `NoteTransformAdapter.h` | capo, notechance, pitchbender: one note out per key, note-offs and bends follow the pitch actually sounding |
+| Sample source helpers | `SampleSource.h` | sampler, seaofgrain: bind `extras.sampleHash`, rebind in the worklet, report resources, interpolated reads |
+| `dsp::RealFft` (PFFFT) | `dsp/Fft.h`, `third_party/pffft` | vocoder and `AudioAnalysis::computeSpectrum` (decision: [module-porting.md](module-porting.md#catalog-wave-4-127)) |
+| `dsp::Envelope`, `dsp::SineTable` | `dsp/Envelope.h`, `dsp/SineTable.h` | voices, envelope modulator, FM operators |
 
 ## Audio backends (playback)
 

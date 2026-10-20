@@ -20,42 +20,26 @@ export const loadWasmModule = async (canvas?: HTMLCanvasElement): Promise<Bespok
       const locateWasmAsset = (path: string) => resolveWasmAssetUrl(script, path);
       const factory = bespokeWindow.createBespokeSynth;
       console.log('loadWasmModule: factory type =', typeof factory);
-      if (typeof factory === 'function') {
-        const config: BespokeSynthFactoryConfig = {
-          canvas: canvas ?? document.getElementById('canvas'),
-          print: (text: unknown) => console.log(text),
-          printErr: (text: unknown) => console.error(text),
-          locateFile: locateWasmAsset,
-        };
-
-        try {
-          console.log('loadWasmModule: invoking factory to create module instance');
-          const instance = await factory(config);
-          console.log('loadWasmModule: factory resolved an instance');
-          resolve(instance);
-          return;
-        } catch (err) {
-          console.error('loadWasmModule: factory threw error', err);
-          reject(err);
-          return;
-        }
+      // MODULARIZE build: the glue defines only the factory (EXPORT_NAME=createBespokeSynth).
+      if (typeof factory !== 'function') {
+        reject(new Error(`${WASM_SCRIPT_PATH} did not define createBespokeSynth`));
+        return;
       }
+      const config: BespokeSynthFactoryConfig = {
+        canvas: canvas ?? document.getElementById('canvas'),
+        print: (text: unknown) => console.log(text),
+        printErr: (text: unknown) => console.error(text),
+        locateFile: locateWasmAsset,
+      };
 
-      if (bespokeWindow.Module?.calledRun) {
-        resolve(bespokeWindow.Module);
-      } else {
-        bespokeWindow.Module = {
-          ...bespokeWindow.Module,
-          locateFile: locateWasmAsset,
-          onRuntimeInitialized: () => {
-            console.log('loadWasmModule: onRuntimeInitialized called — resolving Module');
-            if (bespokeWindow.Module) {
-              resolve(bespokeWindow.Module);
-            } else {
-              reject(new Error('WASM Module global was not initialized'));
-            }
-          },
-        } as BespokeSynthModule;
+      try {
+        console.log('loadWasmModule: invoking factory to create module instance');
+        const instance = await factory(config);
+        console.log('loadWasmModule: factory resolved an instance');
+        resolve(instance);
+      } catch (err) {
+        console.error('loadWasmModule: factory threw error', err);
+        reject(err);
       }
     };
     script.onerror = () => reject(new Error('Failed to load WASM module'));

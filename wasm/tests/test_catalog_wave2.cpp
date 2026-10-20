@@ -85,8 +85,8 @@ void test_catalog_wave2_mixer_ports()
    {
       if (step.moduleId != 3)
          continue;
-      portsTagged = step.inputBufferSlots.size() == 2 && step.inputBufferPorts.size() == 2 &&
-                    step.inputBufferPorts.data[0] == 0 && step.inputBufferPorts.data[1] == 2;
+      const auto ports = plan.processPlan.audioInputPortsOf(step);
+      portsTagged = step.audioInputs.count == 2 && ports.size() == 2 && ports[0] == 0 && ports[1] == 2;
    }
    TEST("Plan tags mixer inputs with destination ports", portsTagged);
 
@@ -261,8 +261,8 @@ void test_catalog_wave2_pulse_and_drums()
         divided.nodes[static_cast<size_t>(order[1])].id == 1);
    TEST("ClockDivider plan reads transport scratch",
         divided.processPlan.pulseSourcePlans.size() == 2 &&
-        divided.processPlan.pulseSourcePlans[1].pulseSourceScratchSlots.size() == 1 &&
-        divided.processPlan.pulseSourcePlans[1].pulseSourceScratchSlots.data[0] == 0);
+        divided.processPlan.pulseSourcePlans[1].pulseSources.count == 1 &&
+        divided.processPlan.pulseScratchSlotsOf(divided.processPlan.pulseSourcePlans[1].pulseSources)[0] == 0);
 
    // 150 blocks × 512 @ 44.1k ≈ 1.74 s ≈ 3.5 beats at 120 BPM.
    const int dividedOnsets = count_onsets(render_blocks(divided, 150));
@@ -300,7 +300,10 @@ void test_catalog_wave2_pulse_and_drums()
    for (const auto& step : kickOnly.processPlan.steps)
    {
       if (step.moduleId == 3)
-         kickFilter = step.noteSourcePortFilters.size() == 1 && step.noteSourcePortFilters.data[0] == 0;
+      {
+         const auto filters = kickOnly.processPlan.notePortFiltersOf(step.noteSources);
+         kickFilter = filters.size() == 1 && filters[0] == 0;
+      }
    }
    TEST("Plan filters drumseq Kick cable to note port 0", kickFilter);
    TEST("DrumSeq kick 0x1111 gives four-on-the-floor", count_onsets(render_blocks(kickOnly, 150)) == 4);

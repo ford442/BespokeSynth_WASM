@@ -11,9 +11,14 @@
 #define DR_WAV_IMPLEMENTATION
 #define DR_FLAC_IMPLEMENTATION
 #define DR_MP3_IMPLEMENTATION
+// Third-party single-header decoders: not held to this project's warning flags.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#pragma clang diagnostic ignored "-Wconversion"
 #include "dr_wav.h"
 #include "dr_flac.h"
 #include "dr_mp3.h"
+#pragma clang diagnostic pop
 
 namespace bespoke
 {

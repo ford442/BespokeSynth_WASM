@@ -10,7 +10,9 @@ import {
   ringFramesFree,
   ringReadStats,
   ringWriteInterleaved,
+  IDX_READ,
   IDX_RUNNING,
+  IDX_WRITE,
   type AudioRingBuffer,
 } from './ringBuffer';
 import { workletSupport } from './audioMode';
@@ -57,20 +59,21 @@ export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRin
   const blockFrames = 128;
 
   const syncHealth = () => {
-    if (!ring || !module._bespoke_set_audio_queue_stats) return;
+    if (!ring) return;
     const stats = ringReadStats(ring.header);
     module._bespoke_set_audio_queue_stats(stats.depth, stats.capacity, stats.underruns);
   };
 
-  const ensureHeapBuffer = (frames: number) => {
-    if (heapBufferPtr && heapBufferFrames >= frames) return;
+  const ensureHeapBuffer = (frames: number): boolean => {
+    if (heapBufferPtr && heapBufferFrames >= frames) return true;
     if (heapBufferPtr) module._free(heapBufferPtr);
-    heapBufferFrames = frames;
     heapBufferPtr = module._malloc(frames * 2 * 4);
+    heapBufferFrames = heapBufferPtr ? frames : 0;
+    return heapBufferPtr !== 0;
   };
 
   const produce = () => {
-    if (!running || !ring || !module._bespoke_process_audio_block) return;
+    if (!running || !ring) return;
     const target = lookahead
       ? lookahead.update(
           ringReadStats(ring.header).underruns,
@@ -79,7 +82,7 @@ export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRin
         )
       : ring.capacityFrames;
     while (ringFramesAvailable(ring.header) < target && ringFramesFree(ring.header) >= blockFrames) {
-      ensureHeapBuffer(blockFrames);
+      if (!ensureHeapBuffer(blockFrames)) break; // heap exhausted: underrun rather than write to 0
       module._bespoke_process_audio_block(heapBufferPtr, blockFrames);
       // Emscripten replaces module.HEAPF32 when the heap grows, so read it after the call.
       const start = heapBufferPtr >> 2;
@@ -90,42 +93,73 @@ export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRin
     syncHealth();
   };
 
-  return {
-    async start() {
-      const gate = canUseWorkletRingBackend();
-      if (!gate.ok) throw new Error(gate.reason || 'worklet backend unavailable');
+  /** Builds the context, ring and node once; Stop keeps them, so Play again only restarts the producer. */
+  const open = async () => {
+    const gate = canUseWorkletRingBackend();
+    if (!gate.ok) throw new Error(gate.reason || 'worklet backend unavailable');
 
-      ctx = new AudioContext({ latencyHint: 'interactive' });
-      const sr = ctx.sampleRate;
+    const context = new AudioContext({ latencyHint: 'interactive' });
+    try {
+      const sr = context.sampleRate;
       // Capacity is the growth ceiling (0.5 s); the live lookahead starts at ~50 ms.
       const capacityFrames = Math.max(8192, Math.floor(sr * 0.5));
-      ring = createAudioRingBuffer(capacityFrames, sr);
+      const newRing = createAudioRingBuffer(capacityFrames, sr);
+      await context.audioWorklet.addModule(ringPlayerUrl());
+      const newNode = new AudioWorkletNode(context, 'bespoke-ring-player', {
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+        processorOptions: { sab: newRing.sab },
+      });
+      newNode.connect(context.destination);
+      ctx = context;
+      ring = newRing;
+      node = newNode;
       lookahead = new LookaheadController(
         Math.max(blockFrames * 4, Math.floor(sr * 0.02)),
         capacityFrames - blockFrames,
         Math.floor(sr * 0.05),
         performance.now(),
       );
+    } catch (error) {
+      void context.close();
+      throw error;
+    }
+  };
 
-      module._bespoke_set_external_audio?.(1);
-      module._bespoke_set_external_sample_rate?.(ctx.sampleRate);
-      module._bespoke_set_audio_backend_id?.(1);
-      module._bespoke_reset_audio_health?.();
+  let starting: Promise<void> | null = null;
 
-      await ctx.audioWorklet.addModule(ringPlayerUrl());
-      node = new AudioWorkletNode(ctx, 'bespoke-ring-player', {
-        numberOfOutputs: 1,
-        outputChannelCount: [2],
-        processorOptions: { sab: ring.sab },
-      });
-      node.connect(ctx.destination);
-      if (ctx.state === 'suspended') await ctx.resume();
+  const startOnce = async () => {
+    if (!ctx) await open();
+    const context = ctx as AudioContext;
+    if (context.state === 'suspended') await context.resume();
 
-      // Prefill before the worklet starts consuming so the first quantum is not an underrun.
-      running = true;
-      produce();
-      Atomics.store(ring.header, IDX_RUNNING, 1);
-      producerTimer = window.setInterval(produce, 4);
+    // Only now does the UI module hand its audio to us: a failure above leaves it on SDL.
+    module._bespoke_set_external_audio(1);
+    module._bespoke_set_external_sample_rate(context.sampleRate);
+    module._bespoke_set_audio_backend_id(1);
+    module._bespoke_reset_audio_health();
+
+    // Audio queued before the last Stop is stale. The worklet leaves the read index alone
+    // while IDX_RUNNING is 0, so the producer may rewind its write index onto it.
+    if (ring) Atomics.store(ring.header, IDX_WRITE, Atomics.load(ring.header, IDX_READ));
+
+    // Prefill before the worklet starts consuming so the first quantum is not an underrun.
+    running = true;
+    produce();
+    if (ring) Atomics.store(ring.header, IDX_RUNNING, 1);
+    producerTimer = window.setInterval(produce, 4);
+  };
+
+  return {
+    /** Idempotent while in flight (a double-click on Play starts one context). Rejects with nothing left on. */
+    start() {
+      if (running) return Promise.resolve();
+      if (!starting) {
+        starting = startOnce().finally(() => {
+          starting = null;
+        });
+      }
+      return starting;
     },
 
     stop() {
@@ -155,8 +189,8 @@ export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRin
       }
       ring = null;
       lookahead = null;
-      module._bespoke_set_external_audio?.(0);
-      module._bespoke_set_audio_backend_id?.(0);
+      module._bespoke_set_external_audio(0);
+      module._bespoke_set_audio_backend_id(0);
     },
 
     isRunning() {

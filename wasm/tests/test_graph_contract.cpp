@@ -33,6 +33,7 @@ void test_graph_contract_pulse_voices_midi_scale()
 
    AudioGraphEngine pulseEngine;
    pulseEngine.prepareForBlock(512, 128, 32);
+   pulseEngine.prepareRuntimeStates(pulseGraph);
    double pulseEnergy = 0.0;
    for (int block = 0; block < 80; ++block)
    {
@@ -49,6 +50,7 @@ void test_graph_contract_pulse_voices_midi_scale()
    compileAudioProcessPlan(silentPulse, silentPulse.processPlan);
    AudioGraphEngine silentEngine;
    silentEngine.prepareForBlock(512, 128, 32);
+   silentEngine.prepareRuntimeStates(silentPulse);
    double silentEnergy = 0.0;
    for (int block = 0; block < 40; ++block)
    {
@@ -133,6 +135,8 @@ void test_graph_contract_pulse_voices_midi_scale()
    seqEngineB.prepareForBlock(512, 128, 32);
    compileAudioProcessPlan(seqC, seqC.processPlan);
    compileAudioProcessPlan(seqMajor, seqMajor.processPlan);
+   seqEngineA.prepareRuntimeStates(seqC);
+   seqEngineB.prepareRuntimeStates(seqMajor);
    double diff = 0.0;
    for (int block = 0; block < 40; ++block)
    {

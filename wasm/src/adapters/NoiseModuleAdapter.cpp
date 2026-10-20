@@ -5,7 +5,7 @@
 #include "BespokeWasm/adapters/NoiseModuleAdapter.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -24,46 +24,34 @@ namespace bespoke
             const float unit = static_cast<float>(state.rng >> 8) * (1.0f / 16777216.0f);
             return unit * 2.0f - 1.0f;
          }
-      }
 
-      std::vector<WasmControlDescriptor> NoiseModuleAdapter::controlDescriptors() const
-      {
-         return {
-            { "volume", 0.35f },
-            { "color", 0.0f },
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "volume", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.35f, .offset = offsetof(NoiseParams, volume), .smoothingMs = kParamSmoothingMs },
+            { .id = 1, .name = "color", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.0f, .kind = ParamKind::Int, .offset = offsetof(NoiseParams, color) },
          };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
       }
 
-      std::vector<PortDescriptor> NoiseModuleAdapter::inputPorts() const
+      ParamTable NoiseModuleAdapter::paramTable() const
+      {
+         return kParams;
+      }
+
+      std::span<const PortDescriptor> NoiseModuleAdapter::inputPorts() const
       {
          return {};
       }
 
-      std::vector<PortDescriptor> NoiseModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> NoiseModuleAdapter::outputPorts() const
       {
-         return { { PortType::Audio, "Out" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> NoiseModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<NoiseModule>(id);
-      }
-
-      void NoiseModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         auto* params = new (dst) NoiseParams();
-         params->volume = wasmControlValue(controls, "volume", 0.35f);
-         params->color = static_cast<int>(wasmControlValue(controls, "color", 0.0f));
-      }
-
-      void NoiseModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) NoiseAdapterRuntimeState();
-      }
-
-      void NoiseModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<NoiseAdapterRuntimeState*>(runtimeState)->~NoiseAdapterRuntimeState();
       }
 
       void NoiseModuleAdapter::processAudio(void* runtimeState,

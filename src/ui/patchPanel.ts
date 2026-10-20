@@ -72,7 +72,7 @@ export function setupPatchPanel(
 
   save.addEventListener('click', async () => {
     const defaultName = select.value
-      ? select.selectedOptions[0]?.textContent ?? 'Untitled patch'
+      ? select.selectedOptions.item(0)?.textContent ?? 'Untitled patch'
       : 'Untitled patch';
     const name = window.prompt('Patch name', defaultName);
     if (name === null) return;
@@ -121,7 +121,7 @@ export function setupPatchPanel(
       callbacks.showPatchStatus('Select a saved patch to delete');
       return;
     }
-    const patchName = select.selectedOptions[0]?.textContent ?? 'patch';
+    const patchName = select.selectedOptions.item(0)?.textContent ?? 'patch';
     await storage.remove(select.value);
     callbacks.setSelectedPatchId(undefined);
     await refresh();
@@ -165,7 +165,7 @@ export function createPatchStatusHelpers(): {
     toast.classList.add('visible');
     if (patchStatusTimerRef.current !== null) window.clearTimeout(patchStatusTimerRef.current);
     patchStatusTimerRef.current = window.setTimeout(() => {
-      toast?.classList.remove('visible');
+      toast.classList.remove('visible');
       patchStatusTimerRef.current = null;
     }, durationMs);
   };

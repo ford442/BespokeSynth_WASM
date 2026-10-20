@@ -10,6 +10,7 @@
 #include "BespokeWasm/ModuleTypes.h"
 #include "BespokeWasm/TuningTable.h"
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace bespoke
@@ -43,44 +44,39 @@ namespace bespoke
          PortType destPortType = PortType::Audio;
       };
 
-      template <typename T, int Capacity>
-      struct SmallVec
+      /** A run of entries in one of AudioProcessPlan's flat input lists. */
+      struct PlanRange
       {
-         static constexpr int kCapacity = Capacity;
+         uint32_t begin = 0;
+         uint32_t count = 0;
 
-         T data[Capacity]{};
-         int count = 0;
-
-         bool full() const { return count >= Capacity; }
-
-         void clear() { count = 0; }
-
-         void push_back(T value)
-         {
-            if (count < Capacity)
-               data[count++] = value;
-         }
-
-         const T* begin() const { return data; }
-         const T* end() const { return data + count; }
-         int size() const { return count; }
+         bool empty() const { return count == 0; }
       };
 
+      /** How the engine adapts a cable's width to the destination port (PortChannels). */
+      enum class PlanChannelMix : uint8_t
+      {
+         AsIs = 0,
+         ToMono = 1, // stereo cable into a mono port: (L + R) / 2
+         ToStereo = 2, // mono cable into a stereo port: L on both sides
+      };
+
+      /**
+       * One module in topological order. Input lists are ranges into the plan's flat vectors
+       * (sized when the plan compiles), so a module takes any number of cables.
+       */
       struct PlanStep
       {
          int nodeIndex = -1;
          int moduleId = -1;
          int typeIndex = -1;
          WasmAudioRole audioRole = WasmAudioRole::None;
-         int outBufferSlot = -1;
-         SmallVec<int, 8> inputBufferSlots;
-         SmallVec<int, 8> inputBufferPorts; // dest input port index, parallel to inputBufferSlots
-         SmallVec<int, 4> modulationSourceSlots;
-         SmallVec<int, 4> noteSourceSlots;
-         SmallVec<int, 4> noteSourceScratchSlots;
-         SmallVec<int, 4> noteSourcePortFilters; // parallel; -1 = any, else WasmNoteEvent::outputPort
-         SmallVec<int, 4> pulseSourceSlots;
-         SmallVec<int, 4> pulseSourceScratchSlots;
+         int outBufferSlot = -1; // the first Audio output
+         PlanRange auxOutputs; // auxOutputSlots: the 2nd, 3rd... Audio outputs (send)
+         PlanRange audioInputs; // audioInputSlots / audioInputPorts / audioInputMix
+         PlanRange modulationSources; // modulationSourceSlots
+         PlanRange noteSources; // noteScratchSlots / notePortFilters
+         PlanRange pulseSources; // pulseScratchSlots
          bool hasNoteCable = false;
          bool hasPulseCable = false;
       };
@@ -88,11 +84,10 @@ namespace bespoke
       struct EventSourcePlan
       {
          int nodeIndex = -1;
-         SmallVec<int, 4> pulseSourceScratchSlots;
+         PlanRange pulseSources; // upstream pulse emitters (earlier slots)
          bool hasPulseCable = false;
          // Note processors: upstream emitters, always earlier slots of the same plan.
-         SmallVec<int, 4> noteSourceScratchSlots;
-         SmallVec<int, 4> noteSourcePortFilters; // parallel; -1 = any, else WasmNoteEvent::outputPort
+         PlanRange noteSources;
          bool hasNoteCable = false;
          bool isProcessor = false;
          /**
@@ -112,6 +107,8 @@ namespace bespoke
          int modulationSlotCount = 0;
          std::vector<PlanStep> steps;
          std::vector<int> modulationSourceNodeIndices;
+         /** Parallel to modulationSourceNodeIndices: the Note / Pulse cables into each (envelope, ramper). */
+         std::vector<EventSourcePlan> modulationSourcePlans;
          // Note emitters (sources and processors), upstream-first so a processor runs after its feeders.
          std::vector<int> noteSourceNodeIndices;
          std::vector<EventSourcePlan> noteSourcePlans; // parallel to noteSourceNodeIndices
@@ -120,6 +117,35 @@ namespace bespoke
          std::vector<int> pulseSourceNodeIndices; // upstream-first (pulse processors after their sources)
          std::vector<EventSourcePlan> pulseSourcePlans; // parallel to pulseSourceNodeIndices
          std::vector<int> nodeIndexByModuleId;
+
+         // Flat input lists that PlanStep / EventSourcePlan ranges index.
+         std::vector<int> audioInputSlots; // source audio buffer slot
+         std::vector<int> audioInputPorts; // destination input port, parallel
+         std::vector<PlanChannelMix> audioInputMix; // parallel
+         std::vector<int> modulationSourceSlots;
+         std::vector<int> noteScratchSlots; // note emitter scratch slot
+         std::vector<int> notePortFilters; // parallel; -1 = any, else WasmNoteEvent::outputPort
+         std::vector<int> pulseScratchSlots;
+         std::vector<int> auxOutputSlots; // audio buffer slot per extra Audio output, in port order
+         /** Largest audio fan-in of any step (sizes the engine's per-step input scratch). */
+         int maxAudioFanIn = 0;
+
+         std::span<const int> slice(const std::vector<int>& list, PlanRange range) const
+         {
+            if (range.begin > list.size() || range.count > list.size() - range.begin)
+               return {};
+            return { list.data() + range.begin, range.count };
+         }
+         std::span<const int> audioInputSlotsOf(const PlanStep& step) const { return slice(audioInputSlots, step.audioInputs); }
+         std::span<const int> audioInputPortsOf(const PlanStep& step) const { return slice(audioInputPorts, step.audioInputs); }
+         std::span<const int> modulationSlotsOf(const PlanStep& step) const
+         {
+            return slice(modulationSourceSlots, step.modulationSources);
+         }
+         std::span<const int> noteScratchSlotsOf(PlanRange range) const { return slice(noteScratchSlots, range); }
+         std::span<const int> notePortFiltersOf(PlanRange range) const { return slice(notePortFilters, range); }
+         std::span<const int> pulseScratchSlotsOf(PlanRange range) const { return slice(pulseScratchSlots, range); }
+         std::span<const int> auxOutputSlotsOf(const PlanStep& step) const { return slice(auxOutputSlots, step.auxOutputs); }
       };
 
       struct GraphMusicScale
@@ -142,6 +168,13 @@ namespace bespoke
 
       struct AudioGraphSnapshot
       {
+         /**
+          * Topology publish counter (ModuleCanvas). The engine re-reads the param arena only when it
+          * changes; 0 marks an untracked snapshot (tests, offline), read afresh every block.
+          */
+         uint64_t generation = 0;
+         /** Last ParamChange::seq reflected in paramArena; later queued changes still apply. */
+         uint32_t paramSeq = 0;
          bool transportPlaying = false;
          float transportBPM = 120.0f;
          GraphMusicScale musicScale;

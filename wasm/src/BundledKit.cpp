@@ -21,6 +21,11 @@ namespace bespoke
             { "tom", "ca7e3978e10790f7deaa317eec3a33f00e4e279a76473571e8248b99e2d042b8", 45 },
          };
 
+         // scripts/gen_tonal_samples.py (also deterministic).
+         const BundledKitSample kTonal[kBundledTonalSampleCount] = {
+            { "pad", "5108d536d9bc7975f804e7b4e39ec5b813666ad8369936876f643faf25aa78f3", 60 },
+         };
+
          bool readFile(const std::string& path, std::vector<uint8_t>& out)
          {
             FILE* file = std::fopen(path.c_str(), "rb");
@@ -32,6 +37,18 @@ namespace bespoke
                out.insert(out.end(), chunk, chunk + got);
             std::fclose(file);
             return !out.empty();
+         }
+
+         const SampleBuffer* loadBundled(const BundledKitSample& piece, const char* directory)
+         {
+            std::vector<uint8_t> bytes;
+            if (!readFile(std::string(directory) + "/" + piece.name + ".wav", bytes))
+               return nullptr;
+            auto& store = SampleStore::instance();
+            const std::string name = std::string(piece.name) + ".wav";
+            if (store.loadFromMemory(bytes.data(), static_cast<int>(bytes.size()), name.c_str(), store.deviceSampleRate()) < 0)
+               return nullptr;
+            return store.findByHash(piece.sha256);
          }
       }
 
@@ -45,6 +62,16 @@ namespace bespoke
          return "/resource/kits/basic";
       }
 
+      const BundledKitSample* bundledTonalSamples()
+      {
+         return kTonal;
+      }
+
+      const char* bundledTonalDirectory()
+      {
+         return "/resource/samples/tonal";
+      }
+
       const SampleBuffer* findSampleOrBundled(const std::string& hash)
       {
          auto& store = SampleStore::instance();
@@ -53,16 +80,16 @@ namespace bespoke
 
          for (const BundledKitSample& piece : kKit)
          {
-            if (hash != piece.sha256)
-               continue;
-            std::vector<uint8_t> bytes;
-            if (!readFile(std::string(bundledKitDirectory()) + "/" + piece.name + ".wav", bytes))
-               return nullptr;
-            const std::string name = std::string(piece.name) + ".wav";
-            if (store.loadFromMemory(bytes.data(), static_cast<int>(bytes.size()), name.c_str(), store.deviceSampleRate()) < 0)
-               return nullptr;
-            return store.findByHash(hash);
+            if (hash == piece.sha256)
+               return loadBundled(piece, bundledKitDirectory());
          }
+         for (const BundledKitSample& piece : kTonal)
+         {
+            if (hash == piece.sha256)
+               return loadBundled(piece, bundledTonalDirectory());
+         }
+         // A user sample that was evicted (or not restored yet): the host loads it from OPFS.
+         store.noteMissing(hash);
          return nullptr;
       }
 

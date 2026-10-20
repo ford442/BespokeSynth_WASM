@@ -50,7 +50,12 @@ EMSCRIPTEN_KEEPALIVE void bespoke_key_up(int keyCode, int modifiers)
    routeKeyUp(keyCode, modifiers);
 }
 
-EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_on(int channel, int pitch, float velocity)
+/**
+ * A performance note (MIDI in, QWERTY, the on-screen piano). `time` is when it should start, in
+ * AudioContext seconds (0 = now): the AudioWorklet engine starts it on that frame; SDL and the
+ * main-thread ring play it at their next block.
+ */
+EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_on(int channel, int pitch, float velocity, double time)
 {
    auto& state = runtimeState();
    if (!state.audioGraphEngine)
@@ -61,11 +66,10 @@ EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_on(int channel, int pitch, float vel
       if (listenChannel >= 0 && channel != listenChannel)
          return;
    }
-   queuePerformanceNote({ pitch, std::max(0.0f, std::min(1.0f, velocity)), true, emscripten_get_now() / 1000.0,
-                          channel });
+   queuePerformanceNote({ pitch, std::max(0.0f, std::min(1.0f, velocity)), true, time > 0.0 ? time : 0.0, channel });
 }
 
-EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_off(int channel, int pitch)
+EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_off(int channel, int pitch, double time)
 {
    auto& state = runtimeState();
    if (!state.audioGraphEngine)
@@ -76,7 +80,7 @@ EMSCRIPTEN_KEEPALIVE void bespoke_midi_note_off(int channel, int pitch)
       if (listenChannel >= 0 && channel != listenChannel)
          return;
    }
-   queuePerformanceNote({ pitch, 0.0f, false, emscripten_get_now() / 1000.0, channel });
+   queuePerformanceNote({ pitch, 0.0f, false, time > 0.0 ? time : 0.0, channel });
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_midi_cc(int channel, int cc, float value)
