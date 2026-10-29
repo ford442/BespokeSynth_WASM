@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/AdapterStorage.h"
 
 namespace bespoke
 {
@@ -33,7 +33,7 @@ namespace bespoke
          float envelopeDb = 0.0f; // smoothed gain change (<= 0)
       };
 
-      class CompressorModuleAdapter : public WasmModuleAdapter
+      class CompressorModuleAdapter : public AdapterStorage<CompressorParams, CompressorRuntimeState>
       {
       public:
          const char* typeId() const override { return "compressor"; }
@@ -44,17 +44,11 @@ namespace bespoke
          /** Width of the main input; the sidechain only keys the detector. */
          int outputChannelCount(const void* params, const WasmAudioProcessContext& context) const override;
 
-         std::vector<WasmControlDescriptor> controlDescriptors() const override;
-         std::vector<PortDescriptor> inputPorts() const override;
-         std::vector<PortDescriptor> outputPorts() const override;
+         ParamTable paramTable() const override;
+         std::span<const PortDescriptor> inputPorts() const override;
+         std::span<const PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
 
-         size_t paramsSize() const override { return sizeof(CompressorParams); }
-         void fillParams(const WasmControlMap& controls, void* dst) const override;
-
-         size_t runtimeStateSize() const override { return sizeof(CompressorRuntimeState); }
-         void initRuntimeState(void* runtimeState) const override;
-         void destroyRuntimeState(void* runtimeState) const override;
          void processAudio(void* runtimeState,
                            const void* params,
                            float* const* channels,

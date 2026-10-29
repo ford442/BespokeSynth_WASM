@@ -1,0 +1,10 @@
+{
+  "fm-arpeggio": { "hash": "e3a7d9aed82ac88a", "rmsDb": -25.93 },
+  "fm-chord-pad": { "hash": "c2986e8cbd198d05", "rmsDb": -20.19 },
+  "plucked-strings": { "hash": "e67011a5585ea6ff", "rmsDb": -25.49 },
+  "granular-pad": { "hash": "736f1f58c1e1f11b", "rmsDb": -15.75 },
+  "drum-bus": { "hash": "217520bc01ae4407", "rmsDb": -19.13 },
+  "robot-vocoder": { "hash": "c866dce345e8f3ff", "rmsDb": -18.57 },
+  "send-bus": { "hash": "328c393de03ece0c", "rmsDb": -30.41 },
+  "modulated-bass": { "hash": "0d74a09eecbf9e1f", "rmsDb": -15.76 }
+}

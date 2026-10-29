@@ -8,4 +8,8 @@
 // everything else should go through BespokeWasm/TuningTable.h.
 #pragma once
 
+// Third-party (libs/tuning-library): not held to this project's warning flags.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
 #include "../../../libs/tuning-library/include/Tunings.h"
+#pragma clang diagnostic pop

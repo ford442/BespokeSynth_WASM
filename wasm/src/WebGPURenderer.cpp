@@ -96,8 +96,7 @@ void WebGPURenderer::endFrame() {
     }
 
     mFrameStarted = false;
-    extern bool gBespokePendingScreenshotCapture;
-    mContext.endFrame(gBespokePendingScreenshotCapture);
+    mContext.endFrame();
 }
 
 void WebGPURenderer::save() {
@@ -264,7 +263,7 @@ void WebGPURenderer::arc(float cx, float cy, float r, float a0, float a1, int di
     }
     
     int numSegments = std::max(3, static_cast<int>(std::abs(da) * r / kArcTessellationFactor));
-    float dAngle = da / numSegments;
+    float dAngle = da / static_cast<float>(numSegments);
     
     if (!mPathHasStart) {
         float startX = cx + cosf(a0) * r;
@@ -273,7 +272,7 @@ void WebGPURenderer::arc(float cx, float cy, float r, float a0, float a1, int di
     }
     
     for (int i = 1; i <= numSegments; i++) {
-        float angle = a0 + dAngle * i;
+        float angle = a0 + dAngle * static_cast<float>(i);
         float x = cx + cosf(angle) * r;
         float y = cy + sinf(angle) * r;
         
@@ -287,16 +286,11 @@ void WebGPURenderer::arc(float cx, float cy, float r, float a0, float a1, int di
     }
 }
 
-void WebGPURenderer::arcTo(float x1, float y1, float x2, float y2, float radius) {
+void WebGPURenderer::arcTo(float x1, float y1, float x2, float y2, float /*radius*/) {
     // Simplified arc-to implementation
     transformPoint(x1, y1);
     transformPoint(x2, y2);
-    
-    float dx1 = mPathX - x1;
-    float dy1 = mPathY - y1;
-    float dx2 = x2 - x1;
-    float dy2 = y2 - y1;
-    
+
     // Just draw lines for now
     lineTo(x1, y1);
     lineTo(x2, y2);
@@ -316,8 +310,8 @@ void WebGPURenderer::fill() {
         cy += mPathPoints[i + 1];
         numPoints++;
     }
-    cx /= numPoints;
-    cy /= numPoints;
+    cx /= static_cast<float>(numPoints);
+    cy /= static_cast<float>(numPoints);
     
     // Draw triangles from center
     for (size_t i = 0; i < mPathPoints.size() - 2; i += 2) {
@@ -342,9 +336,6 @@ void WebGPURenderer::stroke() {
         float dy = y2 - y1;
         float len = sqrtf(dx * dx + dy * dy);
         if (len < 0.0001f) continue;
-        
-        float nx = -dy / len * mCurrentState.strokeWidth * 0.5f;
-        float ny = dx / len * mCurrentState.strokeWidth * 0.5f;
         
         // This actually draws filled quads (triangles), not lines, so we use pushVertex
         // Note: stroke pipeline is configured as LineList but here we are generating quads.
@@ -532,6 +523,39 @@ void WebGPURenderer::pushQuad(float x0, float y0, float x1, float y1,
     pushVertex(tx1, ty1, u0, v0, color);
     pushVertex(tx3, ty3, u1, v1, color);
     pushVertex(tx4, ty4, u0, v1, color);
+}
+
+void WebGPURenderer::drawQuad(ShaderKind kind, float x, float y, float w, float h) {
+    WGPURenderPipeline pipeline = mPipelines.solid;
+    switch (kind) {
+        case ShaderKind::Solid: pipeline = mPipelines.solid; break;
+        case ShaderKind::KnobHighlight: pipeline = mPipelines.knob_highlight; break;
+        case ShaderKind::DialTicks: pipeline = mPipelines.dial_ticks; break;
+        case ShaderKind::WireGlow: pipeline = mPipelines.wire_glow; break;
+        case ShaderKind::ConnectionPulse: pipeline = mPipelines.connection_pulse; break;
+        case ShaderKind::SliderTrack: pipeline = mPipelines.slider_track; break;
+        case ShaderKind::SliderFill: pipeline = mPipelines.slider_fill; break;
+        case ShaderKind::SliderHandle: pipeline = mPipelines.slider_handle; break;
+        case ShaderKind::Button: pipeline = mPipelines.button; break;
+        case ShaderKind::ButtonHover: pipeline = mPipelines.button_hover; break;
+        case ShaderKind::ToggleSwitch: pipeline = mPipelines.toggle_switch; break;
+        case ShaderKind::ToggleThumb: pipeline = mPipelines.toggle_thumb; break;
+        case ShaderKind::VUMeter: pipeline = mPipelines.vu_meter; break;
+        case ShaderKind::ADSRGrid: pipeline = mPipelines.adsr_grid; break;
+        case ShaderKind::PanelBackground: pipeline = mPipelines.panel_background; break;
+        case ShaderKind::PanelBordered: pipeline = mPipelines.panel_bordered; break;
+        case ShaderKind::LEDOn: pipeline = mPipelines.led_indicator; break;
+        case ShaderKind::LEDOff: pipeline = mPipelines.led_off; break;
+        case ShaderKind::SpectrumBar: pipeline = mPipelines.spectrum_bar; break;
+        case ShaderKind::SpectrumPeak: pipeline = mPipelines.spectrum_peak; break;
+        case ShaderKind::ProgressBar: pipeline = mPipelines.progress_bar; break;
+        case ShaderKind::ModWheel: pipeline = mPipelines.mod_wheel; break;
+        case ShaderKind::ScopeGrid: pipeline = mPipelines.scope_grid; break;
+        case ShaderKind::FaderGroove: pipeline = mPipelines.fader_groove; break;
+        case ShaderKind::FaderCap: pipeline = mPipelines.fader_cap; break;
+        case ShaderKind::Count: break;
+    }
+    drawQuad(x, y, w, h, pipeline ? pipeline : mPipelines.solid);
 }
 
 void WebGPURenderer::drawQuad(float x, float y, float w, float h, WGPURenderPipeline pipeline) {

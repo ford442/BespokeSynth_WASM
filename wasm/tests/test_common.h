@@ -41,6 +41,13 @@
 #include "BespokeWasm/adapters/WaveshaperModuleAdapter.h"
 #include "BespokeWasm/adapters/ClockDividerModuleAdapter.h"
 #include "BespokeWasm/adapters/DrumSeqModuleAdapter.h"
+#include "BespokeWasm/adapters/InputModuleAdapter.h"
+#include "BespokeWasm/adapters/EqModuleAdapter.h"
+#include "BespokeWasm/adapters/ChorderModuleAdapter.h"
+#include "BespokeWasm/adapters/ArpeggiatorModuleAdapter.h"
+#include "BespokeWasm/adapters/NoteFilterModuleAdapter.h"
+#include "BespokeWasm/adapters/NoteRouterModuleAdapter.h"
+#include "BespokeWasm/PlaceholderModule.h"
 #include "BespokeWasm/SliderPanelModule.h"
 #include "BespokeWasm/ScaleQuantize.h"
 #include "BespokeWasm/MidiMap.h"
@@ -111,6 +118,41 @@ void test_script_note_queue();
 void test_stereo_dsp_kernels();
 void test_stereo_graph();
 void test_stereo_patch_migration();
+void test_note_processor_registration();
+void test_note_processors_dsp();
+void test_note_processor_graph();
+void test_input_module();
+void test_eq_module();
+void test_bundled_drum_kit();
+void test_wave3_saved_state_fixture();
+void test_unknown_type_placeholders();
+void test_audio_graph_snapshot_codec();
+void test_audio_worklet_engine_abi();
+void test_timed_notes();
+void test_runtime_safety();
+void test_golden_renders();
+void test_golden_demos();
+void test_engine_foundation();
+void test_widget_painter();
+void test_fft();
+void test_fft_benchmark();
+void test_catalog_wave4_registration();
+void test_catalog_wave4_note_fx();
+void test_catalog_wave4_fx();
+void test_catalog_wave4_send_and_modulators();
+void test_catalog_wave4_voices();
+void test_catalog_wave4_eq_curve();
+void test_catalog_wave4_vocoder();
+void test_catalog_wave4_note_sequencer();
+void test_catalog_wave4_arp_fm_chain();
+void test_catalog_wave4_saved_state_fixture();
+void test_module_help_table();
+void test_module_help_wrap_text();
+void test_module_help_canvas();
+void test_desktop_import_header();
+void test_desktop_import_layout();
+void test_desktop_import_cables_and_collisions();
+void test_desktop_import_bundled_example();
 
 // --- Shared helpers ---
 
@@ -120,6 +162,46 @@ inline float buffer_rms(const std::vector<float>& buffer)
    for (float sample : buffer)
       sum += sample * sample;
    return std::sqrt(sum / static_cast<double>(buffer.size()));
+}
+
+// Loading a patch renumbers its modules, so tests find them by saved type.
+inline int canvas_module_id(const ModuleCanvas& canvas, const std::string& type, int nth = 0)
+{
+   for (const auto& module : canvas.createStateSnapshot().modules)
+   {
+      if (module.type == type && nth-- == 0)
+         return module.id;
+   }
+   return -1;
+}
+
+// A saved patch reduced to what survives renumbering: modules (type, position, values) and cables
+// named by their endpoint types, sorted. Equal strings mean the same patch.
+inline std::string canonical_by_type(const ModuleCanvas::StateSnapshot& snapshot)
+{
+   std::map<int, std::string> typeById;
+   std::vector<std::string> lines;
+   for (const auto& module : snapshot.modules)
+   {
+      typeById[module.id] = module.type;
+      std::string line = "module " + module.type + " @" + std::to_string(module.x) + "," + std::to_string(module.y) +
+                         (module.enabled ? " on" : " off");
+      for (const auto& [name, value] : module.controls)
+         line += " " + name + "=" + std::to_string(value);
+      for (const auto& [name, value] : module.extras)
+         line += " " + name + "='" + value + "'";
+      lines.push_back(line);
+   }
+   for (const auto& cable : snapshot.connections)
+   {
+      lines.push_back("cable " + typeById[cable.sourceModuleId] + ":" + std::to_string(cable.sourcePortIndex) + ">" +
+                      typeById[cable.destModuleId] + ":" + std::to_string(cable.destPortIndex));
+   }
+   std::sort(lines.begin(), lines.end());
+   std::string joined;
+   for (const auto& line : lines)
+      joined += line + "\n";
+   return joined;
 }
 
 inline AudioGraphSnapshot make_test_graph(float gain, float cutoff, float lfoDepth)
@@ -167,6 +249,7 @@ inline std::vector<float> render_graph(AudioGraphSnapshot graph, AudioGraphEngin
    AudioGraphEngine localEngine;
    AudioGraphEngine& activeEngine = engine ? *engine : localEngine;
    activeEngine.prepareForBlock(bufferSize, 128, 32);
+   activeEngine.prepareRuntimeStates(graph);
    std::vector<float> left(bufferSize, 0.0f);
    std::vector<float> right(bufferSize, 0.0f);
    float* outputs[2] = { left.data(), right.data() };
@@ -202,6 +285,7 @@ inline std::vector<float> render_blocks(AudioGraphSnapshot& graph, int blocks, i
    compileAudioProcessPlan(graph, graph.processPlan);
    AudioGraphEngine engine;
    engine.prepareForBlock(blockSize, 128, 32);
+   engine.prepareRuntimeStates(graph);
    std::vector<float> all;
    all.reserve(static_cast<size_t>(blocks * blockSize));
    std::vector<float> left(static_cast<size_t>(blockSize));

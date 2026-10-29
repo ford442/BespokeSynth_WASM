@@ -1,5 +1,5 @@
 /**
- * BespokeSynth WASM - WebGL2 Renderer: state, paths and text
+ * BespokeSynth WASM - WebGL2 Renderer: state, paths, shader quads and text
  *
  * Copyright (C) 2024
  * Licensed under GNU GPL v3
@@ -10,6 +10,7 @@
 #include "BespokeWasm/PixelFont.h"
 #include "BespokeWasm/SdfFont.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
@@ -218,7 +219,7 @@ void WebGL2Renderer::arc(float cx, float cy, float r, float a0, float a1, int di
       da += TWO_PI;
 
    const int numSegments = std::max(3, static_cast<int>(std::abs(da) * r / kArcTessellationFactor));
-   const float dAngle = da / numSegments;
+   const float dAngle = da / static_cast<float>(numSegments);
 
    if (!mPathHasStart)
    {
@@ -227,7 +228,7 @@ void WebGL2Renderer::arc(float cx, float cy, float r, float a0, float a1, int di
 
    for (int i = 1; i <= numSegments; ++i)
    {
-      const float angle = a0 + dAngle * i;
+      const float angle = a0 + dAngle * static_cast<float>(i);
       const float x = cx + cosf(angle) * r;
       const float y = cy + sinf(angle) * r;
       mPathPoints.push_back(mPathX);
@@ -263,8 +264,8 @@ void WebGL2Renderer::fill()
       cy += mPathPoints[i + 1];
       ++numPoints;
    }
-   cx /= numPoints;
-   cy /= numPoints;
+   cx /= static_cast<float>(numPoints);
+   cy /= static_cast<float>(numPoints);
 
    for (size_t i = 0; i + 3 < mPathPoints.size(); i += 2)
    {
@@ -476,6 +477,72 @@ float WebGL2Renderer::textHeight() const
    return pixelFontTextHeight(mFontSize);
 }
 
+
+namespace {
+
+// ShaderKind (Renderer2D) -> the program that implements it.
+constexpr std::array<GLPipelineKind, static_cast<size_t>(ShaderKind::Count)> kShaderPipelines = {
+   GLPipelineKind::Solid,
+   GLPipelineKind::KnobHighlight,
+   GLPipelineKind::DialTicks,
+   GLPipelineKind::WireGlow,
+   GLPipelineKind::ConnectionPulse,
+   GLPipelineKind::SliderTrack,
+   GLPipelineKind::SliderFill,
+   GLPipelineKind::SliderHandle,
+   GLPipelineKind::Button,
+   GLPipelineKind::ButtonHover,
+   GLPipelineKind::ToggleSwitch,
+   GLPipelineKind::ToggleThumb,
+   GLPipelineKind::VUMeter,
+   GLPipelineKind::ADSRGrid,
+   GLPipelineKind::PanelBackground,
+   GLPipelineKind::PanelBordered,
+   GLPipelineKind::LEDOn,
+   GLPipelineKind::LEDOff,
+   GLPipelineKind::SpectrumBar,
+   GLPipelineKind::SpectrumPeak,
+   GLPipelineKind::ProgressBar,
+   GLPipelineKind::ModWheel,
+   GLPipelineKind::ScopeGrid,
+   GLPipelineKind::FaderGroove,
+   GLPipelineKind::FaderCap,
+};
+
+} // namespace
+
+void WebGL2Renderer::drawQuad(ShaderKind kind, float x, float y, float w, float h)
+{
+   const size_t index = static_cast<size_t>(kind);
+   drawQuad(x, y, w, h, index < kShaderPipelines.size() ? kShaderPipelines[index] : GLPipelineKind::Solid);
+}
+
+void WebGL2Renderer::drawQuad(float x, float y, float w, float h, GLPipelineKind pipeline)
+{
+   setPipeline(pipeline);
+   float tx1 = x, ty1 = y;
+   float tx2 = x + w, ty2 = y;
+   float tx3 = x + w, ty3 = y + h;
+   float tx4 = x, ty4 = y + h;
+   transformPoint(tx1, ty1);
+   transformPoint(tx2, ty2);
+   transformPoint(tx3, ty3);
+   transformPoint(tx4, ty4);
+
+   const Color& color = mCurrentState.fillColor;
+   pushVertex(tx1, ty1, 0.0f, 0.0f, color);
+   pushVertex(tx2, ty2, 1.0f, 0.0f, color);
+   pushVertex(tx3, ty3, 1.0f, 1.0f, color);
+   pushVertex(tx1, ty1, 0.0f, 0.0f, color);
+   pushVertex(tx3, ty3, 1.0f, 1.0f, color);
+   pushVertex(tx4, ty4, 0.0f, 1.0f, color);
+}
+
+void WebGL2Renderer::drawSolidQuad(float x, float y, float w, float h, const Color& color)
+{
+   fillColor(color);
+   drawQuad(x, y, w, h, GLPipelineKind::Solid);
+}
 
 } // namespace wasm
 } // namespace bespoke

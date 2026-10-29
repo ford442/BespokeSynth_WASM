@@ -39,7 +39,7 @@ Audio processing runs on a high-priority thread while UI runs on a lower-priorit
 **WASM Build**:
 - Emscripten SDK pinned in `.emscripten-version` (6.0.3 or newer) with the `emdawnwebgpu` port
 - CMake 3.16+
-- Node.js 18+ and npm 9+
+- Node.js 22.6+ and npm 9+
 
 **Desktop Build** (optional):
 - CMake 3.16+
@@ -123,10 +123,10 @@ BespokeSynth WASM: Initialization complete
 - **Strict mode**: Enabled (`strict: true`)
 - **Unused checks**: Enabled (`noUnusedLocals`, `noUnusedParameters`)
 
-**Linting** (.eslintrc.js):
-- Parser: `@typescript-eslint/parser`
+**Linting** (eslint.config.mjs, ESLint 9 flat config):
+- `typescript-eslint` 8 with type information (tsconfig.json + tsconfig.tests.json)
 - Extends: ESLint recommended + TypeScript recommended
-- `@typescript-eslint/no-explicit-any`: Warn (not error)
+- `@typescript-eslint/no-explicit-any`, `no-unnecessary-condition`, `no-floating-promises`: error
 - Console logging: Allowed
 
 **Naming**:

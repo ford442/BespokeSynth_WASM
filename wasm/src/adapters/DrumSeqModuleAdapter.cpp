@@ -7,8 +7,8 @@
 #include "BespokeWasm/Theme.h"
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
-#include <new>
 
 namespace bespoke
 {
@@ -33,6 +33,28 @@ namespace bespoke
          {
             return std::max(lo, std::min(hi, value));
          }
+
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "kick", .minValue = 0.0f, .maxValue = 65535.0f, .defaultValue = static_cast<float>(kDefaultMask[0]), .kind = ParamKind::Mask16, .offset = offsetof(DrumSeqParams, patternMask[0]) },
+            { .id = 1, .name = "snare", .minValue = 0.0f, .maxValue = 65535.0f, .defaultValue = static_cast<float>(kDefaultMask[1]), .kind = ParamKind::Mask16, .offset = offsetof(DrumSeqParams, patternMask[1]) },
+            { .id = 2, .name = "hat", .minValue = 0.0f, .maxValue = 65535.0f, .defaultValue = static_cast<float>(kDefaultMask[2]), .kind = ParamKind::Mask16, .offset = offsetof(DrumSeqParams, patternMask[2]) },
+            { .id = 3, .name = "tom", .minValue = 0.0f, .maxValue = 65535.0f, .defaultValue = static_cast<float>(kDefaultMask[3]), .kind = ParamKind::Mask16, .offset = offsetof(DrumSeqParams, patternMask[3]) },
+            { .id = 4, .name = "kickpitch", .minValue = 0.0f, .maxValue = 127.0f, .defaultValue = static_cast<float>(kDefaultPitch[0]), .kind = ParamKind::IntRound, .offset = offsetof(DrumSeqParams, pitch[0]), .flags = kParamClamp },
+            { .id = 5, .name = "snarepitch", .minValue = 0.0f, .maxValue = 127.0f, .defaultValue = static_cast<float>(kDefaultPitch[1]), .kind = ParamKind::IntRound, .offset = offsetof(DrumSeqParams, pitch[1]), .flags = kParamClamp },
+            { .id = 6, .name = "hatpitch", .minValue = 0.0f, .maxValue = 127.0f, .defaultValue = static_cast<float>(kDefaultPitch[2]), .kind = ParamKind::IntRound, .offset = offsetof(DrumSeqParams, pitch[2]), .flags = kParamClamp },
+            { .id = 7, .name = "tompitch", .minValue = 0.0f, .maxValue = 127.0f, .defaultValue = static_cast<float>(kDefaultPitch[3]), .kind = ParamKind::IntRound, .offset = offsetof(DrumSeqParams, pitch[3]), .flags = kParamClamp },
+            { .id = 8, .name = "steps", .minValue = 1.0f, .maxValue = static_cast<float>(kDrumSeqMaxSteps), .defaultValue = static_cast<float>(kDrumSeqMaxSteps), .kind = ParamKind::IntRound, .offset = offsetof(DrumSeqParams, steps), .flags = kParamClamp },
+            { .id = 9, .name = "gate", .minValue = 0.05f, .maxValue = 1.0f, .defaultValue = 0.5f, .offset = offsetof(DrumSeqParams, gate), .flags = kParamClamp },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Pulse, "Clock" } };
+         constexpr PortDescriptor kOutputs[] = {
+            { PortType::Note, "Kick" },
+            { PortType::Note, "Snare" },
+            { PortType::Note, "Hat" },
+            { PortType::Note, "Tom" },
+         };
       }
 
       DrumSeqModule::DrumSeqModule(int id)
@@ -112,6 +134,19 @@ namespace bespoke
          return true;
       }
 
+      std::string DrumSeqModule::controlNameAt(float worldX, float worldY) const
+      {
+         // A track's label names its pitch; its cells name its pattern.
+         const float localX = worldX - mX - kPad;
+         const float localY = worldY - mY - gridTop();
+         if (localX < 0.0f || localY < 0.0f || worldX > mX + mWidth)
+            return {};
+         const int track = static_cast<int>(localY / (kCell + kGap));
+         if (track >= kDrumSeqTracks)
+            return {};
+         return localX < kLabelW ? kTrackPitchNames[track] : kTrackNames[track];
+      }
+
       void DrumSeqModule::setControlValue(const std::string& name, float value)
       {
          for (int track = 0; track < kDrumSeqTracks; ++track)
@@ -149,62 +184,24 @@ namespace bespoke
          return 0.0f;
       }
 
-      std::vector<WasmControlDescriptor> DrumSeqModuleAdapter::controlDescriptors() const
+      ParamTable DrumSeqModuleAdapter::paramTable() const
       {
-         std::vector<WasmControlDescriptor> controls;
-         for (int track = 0; track < kDrumSeqTracks; ++track)
-            controls.push_back({ kTrackNames[track], static_cast<float>(kDefaultMask[track]) });
-         for (int track = 0; track < kDrumSeqTracks; ++track)
-            controls.push_back({ kTrackPitchNames[track], static_cast<float>(kDefaultPitch[track]) });
-         controls.push_back({ "steps", static_cast<float>(kDrumSeqMaxSteps) });
-         controls.push_back({ "gate", 0.5f });
-         return controls;
+         return kParams;
       }
 
-      std::vector<PortDescriptor> DrumSeqModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> DrumSeqModuleAdapter::inputPorts() const
       {
-         return { { PortType::Pulse, "Clock" } };
+         return kInputs;
       }
 
-      std::vector<PortDescriptor> DrumSeqModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> DrumSeqModuleAdapter::outputPorts() const
       {
-         return {
-            { PortType::Note, "Kick" },
-            { PortType::Note, "Snare" },
-            { PortType::Note, "Hat" },
-            { PortType::Note, "Tom" },
-         };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> DrumSeqModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<DrumSeqModule>(id);
-      }
-
-      void DrumSeqModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         auto* params = new (dst) DrumSeqParams();
-         for (int track = 0; track < kDrumSeqTracks; ++track)
-         {
-            params->patternMask[track] =
-            static_cast<int>(wasmControlValue(controls, kTrackNames[track], static_cast<float>(kDefaultMask[track]))) & 0xFFFF;
-            params->pitch[track] = clampInt(static_cast<int>(std::lround(wasmControlValue(
-                                            controls, kTrackPitchNames[track], static_cast<float>(kDefaultPitch[track])))),
-                                            0, 127);
-         }
-         params->steps = clampInt(static_cast<int>(std::lround(wasmControlValue(controls, "steps", 16.0f))), 1,
-                                  kDrumSeqMaxSteps);
-         params->gate = std::max(0.05f, std::min(1.0f, wasmControlValue(controls, "gate", 0.5f)));
-      }
-
-      void DrumSeqModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) DrumSeqRuntimeState();
-      }
-
-      void DrumSeqModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<DrumSeqRuntimeState*>(runtimeState)->~DrumSeqRuntimeState();
       }
 
       void DrumSeqModuleAdapter::emitNotesForBeatRange(void* runtimeState,

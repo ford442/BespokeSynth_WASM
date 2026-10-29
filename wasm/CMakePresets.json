@@ -7,9 +7,6 @@
       "generator": "Unix Makefiles",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
-        "BESPOKE_WASM_WEBGPU": "ON",
-        "BESPOKE_WASM_SDL2_AUDIO": "ON",
-        "BESPOKE_WASM_THREADS": "OFF",
         "BESPOKE_WASM_ASYNCIFY": "OFF"
       }
     },
@@ -33,7 +30,7 @@
       "name": "wasm-profile",
       "inherits": "wasm-base",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_BUILD_TYPE": "Profile",
         "BESPOKE_WASM_BUILD_FLAVOR": "Profile"
       }
     }

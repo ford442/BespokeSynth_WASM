@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/AdapterStorage.h"
 
 namespace bespoke
 {
@@ -28,7 +28,7 @@ namespace bespoke
        * per-channel level applies before the bus. The graph is mono today, so
        * there is no pan; add it when the output bus goes stereo.
        */
-      class MixerModuleAdapter : public WasmModuleAdapter
+      class MixerModuleAdapter : public AdapterStorage<MixerParams>
       {
       public:
          const char* typeId() const override { return "mixer"; }
@@ -38,13 +38,10 @@ namespace bespoke
          bool sumsAudioInputs() const override { return false; }
          int outputChannelCount(const void*, const WasmAudioProcessContext&) const override { return 2; }
 
-         std::vector<WasmControlDescriptor> controlDescriptors() const override;
-         std::vector<PortDescriptor> inputPorts() const override;
-         std::vector<PortDescriptor> outputPorts() const override;
+         ParamTable paramTable() const override;
+         std::span<const PortDescriptor> inputPorts() const override;
+         std::span<const PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
-
-         size_t paramsSize() const override { return sizeof(MixerParams); }
-         void fillParams(const WasmControlMap& controls, void* dst) const override;
 
          void processAudio(void* runtimeState,
                            const void* params,

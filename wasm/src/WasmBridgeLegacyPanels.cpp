@@ -1,6 +1,6 @@
 /**
  * BespokeSynth WASM - Optional Mixer/Effects/Sequencer demo panels.
- * Compiled when BESPOKE_WASM_LEGACY_PANELS is on (default). Runtime-gated by
+ * Compiled when BESPOKE_WASM_LEGACY_PANELS is on (off by default). Runtime-gated by
  * bespoke_set_legacy_panels() / ?legacyPanels=1.
  *
  * Copyright (C) 2024
@@ -13,6 +13,7 @@
 #include "BespokeWasm/Renderer2D.h"
 #include "BespokeWasm/Theme.h"
 #include "BespokeWasm/WasmRuntimeState.h"
+#include "BespokeWasm/WidgetPainter.h"
 
 #include <cmath>
 #include <cstdio>
@@ -135,7 +136,7 @@ namespace bespoke
 
          for (int i = 0; i < kPanelCount; i++)
          {
-            float tabX = 20.0f + i * (tabWidth + tabSpacing);
+            float tabX = 20.0f + static_cast<float>(i) * (tabWidth + tabSpacing);
             if (i == state.currentPanel)
                renderer.fillColor(Color(0.25f, 0.25f, 0.28f, 1.0f));
             else
@@ -187,7 +188,7 @@ namespace bespoke
 
          if (state.knobs.size() >= 2)
          {
-            renderer.drawCableWithSag(
+            WidgetPainter(renderer).drawCableWithSag(
             startX, startY + knobSize * 0.5f + 20,
             startX + spacing, startY + knobSize * 0.5f + 20,
             Color(0.8f, 0.3f, 0.2f, 0.9f),
@@ -195,7 +196,7 @@ namespace bespoke
          }
          if (state.knobs.size() >= 3)
          {
-            renderer.drawCableWithSag(
+            WidgetPainter(renderer).drawCableWithSag(
             startX + spacing, startY + knobSize * 0.5f + 30,
             startX + spacing * 2, startY + knobSize * 0.5f + 30,
             Color(0.2f, 0.6f, 0.8f, 0.9f),
@@ -233,8 +234,8 @@ namespace bespoke
                renderer.fillColor(UITheme::kTextPrimary);
                renderer.fontSize(12.0f);
                renderer.text(sliderX, sliderY - 10, "Channel 1");
-               renderer.drawSlider(sliderX, sliderY, 200, 20, ch1Val,
-                                   UITheme::kBgTrack, UITheme::kAccentGreen);
+               WidgetPainter(renderer).drawSlider(sliderX, sliderY, 200, 20, ch1Val,
+                                                  UITheme::kBgTrack, UITheme::kAccentGreen);
                char vbuf[32];
                snprintf(vbuf, sizeof(vbuf), "%.0f%%", ch1Val * 100.0f);
                renderer.fillColor(UITheme::kTextValue);
@@ -244,8 +245,8 @@ namespace bespoke
                renderer.fillColor(UITheme::kTextPrimary);
                renderer.fontSize(12.0f);
                renderer.text(sliderX, sliderY + 40, "Channel 2");
-               renderer.drawSlider(sliderX, sliderY + 50, 200, 20, ch2Val,
-                                   UITheme::kBgTrack, UITheme::kAccentCyan);
+               WidgetPainter(renderer).drawSlider(sliderX, sliderY + 50, 200, 20, ch2Val,
+                                                  UITheme::kBgTrack, UITheme::kAccentCyan);
                snprintf(vbuf, sizeof(vbuf), "%.0f%%", ch2Val * 100.0f);
                renderer.fillColor(UITheme::kTextValue);
                renderer.fontSize(10.0f);
@@ -254,8 +255,8 @@ namespace bespoke
                renderer.fillColor(UITheme::kTextPrimary);
                renderer.fontSize(12.0f);
                renderer.text(sliderX, sliderY + 90, "Master");
-               renderer.drawSlider(sliderX, sliderY + 100, 200, 20, masterVal,
-                                   UITheme::kBgTrack, UITheme::kAccentMagenta);
+               WidgetPainter(renderer).drawSlider(sliderX, sliderY + 100, 200, 20, masterVal,
+                                                  UITheme::kBgTrack, UITheme::kAccentMagenta);
                snprintf(vbuf, sizeof(vbuf), "%.0f%%", masterVal * 100.0f);
                renderer.fillColor(UITheme::kTextValue);
                renderer.fontSize(10.0f);
@@ -267,13 +268,13 @@ namespace bespoke
 
                renderer.fillColor(Color(0.5f, 0.5f, 0.55f, 1.0f));
                renderer.text(vuX, vuY - 10, "L");
-               renderer.drawVUMeter(vuX, vuY, 20, 160, audioLevel,
-                                    Color(0.2f, 0.8f, 0.3f, 1.0f),
-                                    Color(1.0f, 0.2f, 0.1f, 1.0f));
+               WidgetPainter(renderer).drawVUMeter(vuX, vuY, 20, 160, audioLevel,
+                                                   Color(0.2f, 0.8f, 0.3f, 1.0f),
+                                                   Color(1.0f, 0.2f, 0.1f, 1.0f));
                renderer.text(vuX + 40, vuY - 10, "R");
-               renderer.drawVUMeter(vuX + 40, vuY, 20, 160, audioLevel * 0.9f,
-                                    Color(0.2f, 0.8f, 0.3f, 1.0f),
-                                    Color(1.0f, 0.2f, 0.1f, 1.0f));
+               WidgetPainter(renderer).drawVUMeter(vuX + 40, vuY, 20, 160, audioLevel * 0.9f,
+                                                   Color(0.2f, 0.8f, 0.3f, 1.0f),
+                                                   Color(1.0f, 0.2f, 0.1f, 1.0f));
                break;
             }
             case static_cast<int>(PanelType::Effects):
@@ -288,7 +289,7 @@ namespace bespoke
                renderer.fillColor(UITheme::kTextPrimary);
                renderer.fontSize(12.0f);
                renderer.text(effectX, effectY - 10, "Reverb Mix");
-               renderer.drawSlider(effectX, effectY, 250, 20, reverbMix, UITheme::kBgTrack, UITheme::kAccentMagenta);
+               WidgetPainter(renderer).drawSlider(effectX, effectY, 250, 20, reverbMix, UITheme::kBgTrack, UITheme::kAccentMagenta);
                {
                   char v[32];
                   snprintf(v, sizeof(v), "%.0f%%", reverbMix * 100.0f);
@@ -300,7 +301,7 @@ namespace bespoke
                renderer.fillColor(UITheme::kTextPrimary);
                renderer.fontSize(12.0f);
                renderer.text(effectX, effectY + 40, "Delay Time");
-               renderer.drawSlider(effectX, effectY + 50, 250, 20, delayTime, UITheme::kBgTrack, UITheme::kAccentAmber);
+               WidgetPainter(renderer).drawSlider(effectX, effectY + 50, 250, 20, delayTime, UITheme::kBgTrack, UITheme::kAccentAmber);
                {
                   char v[32];
                   snprintf(v, sizeof(v), "%.0f ms", delayTime * 1000.0f);
@@ -312,7 +313,7 @@ namespace bespoke
                renderer.fillColor(UITheme::kTextPrimary);
                renderer.fontSize(12.0f);
                renderer.text(effectX, effectY + 90, "Chorus Depth");
-               renderer.drawSlider(effectX, effectY + 100, 250, 20, chorusDepth, UITheme::kBgTrack, UITheme::kAccentCyan);
+               WidgetPainter(renderer).drawSlider(effectX, effectY + 100, 250, 20, chorusDepth, UITheme::kBgTrack, UITheme::kAccentCyan);
                {
                   char v[32];
                   snprintf(v, sizeof(v), "%.0f%%", chorusDepth * 100.0f);
@@ -324,7 +325,7 @@ namespace bespoke
                renderer.fillColor(UITheme::kTextPrimary);
                renderer.fontSize(12.0f);
                renderer.text(effectX, effectY + 140, "Distortion");
-               renderer.drawSlider(effectX, effectY + 150, 250, 20, distortion, UITheme::kBgTrack, UITheme::kAccentMagenta);
+               WidgetPainter(renderer).drawSlider(effectX, effectY + 150, 250, 20, distortion, UITheme::kBgTrack, UITheme::kAccentMagenta);
                {
                   char v[32];
                   snprintf(v, sizeof(v), "%.0f%%", distortion * 100.0f);
@@ -344,10 +345,10 @@ namespace bespoke
                renderer.strokeWidth(2.0f);
                for (int i = 0; i < 10; i++)
                {
-                  float x1 = vizX + i * vizW / 10;
-                  float x2 = vizX + (i + 1) * vizW / 10;
-                  float y1 = vizY + vizH / 2 + sinf(i * 0.5f) * 30;
-                  float y2 = vizY + vizH / 2 + sinf((i + 1) * 0.5f) * 30;
+                  float x1 = vizX + static_cast<float>(i) * vizW / 10;
+                  float x2 = vizX + static_cast<float>(i + 1) * vizW / 10;
+                  float y1 = vizY + vizH / 2 + sinf(static_cast<float>(i) * 0.5f) * 30;
+                  float y2 = vizY + vizH / 2 + sinf(static_cast<float>(i + 1) * 0.5f) * 30;
                   renderer.line(x1, y1, x2, y2);
                }
                break;
@@ -363,9 +364,9 @@ namespace bespoke
                renderer.fillColor(UITheme::kTextPrimary);
                renderer.fontSize(12.0f);
                renderer.text(seqX, seqY - 10, "BPM");
-               renderer.drawSlider(seqX, seqY, 150, 20, bpmNorm,
-                                   Color(0.25f, 0.25f, 0.28f, 1.0f),
-                                   Color(0.5f, 0.8f, 0.4f, 1.0f));
+               WidgetPainter(renderer).drawSlider(seqX, seqY, 150, 20, bpmNorm,
+                                                  Color(0.25f, 0.25f, 0.28f, 1.0f),
+                                                  Color(0.5f, 0.8f, 0.4f, 1.0f));
                {
                   char v[32];
                   snprintf(v, sizeof(v), "%.0f BPM", bpmDisplay);
@@ -377,9 +378,9 @@ namespace bespoke
                renderer.fillColor(UITheme::kTextPrimary);
                renderer.fontSize(12.0f);
                renderer.text(seqX + 200, seqY - 10, "Swing");
-               renderer.drawSlider(seqX + 200, seqY, 150, 20, swingNorm,
-                                   Color(0.25f, 0.25f, 0.28f, 1.0f),
-                                   Color(0.8f, 0.7f, 0.4f, 1.0f));
+               WidgetPainter(renderer).drawSlider(seqX + 200, seqY, 150, 20, swingNorm,
+                                                  Color(0.25f, 0.25f, 0.28f, 1.0f),
+                                                  Color(0.8f, 0.7f, 0.4f, 1.0f));
                {
                   char v[32];
                   snprintf(v, sizeof(v), "%.0f%%", swingNorm * 100.0f);
@@ -400,8 +401,8 @@ namespace bespoke
                {
                   for (int step = 0; step < NUM_STEPS; step++)
                   {
-                     float sx = gridX + step * STEP_WIDTH;
-                     float sy = gridY + row * STEP_HEIGHT;
+                     float sx = gridX + static_cast<float>(step) * STEP_WIDTH;
+                     float sy = gridY + static_cast<float>(row) * STEP_HEIGHT;
                      bool active = (step + row) % STEP_PATTERN_INTERVAL == 0;
                      renderer.fillColor(active ? Color(0.4f, 0.7f, 0.5f, 1.0f)
                                                : Color(0.15f, 0.15f, 0.17f, 1.0f));

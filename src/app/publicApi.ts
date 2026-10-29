@@ -1,8 +1,10 @@
 import type { BespokeSynthApp } from './BespokeSynthApp';
+import { wasmMalloc } from './wasmStrings';
 import type { CaptureScreenshotOptions } from '../rendererMode';
 import {
   downloadPatchState,
   getPatchStateJson,
+  getPlaceholderCount,
   loadBundledLayout,
   loadPatchStateJson,
   promptForPatchStateFile,
@@ -14,9 +16,8 @@ import {
   switchRendererPreference,
   type RendererBackend,
 } from '../rendererMode';
-import { readAudioHealth } from '../audio/audioHealth';
 import { switchAudioPreference, type AudioBackendId } from '../audio/audioMode';
-import { runAudioWorkletPoc } from '../audio/workletPoc';
+import { readEngineStats } from '../audio/engineStats';
 import { downloadOfflineWav, renderOfflineWav } from '../samples/offlineExport';
 import { decodePatchFragment, writeShareUrl } from '../samples/patchShare';
 import { importAudioFile } from '../samples/sampleIo';
@@ -25,30 +26,32 @@ import { getLastKeyCodes } from './inputBridge';
 import { readCString, readJson, withCStrings } from './wasmStrings';
 import { loadTuningText, type TuningKind } from '../samples/tuningIo';
 
-export function installPublicApi(app: BespokeSynthApp): void {
-  (window as unknown as Record<string, unknown>).__bespoke = {
-    createModule: (type: string, x: number, y: number) => {
+/** The `window.__bespoke` surface (console, Playwright). Its type is BespokePublicApi. */
+export function createPublicApi(app: BespokeSynthApp) {
+  return {
+    createModule: (type: string, x: number, y: number): number => {
       const mod = app.getModule();
       if (mod?.ccall) {
-        return mod.ccall('bespoke_create_module', 'number', ['string', 'number', 'number'], [type, x, y]);
+        return Number(mod.ccall('bespoke_create_module', 'number', ['string', 'number', 'number'], [type, x, y]));
       }
       return -1;
     },
-    deleteModule: (id: number) => app.getModule()?._bespoke_delete_module?.(id),
+    deleteModule: (id: number) => app.getModule()?._bespoke_delete_module(id),
     connectModules: (srcId: number, destId: number) =>
-      app.getModule()?._bespoke_connect_modules?.(srcId, destId),
-    midiNoteOn: (channel: number, pitch: number, velocity: number) =>
-      app.getModule()?._bespoke_midi_note_on?.(channel, pitch, velocity),
-    midiNoteOff: (channel: number, pitch: number) =>
-      app.getModule()?._bespoke_midi_note_off?.(channel, pitch),
+      app.getModule()?._bespoke_connect_modules(srcId, destId),
+    /** `time`: AudioContext seconds to start at (AudioWorklet engine only), 0 = at once. */
+    midiNoteOn: (channel: number, pitch: number, velocity: number, time = 0) =>
+      app.getModule()?._bespoke_midi_note_on(channel, pitch, velocity, time),
+    midiNoteOff: (channel: number, pitch: number, time = 0) =>
+      app.getModule()?._bespoke_midi_note_off(channel, pitch, time),
     midiCc: (channel: number, cc: number, value: number) =>
-      app.getModule()?._bespoke_midi_cc?.(channel, cc, value),
-    setViewMode: (mode: number) => app.getModule()?._bespoke_set_view_mode?.(mode),
-    getModuleCount: () => app.getModule()?._bespoke_get_module_count?.() ?? 0,
-    getControlCount: () => app.getModule()?._bespoke_get_control_count?.() ?? 0,
+      app.getModule()?._bespoke_midi_cc(channel, cc, value),
+    setViewMode: (mode: number) => app.getModule()?._bespoke_set_view_mode(mode),
+    getModuleCount: () => app.getModule()?._bespoke_get_module_count() ?? 0,
+    getControlCount: () => app.getModule()?._bespoke_get_control_count() ?? 0,
     getControlInfo: (index: number) => {
       const mod = app.getModule();
-      if (!mod?._bespoke_get_control_info) return null;
+      if (!mod) return null;
       const ptr = mod._bespoke_get_control_info(index);
       if (!ptr) return null;
       try {
@@ -58,64 +61,79 @@ export function installPublicApi(app: BespokeSynthApp): void {
       }
     },
     setThemeColor: (colorId: number, r: number, g: number, b: number, a = 1.0) =>
-      app.getModule()?._bespoke_set_theme_color?.(colorId, r, g, b, a),
-    resetTheme: () => app.getModule()?._bespoke_reset_theme?.(),
+      app.getModule()?._bespoke_set_theme_color(colorId, r, g, b, a),
+    resetTheme: () => app.getModule()?._bespoke_reset_theme(),
     captureScreenshot: async (options?: CaptureScreenshotOptions) => app.captureScreenshot(options ?? {}),
     downloadScreenshot,
     onScreenshotCaptured,
     getStateJson: () => getPatchStateJson(app.getModule()),
     loadStateJson: (json: string) => loadPatchStateJson(app.getModule(), json),
+    /** Modules in the loaded patch that this build only holds as placeholders. */
+    getPlaceholderCount: () => getPlaceholderCount(app.getModule()),
+    /** Tooltip for what the pointer rests on ("" for none); the canvas draws it after a short dwell. */
+    getHoverHelp: () => {
+      const mod = app.getModule();
+      return mod ? readCString(mod, mod._bespoke_get_hover_help()) : '';
+    },
+    /** Help language as a BCP 47 tag (the app passes navigator.language at startup). */
+    setHelpLocale: (tag: string) => {
+      const mod = app.getModule();
+      if (mod) withCStrings(mod, [tag], (ptr) => mod._bespoke_set_help_locale(ptr));
+    },
     downloadPatch: (filename?: string) => downloadPatchState(app.getModule(), filename),
     loadPatchFile: () => promptForPatchStateFile(app.getModule()),
     loadBundledLayout: (path: string) => loadBundledLayout(app.getModule(), path),
-    getAudioHealth: () => readAudioHealth(app.getModule()),
+    getAudioHealth: () => app.getAudioHealth(),
+    /** Plan compiles, publishes and control fast-path counters (a knob drag publishes nothing). */
+    getEngineStats: () => readEngineStats(app.getModule()),
     getAudioBackend: () => app.getAudioBackendChoice().backend,
     getAudioBackendChoice: () => app.getAudioBackendChoice(),
     getAudioRingStats: () => app.getAudioRingStats(),
     setAudioBackend: (backend: AudioBackendId) => switchAudioPreference(backend),
     play: () => app.play(),
     stop: () => app.stop(),
-    runAudioWorkletPoc: (opts?: { stallMs?: number; settleMs?: number }) => runAudioWorkletPoc(opts),
+    runAudioWorkletPoc: (opts?: { stallMs?: number; settleMs?: number }) =>
+      import('../audio/workletPoc').then(({ runAudioWorkletPoc }) => runAudioWorkletPoc(opts)),
     /** 'sdf' or 'pixel' (?debugFont=pixel, or the SDF atlas failed to load). */
-    getFontMode: () => (app.getModule()?._bespoke_get_font_mode?.() === 1 ? 'pixel' : 'sdf'),
+    getFontMode: () => (app.getModule()?._bespoke_get_font_mode() === 1 ? 'pixel' : 'sdf'),
     /** Live analyzer FFT counters: CPU (render thread) vs WebGPU compute dispatches. */
     getAnalyzerStats: () => {
       const mod = app.getModule();
       return {
-        cpuFftCount: mod?._bespoke_get_analyzer_cpu_fft_count?.() ?? 0,
-        gpuFftCount: mod?._bespoke_get_analyzer_gpu_fft_count?.() ?? 0,
+        cpuFftCount: mod?._bespoke_get_analyzer_cpu_fft_count() ?? 0,
+        gpuFftCount: mod?._bespoke_get_analyzer_gpu_fft_count() ?? 0,
       };
     },
     setRendererBackend: (backend: RendererBackend) => switchRendererPreference(backend),
     getRendererBackend: () => {
       const mod = app.getModule();
-      if (mod?._bespoke_get_renderer_backend) {
+      if (mod) {
         return mod._bespoke_get_renderer_backend() === 1 ? 'webgl' : 'webgpu';
       }
       return resolveRendererBackend();
     },
     /** true/1 = canonical scene, 2 = drum bus scene, false/0 = off. */
     setRenderTestMode: (scene: boolean | number) =>
-      app.getModule()?._bespoke_set_render_test_mode?.(typeof scene === 'number' ? scene : scene ? 1 : 0),
-    getRenderTestMode: () => (app.getModule()?._bespoke_get_render_test_mode?.() ?? 0) > 0,
-    getRenderTestScene: () => app.getModule()?._bespoke_get_render_test_mode?.() ?? 0,
-    setWebGLDebugMode: (mode: number) => app.getModule()?._bespoke_set_webgl_debug_mode?.(mode),
+      app.getModule()?._bespoke_set_render_test_mode(typeof scene === 'number' ? scene : scene ? 1 : 0),
+    getRenderTestMode: () => (app.getModule()?._bespoke_get_render_test_mode() ?? 0) > 0,
+    getRenderTestScene: () => app.getModule()?._bespoke_get_render_test_mode() ?? 0,
+    setWebGLDebugMode: (mode: number) => app.getModule()?._bespoke_set_webgl_debug_mode(mode),
     setFontTestVisible: (visible: boolean) => {
       const mod = app.getModule();
-      mod?._bespoke_set_font_test_visible?.(visible ? 1 : 0);
-      mod?._bespoke_render?.();
+      mod?._bespoke_set_font_test_visible(visible ? 1 : 0);
+      mod?._bespoke_render();
     },
-    renderFrame: () => app.getModule()?._bespoke_render?.(),
-    getHostRenderCount: () => app.getModule()?._bespoke_get_host_render_count?.() ?? 0,
-    getHostMouseDownCount: () => app.getModule()?._bespoke_get_host_mouse_down_count?.() ?? 0,
-    resetHostCounters: () => app.getModule()?._bespoke_reset_host_counters?.(),
+    renderFrame: () => app.getModule()?._bespoke_render(),
+    getHostRenderCount: () => app.getModule()?._bespoke_get_host_render_count() ?? 0,
+    getHostMouseDownCount: () => app.getModule()?._bespoke_get_host_mouse_down_count() ?? 0,
+    resetHostCounters: () => app.getModule()?._bespoke_reset_host_counters(),
     getHostFrameCount: () => app.getHostFrameCount(),
     getLastKeyCodes,
     // --- Live instrument: undo, MIDI learn/out, QWERTY, tuning, scripts, touch ---
-    undo: () => (app.getModule()?._bespoke_undo?.() ?? 0) === 1,
-    redo: () => (app.getModule()?._bespoke_redo?.() ?? 0) === 1,
-    getUndoDepth: () => app.getModule()?._bespoke_get_undo_depth?.() ?? 0,
-    getRedoDepth: () => app.getModule()?._bespoke_get_redo_depth?.() ?? 0,
+    undo: () => (app.getModule()?._bespoke_undo() ?? 0) === 1,
+    redo: () => (app.getModule()?._bespoke_redo() ?? 0) === 1,
+    getUndoDepth: () => app.getModule()?._bespoke_get_undo_depth() ?? 0,
+    getRedoDepth: () => app.getModule()?._bespoke_get_redo_depth() ?? 0,
     setControlValue: (moduleId: number, name: string, value: number) => {
       const mod = app.getModule();
       if (!mod) return;
@@ -139,7 +157,7 @@ export function installPublicApi(app: BespokeSynthApp): void {
       if (!mod) return false;
       return withCStrings(mod, [control], (ptr) => mod._bespoke_midi_learn_arm(moduleId, ptr)) === 1;
     },
-    cancelMidiLearn: () => app.getModule()?._bespoke_midi_learn_cancel?.(),
+    cancelMidiLearn: () => app.getModule()?._bespoke_midi_learn_cancel(),
     getMidiLearnTarget: () => {
       const mod = app.getModule();
       if (!mod) return null;
@@ -150,8 +168,8 @@ export function installPublicApi(app: BespokeSynthApp): void {
       const mod = app.getModule();
       return mod ? readJson<unknown[]>(mod, mod._bespoke_get_midi_cc_map_json(), []) : [];
     },
-    setMidiNoteChannel: (channel: number) => app.getModule()?._bespoke_set_midi_note_channel?.(channel),
-    getMidiNoteChannel: () => app.getModule()?._bespoke_get_midi_note_channel?.() ?? -1,
+    setMidiNoteChannel: (channel: number) => app.getModule()?._bespoke_set_midi_note_channel(channel),
+    getMidiNoteChannel: () => app.getModule()?._bespoke_get_midi_note_channel() ?? -1,
     listMidiOutputs: () => app.live.midiOut.listOutputs(),
     selectMidiOutput: (id: string | null) => app.live.midiOut.selectOutput(id),
     getMidiOutLog: () => app.live.midiOut.getLog(),
@@ -162,19 +180,23 @@ export function installPublicApi(app: BespokeSynthApp): void {
       const mod = app.getModule();
       return mod ? loadTuningText(mod, kind, text, name) : { ok: false, error: 'not ready' };
     },
-    getNoteFrequency: (pitch: number) => app.getModule()?._bespoke_get_note_frequency?.(pitch) ?? 0,
+    getNoteFrequency: (pitch: number) => app.getModule()?._bespoke_get_note_frequency(pitch) ?? 0,
     runScript: (code?: string, moduleId?: number) => app.getScriptPanel()?.run(code, moduleId) ?? -1,
     stopScript: () => app.getScriptPanel()?.stop(),
     getScriptStatus: () => app.getScriptPanel()?.status() ?? 'unavailable',
     getScriptLog: () => app.getScriptPanel()?.log() ?? [],
-    getSampleRate: () => app.getModule()?._bespoke_get_sample_rate?.() ?? 44100,
-    isSpawnMenuOpen: () => (app.getModule()?._bespoke_is_text_entry_active?.() ?? 0) === 1,
-    getTransportBeat: () => app.getModule()?._bespoke_get_transport_beat?.() ?? 0,
+    getSampleRate: () => app.getModule()?._bespoke_get_sample_rate() ?? 44100,
+    isSpawnMenuOpen: () => (app.getModule()?._bespoke_is_text_entry_active() ?? 0) === 1,
+    getTransportBeat: () => {
+      app.syncAudioEngine();
+      return app.getModule()?._bespoke_get_transport_beat() ?? 0;
+    },
     /** Latest output samples (analyzer ring), for pitch/level checks. */
     getOutputWaveform: (count = 2048) => {
       const mod = app.getModule();
       if (!mod) return [];
-      const ptr = mod._malloc(count * 4);
+      app.syncAudioEngine();
+      const ptr = wasmMalloc(mod, count * 4);
       try {
         const copied = mod._bespoke_copy_output_waveform(ptr, count);
         return Array.from(mod.HEAPF32.subarray(ptr >> 2, (ptr >> 2) + copied));
@@ -208,4 +230,16 @@ export function installPublicApi(app: BespokeSynthApp): void {
       return loadPatchStateJson(mod, json);
     },
   };
+}
+
+export type BespokePublicApi = ReturnType<typeof createPublicApi>;
+
+declare global {
+  interface Window {
+    __bespoke?: BespokePublicApi;
+  }
+}
+
+export function installPublicApi(app: BespokeSynthApp): void {
+  window.__bespoke = createPublicApi(app);
 }

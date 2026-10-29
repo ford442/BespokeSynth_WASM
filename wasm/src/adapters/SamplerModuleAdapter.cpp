@@ -3,12 +3,14 @@
  */
 
 #include "BespokeWasm/adapters/SamplerModuleAdapter.h"
+#include "BespokeWasm/BundledKit.h"
+#include "BespokeWasm/SampleSource.h"
 #include "BespokeWasm/SampleStore.h"
 #include "BespokeWasm/TuningTable.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
 #include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -16,10 +18,19 @@ namespace bespoke
    {
       namespace
       {
-         float clamp01(float value)
-         {
-            return std::max(0.0f, std::min(1.0f, value));
-         }
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "volume", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.85f, .offset = offsetof(SamplerParams, volume), .smoothingMs = kParamSmoothingMs, .flags = kParamClamp },
+            { .id = 1, .name = "start", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.0f, .offset = offsetof(SamplerParams, start), .flags = kParamClamp },
+            { .id = 2, .name = "end", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 1.0f, .offset = offsetof(SamplerParams, end), .flags = kParamClamp },
+            { .id = 3, .name = "loopStart", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.0f, .offset = offsetof(SamplerParams, loopStart), .flags = kParamClamp },
+            { .id = 4, .name = "loopEnd", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 1.0f, .offset = offsetof(SamplerParams, loopEnd), .flags = kParamClamp },
+            { .id = 5, .name = "mode", .minValue = 0.0f, .maxValue = 2.0f, .defaultValue = 0.0f, .kind = ParamKind::Int, .offset = offsetof(SamplerParams, mode) },
+            { .id = 6, .name = "root", .minValue = 0.0f, .maxValue = 127.0f, .defaultValue = 60.0f, .kind = ParamKind::IntRound, .offset = offsetof(SamplerParams, rootPitch) },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Note, "Notes" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
 
          float midiRate(const float* noteFrequencies, int pitch, int root)
          {
@@ -51,27 +62,19 @@ namespace bespoke
          }
       }
 
-      std::vector<WasmControlDescriptor> SamplerModuleAdapter::controlDescriptors() const
+      ParamTable SamplerModuleAdapter::paramTable() const
       {
-         return {
-            { "volume", 0.85f },
-            { "start", 0.0f },
-            { "end", 1.0f },
-            { "loopStart", 0.0f },
-            { "loopEnd", 1.0f },
-            { "mode", 0.0f },
-            { "root", 60.0f },
-         };
+         return kParams;
       }
 
-      std::vector<PortDescriptor> SamplerModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> SamplerModuleAdapter::inputPorts() const
       {
-         return { { PortType::Note, "Notes" } };
+         return kInputs;
       }
 
-      std::vector<PortDescriptor> SamplerModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> SamplerModuleAdapter::outputPorts() const
       {
-         return { { PortType::Audio, "Out" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> SamplerModuleAdapter::createUiModule(int id) const
@@ -79,33 +82,35 @@ namespace bespoke
          return std::make_unique<SamplerModule>(id);
       }
 
-      void SamplerModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         fillParams(-1, controls, {}, dst);
-      }
-
-      void SamplerModuleAdapter::fillParams(int moduleId,
-                                            const WasmControlMap& controls,
-                                            const WasmStringMap& extras,
-                                            void* dst) const
+      void SamplerModuleAdapter::bindParams(int moduleId, const WasmStringMap& extras, void* paramsPtr) const
       {
          (void)moduleId;
-         auto* params = new (dst) SamplerParams();
-         params->volume = clamp01(wasmControlValue(controls, "volume", 0.85f));
-         params->start = clamp01(wasmControlValue(controls, "start", 0.0f));
-         params->end = clamp01(wasmControlValue(controls, "end", 1.0f));
-         params->loopStart = clamp01(wasmControlValue(controls, "loopStart", 0.0f));
-         params->loopEnd = clamp01(wasmControlValue(controls, "loopEnd", 1.0f));
-         params->mode = static_cast<int>(wasmControlValue(controls, "mode", 0.0f));
-         params->rootPitch = static_cast<int>(std::lround(wasmControlValue(controls, "root", 60.0f)));
-         if (params->end <= params->start)
-            params->end = std::min(1.0f, params->start + 0.01f);
-         if (params->loopEnd <= params->loopStart)
-            params->loopEnd = std::min(1.0f, params->loopStart + 0.01f);
+         auto& params = paramsOf(paramsPtr);
+         bindSampleFromExtras(extras, params.sample, params.handle);
+      }
 
-         auto extra = extras.find("sampleHash");
-         if (extra != extras.end() && !extra->second.empty())
-            params->sample = SampleStore::instance().findByHash(extra->second);
+      void SamplerModuleAdapter::finalizeParams(void* paramsPtr) const
+      {
+         auto& params = paramsOf(paramsPtr);
+         if (params.end <= params.start)
+            params.end = std::min(1.0f, params.start + 0.01f);
+         if (params.loopEnd <= params.loopStart)
+            params.loopEnd = std::min(1.0f, params.loopStart + 0.01f);
+      }
+
+      void SamplerModuleAdapter::rebindParams(int moduleId, void* paramsPtr) const
+      {
+         (void)moduleId;
+         auto* params = static_cast<SamplerParams*>(paramsPtr);
+         // The UI module copied the buffer to this heap under the same id and generation before the snapshot.
+         rebindSample(params->sample, params->handle);
+      }
+
+      void SamplerModuleAdapter::collectResources(int moduleId, const void* paramsPtr, WasmResourceRefs& refs) const
+      {
+         (void)moduleId;
+         if (const auto* params = static_cast<const SamplerParams*>(paramsPtr))
+            collectSample(params->sample, params->handle, refs);
       }
 
       int SamplerModuleAdapter::outputChannelCount(const void* paramsPtr, const WasmAudioProcessContext& context) const
@@ -113,16 +118,6 @@ namespace bespoke
          (void)context;
          const auto* params = static_cast<const SamplerParams*>(paramsPtr);
          return params && params->sample ? params->sample->channelCount() : 1;
-      }
-
-      void SamplerModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) SamplerAdapterRuntimeState();
-      }
-
-      void SamplerModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<SamplerAdapterRuntimeState*>(runtimeState)->~SamplerAdapterRuntimeState();
       }
 
       void SamplerModuleAdapter::processAudio(void* runtimeState,
@@ -148,7 +143,12 @@ namespace bespoke
             for (int i = 0; i < context.noteCount; ++i)
             {
                const auto& note = context.notes[i];
-               if (note.isNoteOn)
+               if (isPitchBendEvent(note))
+               {
+                  if (SamplerVoice* voice = findVoice(state, note.pitch))
+                     voice->rate = midiRate(context.noteFrequencies, note.pitch, params.rootPitch) * pitchBendRatio(note.pitchBend);
+               }
+               else if (note.isNoteOn)
                {
                   SamplerVoice* voice = stealVoice(state);
                   voice->active = true;
@@ -156,7 +156,7 @@ namespace bespoke
                   voice->pitch = note.pitch;
                   voice->velocity = std::max(0.0f, std::min(1.0f, note.velocity));
                   voice->position = static_cast<double>(params.start) * frames;
-                  voice->rate = midiRate(context.noteFrequencies, note.pitch, params.rootPitch);
+                  voice->rate = midiRate(context.noteFrequencies, note.pitch, params.rootPitch) * pitchBendRatio(note.pitchBend);
                   voice->age = ++state.ageCounter;
                }
                else if (SamplerVoice* voice = findVoice(state, note.pitch))
@@ -173,7 +173,6 @@ namespace bespoke
          if (!data || frames <= 0)
             return;
 
-         const double start = static_cast<double>(params.start) * frames;
          const double end = static_cast<double>(params.end) * frames;
          const double loopStart = static_cast<double>(params.loopStart) * frames;
          const double loopEnd = static_cast<double>(params.loopEnd) * frames;

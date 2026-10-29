@@ -23,7 +23,7 @@ namespace bespoke
       {
          if (!adapter)
             return;
-         const std::string typeId = adapter->typeId();
+         const std::string_view typeId = adapter->typeId();
          if (mIndexByType.count(typeId))
             return;
 
@@ -33,7 +33,7 @@ namespace bespoke
          mAdapters.push_back(std::move(adapter));
       }
 
-      const WasmModuleAdapter* WasmModuleAdapterRegistry::find(const std::string& type) const
+      const WasmModuleAdapter* WasmModuleAdapterRegistry::find(std::string_view type) const
       {
          return adapterAt(typeIndexFor(type));
       }
@@ -45,7 +45,7 @@ namespace bespoke
          return mAdapters[static_cast<size_t>(typeIndex)].get();
       }
 
-      int WasmModuleAdapterRegistry::typeIndexFor(const std::string& type) const
+      int WasmModuleAdapterRegistry::typeIndexFor(std::string_view type) const
       {
          auto it = mIndexByType.find(type);
          return it == mIndexByType.end() ? -1 : it->second;
@@ -63,7 +63,7 @@ namespace bespoke
          return result;
       }
 
-      std::vector<std::string> WasmModuleAdapterRegistry::serializableControlNames(const std::string& type) const
+      std::vector<std::string> WasmModuleAdapterRegistry::serializableControlNames(std::string_view type) const
       {
          std::vector<std::string> names;
          if (const WasmModuleAdapter* adapter = find(type))
@@ -74,7 +74,34 @@ namespace bespoke
          return names;
       }
 
-      std::unique_ptr<Module> WasmModuleAdapterRegistry::createModule(const std::string& type, int id) const
+      std::vector<WasmControlDescriptor> WasmModuleAdapter::controlDescriptors() const
+      {
+         const ParamTable table = paramTable();
+         std::vector<WasmControlDescriptor> descriptors;
+         descriptors.reserve(table.size());
+         for (const ParamDescriptor& param : table)
+            descriptors.push_back({ param.name, param.defaultValue });
+         return descriptors;
+      }
+
+      void WasmModuleAdapter::fillParams(int moduleId,
+                                         const WasmControlMap& controls,
+                                         const WasmStringMap& extras,
+                                         void* dst) const
+      {
+         if (!dst || paramsSize() == 0)
+            return;
+         initParams(dst);
+         for (const ParamDescriptor& param : paramTable())
+         {
+            if (param.isAudio())
+               writeParam(dst, param, wasmControlValue(controls, param.name, param.defaultValue));
+         }
+         bindParams(moduleId, extras, dst);
+         finalizeParams(dst);
+      }
+
+      std::unique_ptr<Module> WasmModuleAdapterRegistry::createModule(std::string_view type, int id) const
       {
          if (const WasmModuleAdapter* adapter = find(type))
             return adapter->createUiModule(id);

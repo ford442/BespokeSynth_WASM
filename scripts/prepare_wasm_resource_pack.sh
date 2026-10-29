@@ -23,8 +23,21 @@ copy_if_exists() {
 
 copy_if_exists "userdata_original/scales.json"
 copy_if_exists "userdata_original/savestate/wasm-starter.bsk"
+copy_if_exists "userdata_original/savestate/wasm-drumkit.bsk"
 copy_if_exists "userdata_original/layouts/blank.json"
 copy_if_exists "userdata_original/userdata_version.txt"
+
+# Drum kit one-shots (kick/snare/hat/tom), synthesized deterministically.
+python3 "$ROOT/scripts/gen_drum_kit.py" "$DEST/kits/basic" > /dev/null
+
+# Tonal pad for the granular synth and the demos, synthesized deterministically.
+python3 "$ROOT/scripts/gen_tonal_samples.py" "$DEST/samples/tonal" > /dev/null
+
+# Demo gallery patches (they reference the kit and pad above by content hash).
+python3 "$ROOT/scripts/gen_demos.py" "$DEST/demos" > /dev/null
+
+# Spawn-menu descriptions and control hover tooltips (resource/tooltips_*.txt + WASM supplement).
+python3 "$ROOT/scripts/bake_module_help.py" --check "$DEST/help/module_help.json"
 
 # UI text atlas (SDF, baked from resource/frabk.ttf + iosevka fallback).
 "$ROOT/scripts/bake_sdf_font.sh" "$DEST/fonts/ui_font.bsdf"

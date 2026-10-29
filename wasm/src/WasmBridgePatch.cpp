@@ -7,7 +7,9 @@
 
 #include "BespokeWasm/WasmBridge.h"
 #include "BespokeWasm/WasmBridgeInternal.h"
+#include "BespokeWasm/DesktopSavestate.h"
 #include "BespokeWasm/ModuleCanvas.h"
+#include "BespokeWasm/ModuleHelp.h"
 #include "BespokeWasm/AudioGraphEngine.h"
 #include "BespokeWasm/WasmPatchState.h"
 #include "BespokeWasm/SampleStore.h"
@@ -24,9 +26,7 @@ using namespace bespoke::wasm;
 
 namespace
 {
-   std::string gLastSampleHash;
    std::string gLastSampleName;
-   std::string gModuleStringBuffer;
    std::string gSampleError;
 }
 
@@ -44,6 +44,21 @@ static char* jsonEscape(char* dst, const char* end, const char* src)
       *dst++ = *src;
    }
    return dst;
+}
+
+namespace
+{
+   /** Shared tail of every patch load: apply, refresh the legacy ids, reset the live engine. */
+   int applyLoadedSnapshot(const ModuleCanvas::StateSnapshot& snapshot)
+   {
+      auto& state = runtimeState();
+      if (!state.canvas->applyStateSnapshot(snapshot))
+         return -3;
+      state.oscillatorModuleId = state.canvas->findFirstModuleOfType("oscillator");
+      state.gainModuleId = state.canvas->findFirstModuleOfType("gain");
+      resetAudioGraphEngineForPatch();
+      return 0;
+   }
 }
 
 extern "C" {
@@ -201,15 +216,35 @@ EMSCRIPTEN_KEEPALIVE int bespoke_load_state_json(const char* json)
    else
       state.viewMode = 0;
 
-   if (!state.canvas->applyStateSnapshot(snapshot))
-      return -3;
+   const int result = applyLoadedSnapshot(snapshot);
+   if (result == 0)
+      printf("BespokeSynth WASM: Loaded state JSON (%zu modules, %zu connections)\n",
+             snapshot.modules.size(), snapshot.connections.size());
+   return result;
+}
 
-   state.oscillatorModuleId = state.canvas->findFirstModuleOfType("oscillator");
-   state.gainModuleId = state.canvas->findFirstModuleOfType("gain");
-   state.audioGraphEngine = std::make_unique<AudioGraphEngine>();
-   printf("BespokeSynth WASM: Loaded state JSON (%zu modules, %zu connections)\n",
-          snapshot.modules.size(), snapshot.connections.size());
-   return 0;
+EMSCRIPTEN_KEEPALIVE int bespoke_import_desktop_savestate(const unsigned char* bytes, int length)
+{
+   auto& state = runtimeState();
+   if (!state.canvas || !bytes || length <= 0)
+      return -1;
+
+   ModuleCanvas::StateSnapshot snapshot;
+   DesktopImportReport report;
+   state.stateErrorMessage.clear();
+   if (!importDesktopSavestate(bytes, static_cast<size_t>(length), snapshot, report, state.stateErrorMessage))
+   {
+      printf("BespokeSynth WASM: Desktop savestate import failed: %s\n", state.stateErrorMessage.c_str());
+      return -2;
+   }
+   state.viewMode = 0;
+   const int result = applyLoadedSnapshot(snapshot);
+   if (result == 0)
+      printf(
+      "BespokeSynth WASM: Imported desktop savestate (rev %d): %d modules, %d placeholders, "
+      "%d cables, %d targets dropped\n",
+      report.saveStateRev, report.modules, report.placeholders, report.connections, report.droppedTargets);
+   return result;
 }
 
 EMSCRIPTEN_KEEPALIVE int bespoke_load_layout(const char* path)
@@ -279,24 +314,20 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_control_info(int index)
 
 EMSCRIPTEN_KEEPALIVE int bespoke_load_sample(const unsigned char* bytes, int len, const char* name)
 {
-   auto& state = runtimeState();
-   int deviceRate = 44100;
-   if (state.audioBackend)
-      deviceRate = state.audioBackend->getSampleRate();
-   else if (state.externalSampleRate > 0.0f)
-      deviceRate = static_cast<int>(state.externalSampleRate);
+   const int deviceRate = currentDeviceSampleRate();
+   syncSampleStoreRate();
 
    const int id = SampleStore::instance().loadFromMemory(bytes, len, name ? name : "sample", deviceRate);
    if (id < 0)
    {
       gSampleError = "Failed to decode sample";
-      gLastSampleHash.clear();
+      runtimeState().lastSampleHash.clear();
       gLastSampleName.clear();
       return -1;
    }
    if (const SampleBuffer* sample = SampleStore::instance().findById(id))
    {
-      gLastSampleHash = sample->hash();
+      runtimeState().lastSampleHash = sample->hash();
       gLastSampleName = sample->name();
    }
    return id;
@@ -305,11 +336,11 @@ EMSCRIPTEN_KEEPALIVE int bespoke_load_sample(const unsigned char* bytes, int len
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_sample_hash(int sampleId)
 {
    if (sampleId < 0)
-      return gLastSampleHash.c_str();
+      return runtimeState().lastSampleHash.c_str();
    if (const SampleBuffer* sample = SampleStore::instance().findById(sampleId))
    {
-      gLastSampleHash = sample->hash();
-      return gLastSampleHash.c_str();
+      runtimeState().lastSampleHash = sample->hash();
+      return runtimeState().lastSampleHash.c_str();
    }
    return "";
 }
@@ -350,13 +381,43 @@ EMSCRIPTEN_KEEPALIVE int bespoke_set_module_string(int moduleId, const char* key
 
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_module_string(int moduleId, const char* key)
 {
-   gModuleStringBuffer.clear();
    auto& state = runtimeState();
+   state.moduleStringBuffer.clear();
    if (!state.canvas || !key)
       return "";
-   if (!state.canvas->getModuleStringProperty(moduleId, key, gModuleStringBuffer))
+   if (!state.canvas->getModuleStringProperty(moduleId, key, state.moduleStringBuffer))
       return "";
-   return gModuleStringBuffer.c_str();
+   return state.moduleStringBuffer.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE void bespoke_set_help_locale(const char* tag)
+{
+   ModuleHelp::instance().setLocale(tag ? tag : "");
+}
+
+EMSCRIPTEN_KEEPALIVE const char* bespoke_get_hover_help(void)
+{
+   auto& state = runtimeState();
+   state.moduleStringBuffer = state.canvas ? state.canvas->hoverHelpText() : std::string();
+   return state.moduleStringBuffer.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE const char* bespoke_read_resource_text(const char* path)
+{
+   static std::string text;
+   text.clear();
+   if (!path)
+      return "";
+   const std::string resourcePath(path);
+   if (resourcePath.rfind("/resource/", 0) != 0 || resourcePath.find("..") != std::string::npos)
+      return "";
+   std::ifstream in(resourcePath, std::ios::binary);
+   if (!in)
+      return "";
+   std::ostringstream contents;
+   contents << in.rdbuf();
+   text = contents.str();
+   return text.c_str();
 }
 
 } // extern "C"

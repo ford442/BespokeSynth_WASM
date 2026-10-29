@@ -15,12 +15,15 @@ export function qwertyPianoOffset(code: string): number | undefined {
   return Object.prototype.hasOwnProperty.call(QWERTY_PIANO_OFFSETS, code) ? QWERTY_PIANO_OFFSETS[code] : undefined;
 }
 
+/** `eventTime`: the key event's timeStamp (performance.now() ms); absent for releases the piano makes itself. */
 export interface NoteSink {
-  noteOn(channel: number, pitch: number, velocity: number): void;
-  noteOff(channel: number, pitch: number): void;
+  noteOn(channel: number, pitch: number, velocity: number, eventTime?: number): void;
+  noteOff(channel: number, pitch: number, eventTime?: number): void;
 }
 
-type PianoKeyEvent = Pick<KeyboardEvent, 'code' | 'repeat' | 'shiftKey' | 'ctrlKey' | 'metaKey' | 'altKey'>;
+type PianoKeyEvent = Pick<KeyboardEvent, 'code' | 'repeat' | 'shiftKey' | 'ctrlKey' | 'metaKey' | 'altKey'> & {
+  timeStamp?: number;
+};
 
 export interface QwertyPianoState {
   enabled: boolean;
@@ -85,15 +88,15 @@ export class QwertyPiano {
     const pitch = (this.octave + 1) * 12 + offset;
     if (pitch < 0 || pitch > 127) return true;
     this.held.set(event.code, pitch);
-    this.sink.noteOn(this.channel, pitch, event.shiftKey ? 1 : this.velocity);
+    this.sink.noteOn(this.channel, pitch, event.shiftKey ? 1 : this.velocity, event.timeStamp);
     return true;
   }
 
-  handleKeyUp(event: Pick<KeyboardEvent, 'code'>): boolean {
+  handleKeyUp(event: Pick<KeyboardEvent, 'code'> & { timeStamp?: number }): boolean {
     const pitch = this.held.get(event.code);
     if (pitch !== undefined) {
       this.held.delete(event.code);
-      this.sink.noteOff(this.channel, pitch);
+      this.sink.noteOff(this.channel, pitch, event.timeStamp);
       return true;
     }
     return this.enabled && (qwertyPianoOffset(event.code) !== undefined ||

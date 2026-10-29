@@ -6,7 +6,7 @@
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
 #include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -40,48 +40,35 @@ namespace bespoke
             }
             state.oscillator.SetType(state.oscillatorType);
          }
-      }
 
-      std::vector<WasmControlDescriptor> LfoModuleAdapter::controlDescriptors() const
-      {
-         return {
-            { "rate", 1.0f },
-            { "depth", 1.0f },
-            { "shape", 0.0f },
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "rate", .minValue = 0.05f, .maxValue = 20.0f, .defaultValue = 1.0f, .offset = offsetof(LfoParams, rate) },
+            { .id = 1, .name = "depth", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 1.0f, .offset = offsetof(LfoParams, depth), .smoothingMs = kParamSmoothingMs },
+            { .id = 2, .name = "shape", .minValue = 0.0f, .maxValue = 3.0f, .defaultValue = 0.0f, .kind = ParamKind::Int, .offset = offsetof(LfoParams, shape) },
          };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kOutputs[] = { { PortType::Modulation, "Mod" } };
       }
 
-      std::vector<PortDescriptor> LfoModuleAdapter::inputPorts() const
+      ParamTable LfoModuleAdapter::paramTable() const
+      {
+         return kParams;
+      }
+
+      std::span<const PortDescriptor> LfoModuleAdapter::inputPorts() const
       {
          return {};
       }
 
-      std::vector<PortDescriptor> LfoModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> LfoModuleAdapter::outputPorts() const
       {
-         return { { PortType::Modulation, "Mod" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> LfoModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<LFOModule>(id);
-      }
-
-      void LfoModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         auto* params = new (dst) LfoParams();
-         params->rate = wasmControlValue(controls, "rate", 1.0f);
-         params->depth = wasmControlValue(controls, "depth", 1.0f);
-         params->shape = static_cast<int>(wasmControlValue(controls, "shape", 0.0f));
-      }
-
-      void LfoModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) LfoAdapterRuntimeState();
-      }
-
-      void LfoModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<LfoAdapterRuntimeState*>(runtimeState)->~LfoAdapterRuntimeState();
       }
 
       void LfoModuleAdapter::processAudio(void* runtimeState,

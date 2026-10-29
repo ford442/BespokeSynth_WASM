@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createSabRing, ringDrainWords, RING_DROPPED } from '../../src/audio/engineShared.ts';
 
 // The worklet file is plain JS that expects AudioWorkletGlobalScope globals.
 interface PortStub {
@@ -7,7 +8,9 @@ interface PortStub {
   postMessage(message: { type: string; samples: Float32Array }, transfer?: unknown[]): void;
 }
 type Processor = { port: PortStub; process(inputs: Float32Array[][]): boolean };
-type ProcessorCtor = new (options?: { processorOptions?: { chunkFrames?: number } }) => Processor;
+type ProcessorCtor = new (options?: {
+  processorOptions?: { chunkFrames?: number; ring?: SharedArrayBuffer };
+}) => Processor;
 
 const registered = new Map<string, ProcessorCtor>();
 const g = globalThis as Record<string, unknown>;
@@ -69,6 +72,28 @@ const flatten = (proc: Processor): number[] => proc.port.posted.flatMap((m) => A
   const bogus = new Mic({ processorOptions: { chunkFrames: 0 } });
   for (let i = 0; i < 4; ++i) bogus.process(quantum());
   assert.equal(bogus.port.posted[0]?.samples.length, 512, 'non-positive chunkFrames falls back to the default');
+}
+
+// Shared input ring (worklet engine): samples go straight into the SAB, nothing is posted.
+{
+  const ring = createSabRing(300);
+  const proc = new Mic({ processorOptions: { ring: ring.sab } });
+  next = 0;
+  proc.process(quantum());
+  proc.process(quantum());
+  assert.equal(proc.port.posted.length, 0, 'ring mode posts no chunks');
+  const out = new Int32Array(1024);
+  let count = ringDrainWords(ring, out);
+  assert.equal(count, 256);
+  assert.deepEqual(Array.from(new Float32Array(out.buffer, 0, count)), Array.from({ length: 256 }, (_, i) => i));
+
+  // 299 usable words: the third and fourth quanta overflow and are counted, not wrapped over.
+  for (let i = 0; i < 4; ++i) proc.process(quantum());
+  count = ringDrainWords(ring, out);
+  assert.equal(count, 299, 'fills to capacity - 1');
+  assert.equal(Atomics.load(ring.header, RING_DROPPED), 4 * QUANTUM - 299, 'overflow is counted');
+  const got = Array.from(new Float32Array(out.buffer, 0, count));
+  assert.deepEqual(got, Array.from({ length: 299 }, (_, i) => 256 + i), 'oldest samples kept in order across the wrap');
 }
 
 // Stop message ends the processor.

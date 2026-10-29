@@ -8,12 +8,14 @@
 #pragma once
 
 #include "BespokeWasm/AudioGraphTypes.h"
+#include "BespokeWasm/AudioRtGuard.h"
 #include "BespokeWasm/MidiMap.h"
 #include "BespokeWasm/ModuleTypes.h"
 #include "BespokeWasm/Module.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include "BespokeWasm/Renderer2D.h"
 #include "BespokeWasm/UndoStack.h"
+#include "BespokeWasm/WasmParams.h"
 #include <atomic>
 #include <functional>
 #include <map>
@@ -57,7 +59,7 @@ namespace bespoke
 
          struct StateSnapshot
          {
-            int schemaVersion = 4;
+            int schemaVersion = 5; // kPatchSchemaVersion (WasmPatchState.h)
             float transportBPM = 120.0f;
             bool transportPlaying = false;
             float offsetX = 0.0f;
@@ -109,6 +111,9 @@ namespace bespoke
          int redoDepth() const;
          void clearUndoHistory();
 
+         /** Placeholders on the canvas (patch modules of a type this build lacks). */
+         int placeholderCount() const;
+
          /** Script modules are hidden from the spawn menu unless ?script=1 enabled them. */
          void setScriptingEnabled(bool enabled);
          bool isScriptingEnabled() const;
@@ -122,10 +127,45 @@ namespace bespoke
          using SnapshotListener = std::function<void(const AudioGraphSnapshot&)>;
          void setSnapshotListener(SnapshotListener listener);
 
-         void connectModules(int sourceId, int sourcePort, int destId, int destPort);
+         /**
+          * Control changes that need no topology publish (knob drags, MIDI CC, undo of a control,
+          * transport play / tempo) go to the sink as ParamChange { moduleId, paramId, value, seq }:
+          * the runtime queues them on the local engine or the worklet's event ring. A false return
+          * (queue full) falls back to a full publish, as does every change while no sink is set.
+          */
+         using ParamSink = std::function<bool(const ParamChange&)>;
+         void setParamSink(ParamSink sink);
+
+         struct Stats
+         {
+            uint64_t publishCount = 0; // topology snapshots built and compiled
+            uint64_t paramChangesSent = 0; // control changes that went to the sink instead
+            uint64_t generation = 0;
+            uint32_t paramSeq = 0;
+         };
+         Stats stats() const;
+
+         /** User-facing messages from the canvas; the host shows them as a toast. */
+         using NoticeListener = std::function<void(const std::string&)>;
+         void setNoticeListener(NoticeListener listener);
+
+         /**
+          * Adds the cable unless it is incompatible or a duplicate. A port takes any number of
+          * cables (the process plan sizes its input lists). Returns whether the cable was added.
+          */
+         bool connectModules(int sourceId, int sourcePort, int destId, int destPort);
          void disconnectModules(int sourceId, int destId);
          const std::vector<Connection>& getConnections() const { return mConnections; }
+         /**
+          * The last topology publish. Its params predate later fast-path control changes; use
+          * liveAudioGraphSnapshot() for a copy that includes them.
+          */
          std::shared_ptr<const AudioGraphSnapshot> getAudioGraphSnapshot() const;
+         /** The published snapshot with every control change since (what the worklet engine is sent). */
+         AudioGraphSnapshot liveAudioGraphSnapshot() const;
+         /** Rebuilds and publishes the snapshot (a new generation) without any edit. */
+         void republishAudioGraph();
+         /** A fresh, untracked snapshot (generation 0) of the canvas as it is now. */
          AudioGraphSnapshot createAudioGraphSnapshot() const;
          StateSnapshot createStateSnapshot() const;
          bool applyStateSnapshot(const StateSnapshot& snapshot);
@@ -148,6 +188,7 @@ namespace bespoke
          void render(Renderer2D& renderer, int viewWidth, int viewHeight);
          void renderTitleBar(Renderer2D& renderer, int viewWidth);
          void renderSpawnMenu(Renderer2D& renderer, int viewWidth, int viewHeight);
+         void renderHoverHelp(Renderer2D& renderer, int viewWidth, int viewHeight);
 
          void onMouseDown(float x, float y, int button) { onMouseDown(x, y, button, 0); }
          /** modifiers: 1 shift, 2 alt, 4 ctrl, 8 meta (same bits as key events). */
@@ -166,6 +207,8 @@ namespace bespoke
 
          void clearUserModules();
          void setViewTransform(float offsetX, float offsetY, float scale);
+         // Render-test scenes (src/test_scenes, built with BESPOKE_WASM_RENDER_TESTS).
+         /** ?renderTest=1: stepsequencer → oscillator → filter → gain → output, LFO on the cutoff. */
          void setupCanonicalRenderTestScene();
          /** ?renderTest=2: transport → drumseq → kick/snare/hat → mixer → compressor → output. */
          void setupDrumRenderTestScene();
@@ -175,6 +218,10 @@ namespace bespoke
          void closeSpawnMenu();
          int getSpawnMenuCategory() const { return mSpawnMenuCategory; }
          void setSpawnMenuCategory(int cat) { mSpawnMenuCategory = cat; }
+         /** Help line under the spawn menu's selected row ("" when closed or undocumented). */
+         std::string spawnMenuDescription() const;
+         /** Tooltip for what the pointer rests on: a control's help, or the module's over its title bar. */
+         std::string hoverHelpText() const;
 
          TransportModule* getTransport() { return mTransport; }
          ScaleModule* getScale() { return mScaleModule; }
@@ -185,7 +232,7 @@ namespace bespoke
          void setTransportBPM(float bpm);
 
       private:
-         using Lock = std::lock_guard<std::recursive_mutex>;
+         using Lock = std::lock_guard<RtRecursiveMutex>;
 
          /** Scoped: edits inside (patch load, scenes, undo itself) are not recorded. */
          struct UndoSuppressor
@@ -200,13 +247,22 @@ namespace bespoke
          };
 
          int createModuleWithIdLocked(const std::string& type, float x, float y, int id);
+         int installModuleLocked(std::unique_ptr<Module> module, float x, float y, int id);
+         /** Patch load / undo restore: a type the registry lacks becomes a PlaceholderModule. */
+         int createModuleOrPlaceholderLocked(const std::string& type, float x, float y, int id);
+         bool isPlaceholderLocked(int moduleId) const;
+         void refreshPlaceholderBadgesLocked();
          bool connectLocked(int sourceId, int sourcePort, int destId, int destPort);
+         /** connectLocked, or keep the cable dangling when an end is a placeholder. */
+         void restoreCableLocked(const UndoConnection& cable);
          void deleteModuleLocked(int moduleId);
          UndoModuleState captureModuleLocked(const Module& module) const;
          void restoreModuleLocked(const UndoModuleState& state);
          void recordLocked(UndoCommand command, bool coalesce = false);
          void applyCommandLocked(const UndoCommand& command, bool forward);
          void commitGestureLocked();
+         /** After undo / redo: control-only commands sync params, anything else publishes. */
+         void publishUndoChangeLocked(const UndoCommand& command);
          void renderMidiOverlay(Renderer2D& renderer, int viewWidth, float canvasTop);
 
          float screenToWorldX(float screenX) const;
@@ -216,14 +272,31 @@ namespace bespoke
          bool removeConnectionAt(float screenX, float screenY);
          void buildAudioGraphSnapshotLocked(AudioGraphSnapshot& snapshot) const;
          void publishAudioGraphSnapshotLocked();
+         /**
+          * Sends this module's changed audio params to the sink (diffed against the mirror of what
+          * the engine holds); publishes instead when there is no sink, the module is not in the
+          * published graph, its enabled state or a non-param input (Scale) changed, or a send fails.
+          */
+         void syncModuleParamsLocked(int moduleId);
+         /** Transport play state and tempo as global ParamChanges (or a publish). */
+         void syncTransportLocked();
+         [[nodiscard]] bool sendParamChangeLocked(int32_t moduleId, ParamId paramId, float value);
+         void handleSpawnMenuClickLocked(float x, float y);
+         void handleSpawnMenuKeyLocked(int keyCode, int modifiers);
+         /** Spawn-menu row under the pointer becomes the selection (its help shows). */
+         void handleSpawnMenuHoverLocked(float x, float y);
+         void updateHoverLocked(float x, float y);
+         void updateHoverTargetLocked(float x, float y);
          std::map<std::string, float> moduleControlMap(const Module& module) const;
          std::map<std::string, std::string> moduleStringMap(const Module& module) const;
          void seedDefaultMidiCcMapLocked();
 
          std::unordered_map<int, std::unique_ptr<Module>> mModules;
          std::vector<Connection> mConnections;
+         /** Cables that touch a placeholder: not wired into the graph, but saved back unchanged. */
+         std::vector<StateConnection> mDanglingConnections;
          int mNextModuleId = 1;
-         mutable std::recursive_mutex mMutex;
+         mutable RtRecursiveMutex mMutex;
 
          float mOffsetX = 0.0f;
          float mOffsetY = 0.0f;
@@ -246,6 +319,10 @@ namespace bespoke
          int mSpawnMenuSelectedIndex = 0;
          float mLastMouseX = 0.0f, mLastMouseY = 0.0f;
          float mSpawnMenuRenderX = 0.0f, mSpawnMenuRenderY = 0.0f;
+         int mHoverModuleId = -1;
+         std::string mHoverControl;
+         bool mHoverTitleBar = false; // shows the module description
+         int mHoverFrames = 0; // frames rendered on the same target (tooltip dwell)
 
          TransportModule* mTransport = nullptr;
          ScaleModule* mScaleModule = nullptr;
@@ -263,8 +340,18 @@ namespace bespoke
          std::string mMidiLearnControl;
          bool mScriptingEnabled = false;
          SnapshotListener mSnapshotListener;
+         NoticeListener mNoticeListener;
 
          mutable std::shared_ptr<const AudioGraphSnapshot> mPublishedAudioGraph;
+         // Control fast path (ModuleCanvasSnapshot.cpp): what the engine holds since the last publish.
+         ParamSink mParamSink;
+         std::vector<uint8_t> mParamMirror;
+         bool mMirrorPlaying = false;
+         float mMirrorBpm = 120.0f;
+         uint64_t mGeneration = 0;
+         uint32_t mParamSeq = 0;
+         uint64_t mPublishCount = 0;
+         uint64_t mParamChangesSent = 0;
 
          static constexpr float kTitleBarHeight = 40.0f;
          static constexpr float kTransportBarHeight = 30.0f;

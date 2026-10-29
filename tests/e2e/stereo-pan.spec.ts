@@ -1,18 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import { gotoApp, waitForBespokeReady } from './helpers';
 
-type BespokeApi = {
-  getStateJson?: () => string | null;
-  setControlValue?: (moduleId: number, name: string, value: number) => void;
-  getControlValue?: (moduleId: number, name: string) => number;
-  renderOfflineWav?: (opts?: { seconds?: number; bitsPerSample?: 16 }) => Uint8Array | null;
-};
-
 /** Per-channel RMS of a 16-bit stereo offline render of the current graph. */
 async function renderChannelRms(page: Page): Promise<{ left: number; right: number } | null> {
   return page.evaluate(() => {
-    const api = (window as Window & { __bespoke?: BespokeApi }).__bespoke;
-    const wav = api?.renderOfflineWav?.({ seconds: 2, bitsPerSample: 16 });
+    const api = window.__bespoke;
+    const wav = api?.renderOfflineWav({ seconds: 2, bitsPerSample: 16 });
     if (!wav) return null;
     const view = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
     let offset = 12;
@@ -48,8 +41,8 @@ test.describe('Stereo bus (?renderTest=2)', () => {
     await waitForBespokeReady(page);
 
     const mixerId = await page.evaluate(() => {
-      const api = (window as Window & { __bespoke?: BespokeApi }).__bespoke;
-      const state = JSON.parse(api?.getStateJson?.() ?? '{}') as { modules?: { id: number; type: string }[] };
+      const api = window.__bespoke;
+      const state = JSON.parse(api?.getStateJson() ?? '{}') as { modules?: { id: number; type: string }[] };
       return state.modules?.find((m) => m.type === 'mixer')?.id ?? -1;
     });
     expect(mixerId).toBeGreaterThanOrEqual(0);
@@ -60,9 +53,9 @@ test.describe('Stereo bus (?renderTest=2)', () => {
     expect(Math.abs(centred!.left - centred!.right)).toBeLessThan(centred!.left * 0.01);
 
     const panned = await page.evaluate((id) => {
-      const api = (window as Window & { __bespoke?: BespokeApi }).__bespoke;
-      for (const name of ['pan1', 'pan2', 'pan3', 'pan4']) api?.setControlValue?.(id, name, 0);
-      return api?.getControlValue?.(id, 'pan1');
+      const api = window.__bespoke;
+      for (const name of ['pan1', 'pan2', 'pan3', 'pan4']) api?.setControlValue(id, name, 0);
+      return api?.getControlValue(id, 'pan1');
     }, mixerId);
     expect(panned).toBe(0);
 

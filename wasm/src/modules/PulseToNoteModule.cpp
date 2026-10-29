@@ -36,6 +36,12 @@ namespace bespoke
                   line, UITheme::kTextSecondary, valueFont);
       }
 
+      std::string PulseToNoteModule::controlNameAt(float worldX, float worldY) const
+      {
+         return textLineControlAt(worldX, worldY, kTitleBarHeight + 14.0f, UITheme::kValueFontSize,
+                                  { "pitch", "gate" });
+      }
+
       void PulseToNoteModule::setControlValue(const std::string& name, float value)
       {
          if (name == "pitch")

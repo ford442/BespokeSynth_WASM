@@ -12,6 +12,7 @@
 #include "BespokeWasm/AudioAnalysis.h"
 #include "BespokeWasm/Theme.h"
 #include "BespokeWasm/PixelFont.h"
+#include "BespokeWasm/WidgetPainter.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -78,86 +79,6 @@ namespace bespoke
                   "Add module  /", UITheme::kTextSecondary, 11.0f);
       }
 
-      void ModuleCanvas::renderSpawnMenu(Renderer2D& renderer, int viewWidth, int viewHeight)
-      {
-         // Keep the palette native so it shares the canvas transform and Bespoke visual language.
-         // TypeScript only forwards browser-only input; a DOM overlay would be easier to iterate
-         // on, but would need duplicate placement, focus, and renderer-backend coordination.
-         if (!mSpawnMenuOpen)
-            return;
-
-         const auto types = spawnMenuTypes(mSpawnMenuCategory, mSpawnMenuSearch);
-         constexpr float kMenuWidth = 280.0f;
-         constexpr float kSearchHeight = 29.0f;
-         constexpr float kCategoryHeight = 25.0f;
-         constexpr float kRowHeight = 24.0f;
-         constexpr int kMaxRows = 8;
-         const int rows = std::min(static_cast<int>(types.size()), kMaxRows);
-         const float menuHeight = kSearchHeight + kCategoryHeight + 8.0f + rows * kRowHeight + 10.0f;
-         const float menuX = std::max(6.0f, std::min(mSpawnMenuX, static_cast<float>(viewWidth) - kMenuWidth - 6.0f));
-         const float menuY = std::max(kTitleBarHeight + 4.0f,
-                                      std::min(mSpawnMenuY, static_cast<float>(viewHeight) - menuHeight - 6.0f));
-         mSpawnMenuRenderX = menuX;
-         mSpawnMenuRenderY = menuY;
-
-         renderer.fillColor(Color(0.12f, 0.12f, 0.14f, 0.98f));
-         renderer.roundedRect(menuX, menuY, kMenuWidth, menuHeight, 5.0f);
-         renderer.fill();
-         renderer.strokeColor(Color(0.38f, 0.38f, 0.44f, 1.0f));
-         renderer.strokeWidth(1.0f);
-         renderer.roundedRect(menuX, menuY, kMenuWidth, menuHeight, 5.0f);
-         renderer.stroke();
-
-         const std::string searchLabel = mSpawnMenuSearch.empty() ? "Search modules..." : mSpawnMenuSearch;
-         drawText(renderer, menuX + 10.0f, textBaselineFromTop(renderer, menuY + 7.0f),
-                  searchLabel.c_str(), mSpawnMenuSearch.empty() ? UITheme::kTextSecondary : UITheme::kTextPrimary, 12.0f);
-         renderer.strokeColor(Color(0.28f, 0.28f, 0.33f, 1.0f));
-         renderer.line(menuX + 8.0f, menuY + kSearchHeight, menuX + kMenuWidth - 8.0f, menuY + kSearchHeight);
-
-         const char* categories[] = { "All", "Synth", "FX", "Mod", "Pulse", "Other" };
-         const int categoryValues[] = {
-            -1,
-            static_cast<int>(ModuleCategory::Synth),
-            static_cast<int>(ModuleCategory::AudioEffect),
-            static_cast<int>(ModuleCategory::Modulator),
-            static_cast<int>(ModuleCategory::Pulse),
-            static_cast<int>(ModuleCategory::Other)
-         };
-         constexpr int kCategoryCount = 6;
-         for (int i = 0; i < kCategoryCount; ++i)
-         {
-            const float chipX = menuX + 6.0f + i * 44.5f;
-            if (mSpawnMenuCategory == categoryValues[i])
-            {
-               renderer.fillColor(Color(0.25f, 0.35f, 0.30f, 1.0f));
-               renderer.roundedRect(chipX, menuY + kSearchHeight + 3.0f, 42.0f, 18.0f, 3.0f);
-               renderer.fill();
-            }
-            drawText(renderer, chipX + 4.0f, textBaselineFromTop(renderer, menuY + kSearchHeight + 6.0f),
-                     categories[i], UITheme::kTextSecondary, 9.0f);
-         }
-
-         const float rowsY = menuY + kSearchHeight + kCategoryHeight + 2.0f;
-         if (types.empty())
-         {
-            drawText(renderer, menuX + 10.0f, textBaselineFromTop(renderer, rowsY + 5.0f),
-                     "No matching modules", UITheme::kTextSecondary, 11.0f);
-            return;
-         }
-         for (int i = 0; i < rows; ++i)
-         {
-            const float rowY = rowsY + i * kRowHeight;
-            if (i == mSpawnMenuSelectedIndex)
-            {
-               renderer.fillColor(Color(0.24f, 0.30f, 0.34f, 1.0f));
-               renderer.rect(menuX + 5.0f, rowY, kMenuWidth - 10.0f, kRowHeight);
-               renderer.fill();
-            }
-            drawText(renderer, menuX + 11.0f, textBaselineFromTop(renderer, rowY + 4.0f),
-                     types[i].displayName.c_str(), UITheme::kTextPrimary, 12.0f);
-         }
-      }
-
       void ModuleCanvas::renderMidiOverlay(Renderer2D& renderer, int viewWidth, float canvasTop)
       {
          // CC badges under each mapped module, e.g. "CC74 cutoff".
@@ -205,6 +126,48 @@ namespace bespoke
                   Color(1.0f, 0.78f, 0.45f, 1.0f), 11.0f);
       }
 
+      void ModuleCanvas::renderHoverHelp(Renderer2D& renderer, int viewWidth, int viewHeight)
+      {
+         // About a third of a second of dwell before the tooltip shows, as on the desktop.
+         constexpr int kDwellFrames = 20;
+         constexpr float kFont = 10.0f;
+         constexpr float kMaxWidth = 240.0f;
+         constexpr float kPad = 6.0f;
+         if (mHoverModuleId < 0 || ++mHoverFrames < kDwellFrames)
+            return;
+         const std::string text = hoverHelpText();
+         if (text.empty())
+            return;
+         renderer.fontSize(kFont);
+         const auto lines = wrapText(renderer, text, kMaxWidth, 6);
+         float width = 0.0f;
+         for (const auto& line : lines)
+            width = std::max(width, renderer.textWidth(line.c_str()));
+         const float lineStep = textLineSpacing(kFont, 1.0f);
+         const float boxW = width + kPad * 2.0f;
+         const float boxH = lineStep * static_cast<float>(lines.size()) + kPad * 2.0f - 4.0f;
+         // Below-right of the pointer, flipped inside the view at the edges.
+         float boxX = mLastMouseX + 14.0f;
+         float boxY = mLastMouseY + 18.0f;
+         if (boxX + boxW > static_cast<float>(viewWidth) - 4.0f)
+            boxX = std::max(4.0f, mLastMouseX - boxW - 6.0f);
+         if (boxY + boxH > static_cast<float>(viewHeight) - 4.0f)
+            boxY = std::max(kTitleBarHeight, mLastMouseY - boxH - 6.0f);
+
+         renderer.fillColor(Color(0.10f, 0.10f, 0.12f, 0.96f));
+         renderer.roundedRect(boxX, boxY, boxW, boxH, 3.0f);
+         renderer.fill();
+         renderer.strokeColor(Color(0.42f, 0.42f, 0.48f, 1.0f));
+         renderer.strokeWidth(1.0f);
+         renderer.roundedRect(boxX, boxY, boxW, boxH, 3.0f);
+         renderer.stroke();
+         for (size_t i = 0; i < lines.size(); ++i)
+         {
+            drawText(renderer, boxX + kPad, textBaselineForLine(boxY + kPad, static_cast<int>(i), kFont, 1.0f),
+                     lines[i].c_str(), UITheme::kTextPrimary, kFont);
+         }
+      }
+
       void ModuleCanvas::render(Renderer2D& renderer, int viewWidth, int viewHeight)
       {
          Lock lock(mMutex);
@@ -222,9 +185,9 @@ namespace bespoke
          float startGridY = fmodf(mOffsetY * mScale + canvasTop, gridSize);
 
          renderer.fillColor(Color(0.2f, 0.2f, 0.22f, 0.5f));
-         for (float gx = startGridX; gx < viewWidth; gx += gridSize)
+         for (float gx = startGridX; gx < static_cast<float>(viewWidth); gx += gridSize)
          {
-            for (float gy = canvasTop + startGridY; gy < viewHeight; gy += gridSize)
+            for (float gy = canvasTop + startGridY; gy < static_cast<float>(viewHeight); gy += gridSize)
             {
                renderer.circle(gx, gy, 1.0f);
                renderer.fill();
@@ -242,16 +205,16 @@ namespace bespoke
             // Calculate port positions
             float srcX = (srcMod->getX() + srcMod->getWidth() + mOffsetX) * mScale;
             float srcY = (srcMod->getY() + Module::kTitleBarHeight + 10 +
-                          conn.sourcePortIndex * 15 + mOffsetY) *
+                          static_cast<float>(conn.sourcePortIndex * 15) + mOffsetY) *
                          mScale +
                          canvasTop;
             float dstX = (dstMod->getX() + mOffsetX) * mScale;
             float dstY = (dstMod->getY() + Module::kTitleBarHeight + 10 +
-                          conn.destPortIndex * 15 + mOffsetY) *
+                          static_cast<float>(conn.destPortIndex * 15) + mOffsetY) *
                          mScale +
                          canvasTop;
 
-            renderer.drawCableWithSag(srcX, srcY, dstX, dstY, conn.color, 2.5f * mScale, 0.2f);
+            WidgetPainter(renderer).drawCableWithSag(srcX, srcY, dstX, dstY, conn.color, 2.5f * mScale, 0.2f);
          }
 
          // Draw in-progress connection
@@ -262,14 +225,14 @@ namespace bespoke
             {
                float srcX = (srcMod->getX() + srcMod->getWidth() + mOffsetX) * mScale;
                float srcY = (srcMod->getY() + Module::kTitleBarHeight + 10 +
-                             mConnectSourcePort * 15 + mOffsetY) *
+                             static_cast<float>(mConnectSourcePort * 15) + mOffsetY) *
                             mScale +
                             canvasTop;
                const Color previewColor = mConnectTargetCompatible
                                           ? Color(0.7f, 0.7f, 0.75f, 0.75f)
                                           : Color(0.95f, 0.2f, 0.2f, 0.85f);
-               renderer.drawCableWithSag(srcX, srcY, mConnectEndX, mConnectEndY,
-                                         previewColor, 2.0f, 0.15f);
+               WidgetPainter(renderer).drawCableWithSag(srcX, srcY, mConnectEndX, mConnectEndY,
+                                                        previewColor, 2.0f, 0.15f);
             }
          }
 
@@ -284,12 +247,13 @@ namespace bespoke
          // Render title bar on top
          renderTitleBar(renderer, viewWidth);
          renderSpawnMenu(renderer, viewWidth, viewHeight);
+         renderHoverHelp(renderer, viewWidth, viewHeight);
 
          // Docked live analyzer, fed by the audio callback's lock-free ring. WebGPU runs the
          // FFT in a compute pass (analyzer_fft.wgsl); other backends use the CPU path here.
          const float analyzerX = static_cast<float>(viewWidth) - 210.0f;
          const float analyzerY = static_cast<float>(viewHeight) - 135.0f;
-         renderer.drawPanel(analyzerX, analyzerY, 200.0f, 105.0f, true);
+         WidgetPainter(renderer).drawPanel(analyzerX, analyzerY, 200.0f, 105.0f, true);
          drawText(renderer, analyzerX + 8.0f, textBaselineFromTop(renderer, analyzerY + 5.0f),
                   "ANALYZER", UITheme::kTextSecondary, 9.0f);
 
@@ -302,15 +266,15 @@ namespace bespoke
             std::array<float, 256> waveform{};
             AudioAnalysis::copyLatest(waveform.data(), static_cast<int>(waveform.size()));
             renderer.strokeColor(UITheme::kAccentCyan);
-            renderer.drawWaveform(scopeX, scopeY, analyzerW, 34.0f, waveform.data(),
-                                  static_cast<int>(waveform.size()), false);
+            WidgetPainter(renderer).drawWaveform(scopeX, scopeY, analyzerW, 34.0f, waveform.data(),
+                                                 static_cast<int>(waveform.size()), false);
          }
          if (!renderer.drawLiveSpectrum(scopeX, spectrumY, analyzerW, 35.0f))
          {
             std::array<float, AudioAnalysis::kSpectrumBins> spectrum{};
             AudioAnalysis::computeSpectrum(spectrum.data(), static_cast<int>(spectrum.size()));
-            renderer.drawSpectrum(scopeX, spectrumY, analyzerW, 35.0f, spectrum.data(),
-                                  static_cast<int>(spectrum.size()));
+            WidgetPainter(renderer).drawSpectrum(scopeX, spectrumY, analyzerW, 35.0f, spectrum.data(),
+                                                 static_cast<int>(spectrum.size()));
          }
 
          // Draw zoom indicator (right-aligned)

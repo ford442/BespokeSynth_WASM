@@ -129,33 +129,8 @@ namespace bespoke
       float textWidth(const char* string) override;
       float textHeight() const override { return pixelFontTextHeight(mFontSize); }
 
-      void drawKnob(float cx, float cy, float radius, float value, const Color& bgColor, const Color& fgColor) override;
-      void drawWire(float x1, float y1, float x2, float y2, const Color& color, float thickness = 2.0f) override;
-      void drawCableWithSag(float x1, float y1, float x2, float y2, const Color& color, float thickness = 3.0f, float sag = 0.3f) override;
-      void drawSlider(float x, float y, float w, float h, float value, const Color& bgColor, const Color& fgColor) override;
-      void drawVUMeter(float x, float y, float w, float h, float level, const Color& lowColor, const Color& highColor) override;
-
-      void drawButton(float x, float y, float w, float h, const char* label, bool pressed, bool hover) override;
-      void drawToggle(float x, float y, float w, float h, bool state) override;
-      void drawFader(float x, float y, float w, float h, float value) override;
-      void drawModWheel(float x, float y, float w, float h, float value) override;
-      void drawADSR(float x, float y, float w, float h, float a, float d, float s, float r) override;
-      void drawWaveform(float x, float y, float w, float h, const float* data, int count, bool filled) override;
-      void drawSpectrum(float x, float y, float w, float h, const float* data, int count) override;
-      void drawScope(float x, float y, float w, float h, const float* data, int count) override;
-      void drawPanel(float x, float y, float w, float h, bool bordered) override;
-      void drawLED(float x, float y, float w, float h, bool on) override;
-      void drawProgressBar(float x, float y, float w, float h, float value) override;
-
-      void drawXYPad(float x, float y, float w, float h, float cx, float cy) override;
-      void drawFilterResponse(float x, float y, float w, float h) override;
-      void drawLFOWaveform(float x, float y, float w, float h) override;
-      void drawSequencerStep(float x, float y, float w, float h, bool active) override;
-      void drawSpectrumWaterfall(float x, float y, float w, float h) override;
-      void drawPianoKey(float x, float y, float w, float h, bool black, bool pressed) override;
-      void drawSpectrumRainbow(float x, float y, float w, float h, float* data, int count) override;
-      void drawCircularScope(float x, float y, float w, float h) override;
-      void drawEchoTrail(float x, float y, float w, float h) override;
+      void drawQuad(ShaderKind kind, float x, float y, float w, float h) override;
+      Color currentFillColor() const override { return mCurrentState.fillColor; }
 
       bool drawLiveWaveform(float x, float y, float w, float h, const Color& traceColor) override;
       bool drawLiveSpectrum(float x, float y, float w, float h) override;

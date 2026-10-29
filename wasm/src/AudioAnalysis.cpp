@@ -1,9 +1,11 @@
 #include "BespokeWasm/AudioAnalysis.h"
 #include "BespokeWasm/DspSimd.h"
+#include "BespokeWasm/dsp/Fft.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <memory>
 #include <vector>
 
 namespace bespoke::wasm::AudioAnalysis
@@ -15,69 +17,25 @@ namespace bespoke::wasm::AudioAnalysis
       constexpr float kTwoPi = 6.28318530717958647692f;
 
       std::vector<float> gHannWindow;
-      // Twiddles laid out per stage so each butterfly run reads them contiguously:
-      // the stage with half-size h starts at offset h - 1 (total kFftSize - 1).
-      std::vector<float> gStageCos;
-      std::vector<float> gStageSin;
       std::vector<float> gFftReal;
       std::vector<float> gFftImag;
-      bool gTablesReady = false;
+      // Shared real FFT (PFFFT, the vocoder's too); made on the first CPU spectrum.
+      std::unique_ptr<dsp::RealFft> gFft;
       unsigned int gCpuSpectrumCount = 0;
       unsigned int gGpuSpectrumCount = 0;
 
       void ensureFftTables()
       {
-         if (gTablesReady)
+         if (gFft)
             return;
 
          gHannWindow.resize(static_cast<size_t>(kFftSize));
          for (int i = 0; i < kFftSize; ++i)
             gHannWindow[static_cast<size_t>(i)] =
                0.5f - 0.5f * std::cos(kTwoPi * static_cast<float>(i) / static_cast<float>(kFftSize - 1));
-
-         gStageCos.resize(static_cast<size_t>(kFftSize - 1));
-         gStageSin.resize(static_cast<size_t>(kFftSize - 1));
-         for (int half = 1; half < kFftSize; half <<= 1)
-         {
-            const int step = kFftSize / (half * 2);
-            for (int j = 0; j < half; ++j)
-            {
-               const float phase = -kTwoPi * static_cast<float>(j * step) / static_cast<float>(kFftSize);
-               gStageCos[static_cast<size_t>(half - 1 + j)] = std::cos(phase);
-               gStageSin[static_cast<size_t>(half - 1 + j)] = std::sin(phase);
-            }
-         }
-
-         gFftReal.resize(static_cast<size_t>(kFftSize));
-         gFftImag.resize(static_cast<size_t>(kFftSize));
-         gTablesReady = true;
-      }
-
-      void fftInPlace(std::vector<float>& real, std::vector<float>& imag)
-      {
-         const int n = kFftSize;
-         for (int i = 1, j = 0; i < n; ++i)
-         {
-            int bit = n >> 1;
-            for (; j & bit; bit >>= 1)
-               j ^= bit;
-            j ^= bit;
-            if (i < j)
-            {
-               std::swap(real[static_cast<size_t>(i)], real[static_cast<size_t>(j)]);
-               std::swap(imag[static_cast<size_t>(i)], imag[static_cast<size_t>(j)]);
-            }
-         }
-
-         float* re = real.data();
-         float* im = imag.data();
-         for (int half = 1; half < n; half <<= 1)
-         {
-            const float* twRe = gStageCos.data() + (half - 1);
-            const float* twIm = gStageSin.data() + (half - 1);
-            for (int i = 0; i < n; i += half * 2)
-               dsp::butterflyStage(re + i, im + i, re + i + half, im + i + half, twRe, twIm, half);
-         }
+         gFftReal.resize(static_cast<size_t>(kFftSize / 2));
+         gFftImag.resize(static_cast<size_t>(kFftSize / 2));
+         gFft = std::make_unique<dsp::RealFft>(kFftSize);
       }
    }
 
@@ -125,15 +83,20 @@ namespace bespoke::wasm::AudioAnalysis
       ++gCpuSpectrumCount;
 
       bins = std::min(bins, kSpectrumBins);
-      for (int i = 0; i < kFftSize; ++i)
-      {
-         gFftReal[static_cast<size_t>(i)] = 0.0f;
-         gFftImag[static_cast<size_t>(i)] = 0.0f;
-      }
-      copyLatest(gFftReal.data(), kFftSize);
-      dsp::multiply(gFftReal.data(), gHannWindow.data(), kFftSize);
+      float* time = gFft->timeBuffer();
+      copyLatest(time, kFftSize);
+      dsp::multiply(time, gHannWindow.data(), kFftSize);
+      gFft->forward();
 
-      fftInPlace(gFftReal, gFftImag);
+      // Ordered real layout: [DC, Nyquist, re1, im1, ...]; bin 0 is the DC term.
+      const float* spectrum = gFft->spectrumBuffer();
+      gFftReal[0] = spectrum[0];
+      gFftImag[0] = 0.0f;
+      for (int bin = 1; bin < kFftSize / 2; ++bin)
+      {
+         gFftReal[static_cast<size_t>(bin)] = spectrum[2 * bin];
+         gFftImag[static_cast<size_t>(bin)] = spectrum[2 * bin + 1];
+      }
 
       const int usableBins = std::min(bins, kFftSize / 2);
       dsp::magnitude(destination, gFftReal.data(), gFftImag.data(), usableBins, 0.004f, 1.0f);

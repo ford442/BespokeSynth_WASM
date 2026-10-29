@@ -3,6 +3,7 @@
  */
 
 #include "BespokeWasm/modules/WasmModules.h"
+#include "BespokeWasm/BundledKit.h"
 #include "BespokeWasm/ModuleCanvasHelpers.h"
 #include "BespokeWasm/SampleBuffer.h"
 #include "BespokeWasm/SampleStore.h"
@@ -22,9 +23,10 @@ namespace bespoke
 
       void SamplerModule::refreshSample()
       {
-         mSample = mSampleHash.empty() ? nullptr : SampleStore::instance().findByHash(mSampleHash);
-         if (mSample)
-            mSampleName = mSample->name();
+         const SampleBuffer* sample = mSampleHash.empty() ? nullptr : findSampleOrBundled(mSampleHash);
+         mSampleHandle = sample ? SampleStore::instance().handleFor(sample->id()) : SampleHandle{};
+         if (sample)
+            mSampleName = sample->name();
       }
 
       void SamplerModule::render(Renderer2D& renderer, float offsetX, float offsetY, float scale)
@@ -42,9 +44,18 @@ namespace bespoke
          renderer.rect(waveX, waveY, waveW, waveH);
          renderer.fill();
 
-         if (mSample && !mSample->peaks().empty())
+         auto& store = SampleStore::instance();
+         const SampleBuffer* sample = store.resolve(mSampleHandle);
+         if (!sample && !mSampleHash.empty())
          {
-            const auto& peaks = mSample->peaks();
+            // Reloaded under a new generation (undo after eviction); never loads from here.
+            sample = store.findByHash(mSampleHash);
+            if (sample)
+               mSampleHandle = store.handleFor(sample->id());
+         }
+         if (sample && !sample->peaks().empty())
+         {
+            const auto& peaks = sample->peaks();
             renderer.strokeColor(Color(0.45f, 0.82f, 0.7f, 1.0f));
             renderer.strokeWidth(1.0f);
             renderer.beginPath();
@@ -73,6 +84,21 @@ namespace bespoke
          else
             snprintf(line, sizeof(line), "%.16s  %s", mSampleName.c_str(), modeName);
          drawText(renderer, waveX, waveY + waveH + 14 * scale, line, UITheme::kTextPrimary, 10.0f * scale);
+      }
+
+      std::string SamplerModule::controlNameAt(float worldX, float worldY) const
+      {
+         // Mirrors handleMouseDown: the waveform's top half drags start, the bottom half end,
+         // and the label under it cycles the mode.
+         const float waveX = mX + 8.0f;
+         const float waveY = mY + kTitleBarHeight + 8.0f;
+         const float waveW = 184.0f;
+         const float waveH = 48.0f;
+         if (worldX < waveX || worldX > waveX + waveW || worldY < waveY)
+            return {};
+         if (worldY <= waveY + waveH)
+            return worldY < waveY + waveH * 0.5f ? "start" : "end";
+         return worldY <= waveY + waveH + 20.0f ? "mode" : std::string();
       }
 
       void SamplerModule::setControlValue(const std::string& name, float value)

@@ -9,7 +9,7 @@
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
 #include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -21,48 +21,36 @@ namespace bespoke
          {
             return std::max(minValue, std::min(maxValue, value));
          }
-      }
 
-      std::vector<WasmControlDescriptor> FilterModuleAdapter::controlDescriptors() const
-      {
-         return {
-            { "cutoff", 1000.0f },
-            { "resonance", 0.5f },
-            { "type", 0.0f },
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "cutoff", .minValue = 20.0f, .maxValue = 20000.0f, .defaultValue = 1000.0f, .offset = offsetof(FilterParams, cutoff), .smoothingMs = kParamSmoothingMs },
+            { .id = 1, .name = "resonance", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.5f, .offset = offsetof(FilterParams, resonance) },
+            { .id = 2, .name = "type", .minValue = 0.0f, .maxValue = 2.0f, .defaultValue = 0.0f, .kind = ParamKind::Int, .offset = offsetof(FilterParams, type) },
          };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Audio, "In" }, { PortType::Modulation, "CV" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
       }
 
-      std::vector<PortDescriptor> FilterModuleAdapter::inputPorts() const
+      ParamTable FilterModuleAdapter::paramTable() const
       {
-         return { { PortType::Audio, "In" }, { PortType::Modulation, "CV" } };
+         return kParams;
       }
 
-      std::vector<PortDescriptor> FilterModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> FilterModuleAdapter::inputPorts() const
       {
-         return { { PortType::Audio, "Out" } };
+         return kInputs;
+      }
+
+      std::span<const PortDescriptor> FilterModuleAdapter::outputPorts() const
+      {
+         return kOutputs;
       }
 
       std::unique_ptr<Module> FilterModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<FilterModule>(id);
-      }
-
-      void FilterModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         auto* params = new (dst) FilterParams();
-         params->cutoff = wasmControlValue(controls, "cutoff", 1000.0f);
-         params->resonance = wasmControlValue(controls, "resonance", 0.5f);
-         params->type = static_cast<int>(wasmControlValue(controls, "type", 0.0f));
-      }
-
-      void FilterModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) FilterAdapterRuntimeState();
-      }
-
-      void FilterModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<FilterAdapterRuntimeState*>(runtimeState)->~FilterAdapterRuntimeState();
       }
 
       FilterType FilterModuleAdapter::filterTypeFor(int filterType)

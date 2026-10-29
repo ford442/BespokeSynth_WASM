@@ -6,6 +6,7 @@
  */
 
 #include "BespokeWasm/ModuleCanvas.h"
+#include "BespokeWasm/ModuleHelp.h"
 #include "BespokeWasm/ModuleCanvasHelpers.h"
 #include "BespokeWasm/ModuleFactory.h"
 #include "BespokeWasm/WasmModuleAdapter.h"
@@ -27,6 +28,7 @@ namespace bespoke
          Lock lock(mMutex);
          mLastMouseX = x;
          mLastMouseY = y;
+         mHoverModuleId = -1; // a click dismisses the tooltip until the pointer moves
 
          // Shift-click a control arms MIDI learn; any other click disarms it.
          if (button == 0 && (modifiers & 1) != 0 && y >= kTitleBarHeight && !mSpawnMenuOpen)
@@ -59,50 +61,7 @@ namespace bespoke
 
          if (mSpawnMenuOpen)
          {
-            constexpr float kMenuWidth = 280.0f;
-            constexpr float kSearchHeight = 29.0f;
-            constexpr float kCategoryHeight = 25.0f;
-            constexpr float kRowHeight = 24.0f;
-            const auto types = spawnMenuTypes(mSpawnMenuCategory, mSpawnMenuSearch);
-            const int rows = std::min(static_cast<int>(types.size()), 8);
-            const float menuHeight = kSearchHeight + kCategoryHeight + 8.0f + rows * kRowHeight + 10.0f;
-            const float menuX = mSpawnMenuRenderX;
-            const float menuY = mSpawnMenuRenderY;
-
-            if (x >= menuX && x <= menuX + kMenuWidth && y >= menuY && y <= menuY + menuHeight)
-            {
-               const int categoryValues[] = {
-                  -1,
-                  static_cast<int>(ModuleCategory::Synth),
-                  static_cast<int>(ModuleCategory::AudioEffect),
-                  static_cast<int>(ModuleCategory::Modulator),
-                  static_cast<int>(ModuleCategory::Pulse),
-                  static_cast<int>(ModuleCategory::Other)
-               };
-               const float categoryY = menuY + kSearchHeight + 3.0f;
-               if (y >= categoryY && y <= categoryY + 18.0f)
-               {
-                  const int chip = static_cast<int>((x - menuX - 6.0f) / 44.5f);
-                  if (chip >= 0 && chip < 6)
-                  {
-                     mSpawnMenuCategory = categoryValues[chip];
-                     mSpawnMenuSelectedIndex = 0;
-                  }
-                  return;
-               }
-               const float rowsY = menuY + kSearchHeight + kCategoryHeight + 2.0f;
-               const int row = static_cast<int>((y - rowsY) / kRowHeight);
-               if (row >= 0 && row < static_cast<int>(types.size()))
-               {
-                  const float worldX = screenToWorldX(mSpawnMenuX);
-                  const float worldY = screenToWorldY(mSpawnMenuY - kTitleBarHeight);
-                  createModule(types[row].type, worldX, worldY);
-                  closeSpawnMenu();
-                  return;
-               }
-               return;
-            }
-            closeSpawnMenu();
+            handleSpawnMenuClickLocked(x, y);
             return;
          }
 
@@ -150,8 +109,7 @@ namespace bespoke
             const float localY = worldY - mTransport->getY();
             if (localX >= 10.0f && localX <= 30.0f && localY >= 15.0f && localY <= 29.0f)
             {
-               mTransport->setPlaying(!mTransport->isPlaying());
-               publishAudioGraphSnapshotLocked();
+               toggleTransportPlaying();
                return;
             }
          }
@@ -169,6 +127,7 @@ namespace bespoke
                {
                   mControlModuleId = id;
                   mGestureControls = std::move(before);
+                  syncModuleParamsLocked(id);
                   return;
                }
             }
@@ -219,7 +178,7 @@ namespace bespoke
             Module* mod = getModule(mControlModuleId);
             if (mod)
                mod->handleMouseUp();
-            publishAudioGraphSnapshotLocked();
+            syncModuleParamsLocked(mControlModuleId);
          }
          commitGestureLocked();
          mControlModuleId = -1;
@@ -237,7 +196,7 @@ namespace bespoke
          {
             if (Module* mod = getModule(mControlModuleId))
                mod->handleMouseUp();
-            publishAudioGraphSnapshotLocked();
+            syncModuleParamsLocked(mControlModuleId);
          }
          // Value/position changes already happened; keep them undoable.
          commitGestureLocked();
@@ -280,7 +239,7 @@ namespace bespoke
                float dx = (x - prevX) / mScale;
                float dy = (y - prevY) / mScale;
                mod->handleMouseDrag(worldX, worldY, dx, dy);
-               publishAudioGraphSnapshotLocked();
+               syncModuleParamsLocked(mControlModuleId);
             }
          }
          else if (mDraggedModuleId >= 0)
@@ -312,6 +271,57 @@ namespace bespoke
             mConnectTargetCompatible = !findPortAt(worldX, worldY, false, destId, destPort) ||
                                        portsAreCompatible(mConnectSourceId, mConnectSourcePort, destId, destPort);
          }
+
+         if (mSpawnMenuOpen)
+            handleSpawnMenuHoverLocked(x, y);
+         updateHoverLocked(x, y);
+      }
+
+      void ModuleCanvas::updateHoverLocked(float x, float y)
+      {
+         const int previousModule = mHoverModuleId;
+         const std::string previousControl = mHoverControl;
+         const bool previousTitleBar = mHoverTitleBar;
+         updateHoverTargetLocked(x, y);
+         if (mHoverModuleId != previousModule || mHoverControl != previousControl ||
+             mHoverTitleBar != previousTitleBar)
+            mHoverFrames = 0;
+      }
+
+      void ModuleCanvas::updateHoverTargetLocked(float x, float y)
+      {
+         mHoverModuleId = -1;
+         mHoverControl.clear();
+         mHoverTitleBar = false;
+         // No tooltip while a gesture or the spawn menu owns the pointer.
+         if (mSpawnMenuOpen || mControlModuleId >= 0 || mDraggedModuleId >= 0 || mIsPanning || mIsConnecting ||
+             y < kTitleBarHeight)
+            return;
+         const float worldX = screenToWorldX(x);
+         const float worldY = screenToWorldY(y - kTitleBarHeight);
+         for (auto& [id, module] : mModules)
+         {
+            if (!module->hitTest(worldX, worldY))
+               continue;
+            mHoverModuleId = id;
+            mHoverTitleBar = worldY < module->getY() + Module::kTitleBarHeight;
+            if (!mHoverTitleBar)
+               mHoverControl = module->controlNameAt(worldX, worldY);
+            return;
+         }
+      }
+
+      std::string ModuleCanvas::hoverHelpText() const
+      {
+         Lock lock(mMutex);
+         const auto it = mModules.find(mHoverModuleId);
+         if (it == mModules.end())
+            return {};
+         const Module& module = *it->second;
+         const ModuleHelp& help = ModuleHelp::instance();
+         if (!mHoverControl.empty())
+            return help.controlTooltip(module.serializedType(), mHoverControl);
+         return mHoverTitleBar ? help.description(module.serializedType()) : std::string();
       }
 
       void ModuleCanvas::onMouseWheel(float deltaX, float deltaY, float mouseX, float mouseY)
@@ -329,9 +339,6 @@ namespace bespoke
          static const int kKeyBackspace = 8;
          static const int kKeySpace = 32;
          static const int kKeyEscape = 27;
-         static const int kKeyEnter = 13;
-         static const int kKeyUp = 38;
-         static const int kKeyDown = 40;
          static const int kKeySlash = 191;
          static const int kKeyK = 75;
 
@@ -372,53 +379,13 @@ namespace bespoke
 
          if (mSpawnMenuOpen)
          {
-            auto types = spawnMenuTypes(mSpawnMenuCategory, mSpawnMenuSearch);
-            if (keyCode == kKeyEscape)
-            {
-               closeSpawnMenu();
-               return;
-            }
-            if (keyCode == kKeyBackspace)
-            {
-               if (!mSpawnMenuSearch.empty())
-                  mSpawnMenuSearch.pop_back();
-               mSpawnMenuSelectedIndex = 0;
-               return;
-            }
-            if (keyCode == kKeyUp && !types.empty())
-            {
-               mSpawnMenuSelectedIndex = (mSpawnMenuSelectedIndex + static_cast<int>(types.size()) - 1) % static_cast<int>(types.size());
-               return;
-            }
-            if (keyCode == kKeyDown && !types.empty())
-            {
-               mSpawnMenuSelectedIndex = (mSpawnMenuSelectedIndex + 1) % static_cast<int>(types.size());
-               return;
-            }
-            if (keyCode == kKeyEnter && !types.empty())
-            {
-               const int selected = std::min(mSpawnMenuSelectedIndex, static_cast<int>(types.size()) - 1);
-               createModule(types[selected].type, screenToWorldX(mSpawnMenuX),
-                            screenToWorldY(mSpawnMenuY - kTitleBarHeight));
-               closeSpawnMenu();
-               return;
-            }
-            if ((modifiers & (2 | 4 | 8)) == 0 && keyCode >= 32 && keyCode <= 126)
-            {
-               const char character = static_cast<char>(std::tolower(static_cast<unsigned char>(keyCode)));
-               if (std::isalnum(static_cast<unsigned char>(character)) || character == ' ' || character == '-' || character == '_')
-               {
-                  mSpawnMenuSearch.push_back(character);
-                  mSpawnMenuSelectedIndex = 0;
-               }
-            }
+            handleSpawnMenuKeyLocked(keyCode, modifiers);
             return;
          }
 
          if (keyCode == kKeySpace && mTransport)
          {
-            mTransport->setPlaying(!mTransport->isPlaying());
-            publishAudioGraphSnapshotLocked();
+            toggleTransportPlaying();
             return;
          }
 

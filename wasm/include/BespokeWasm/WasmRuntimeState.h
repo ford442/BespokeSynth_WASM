@@ -5,10 +5,12 @@
 #include "BespokeWasm/ModuleCanvas.h"
 #include "BespokeWasm/Renderer2D.h"
 #include "BespokeWasm/SDL2AudioBackend.h"
+#include "BespokeWasm/Theme.h"
 #include "BespokeWasm/WebGL2Context.h"
 #include "BespokeWasm/WebGPUContext.h"
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -73,8 +75,19 @@ namespace bespoke::wasm
       std::unique_ptr<ModuleCanvas> canvas;
       std::vector<std::unique_ptr<Knob>> knobs;
       std::vector<ControlInfoEntry> controlInfoCache;
-      std::vector<uint8_t> screenshotPixels;
       std::string stateJsonBuffer;
+      /** Backing store for the C strings the live-instrument getters return (valid until the next call). */
+      std::string liveJsonBuffer;
+      /** Backing store for bespoke_get_module_string. */
+      std::string moduleStringBuffer;
+      /** Hash of the sample the last import produced (bespoke_import_sample*). */
+      std::string lastSampleHash;
+      /** The last offline bounce as a WAV file, until the host frees it. */
+      std::vector<uint8_t> offlineWav;
+      /** Per-slot color overrides set from the host (bespoke_set_theme_color). */
+      RuntimeTheme theme;
+      /** Smoothed processing time / buffer duration of the SDL audio callback. */
+      std::atomic<float> audioCpuLoad{ 0.0f };
       std::string stateErrorMessage;
       std::string initErrorMessage;
       PanelStatus panelStatus[kPanelCount];
@@ -82,6 +95,11 @@ namespace bespoke::wasm
       /** When true, play/stop only toggles transport; JS owns the audio device (worklet). */
       bool externalAudioActive = false;
       float externalSampleRate = 44100.0f;
+      /** The AudioWorklet engine (a second WASM instance) plays the graph; ours stays idle. */
+      bool remoteAudioActive = false;
+      /** Worklet engine telemetry the host mirrors in once per frame (bespoke_set_remote_audio_status). */
+      double remoteBeat = 0.0;
+      float remoteOutputPeak[2]{ 0.0f, 0.0f };
       int oscillatorModuleId = -1;
       int gainModuleId = -1;
       int viewMode = 0;
@@ -89,8 +107,6 @@ namespace bespoke::wasm
       int currentPanel = static_cast<int>(PanelType::Mixer);
       int width = 800;
       int height = 600;
-      int screenshotWidth = 0;
-      int screenshotHeight = 0;
       InitState initState = InitState::NotStarted;
       float renderTime = 0.0f;
       bool initialized = false;
@@ -101,4 +117,15 @@ namespace bespoke::wasm
    };
 
    WasmRuntimeState& runtimeState();
+
+   /** Rate the audio graph is processing at (the worklet's when JS owns the device). */
+   int currentDeviceSampleRate();
+   /** Tell SampleStore the current rate so loads that don't know it (bundled kit) match. */
+   void syncSampleStoreRate();
+   /**
+    * After a patch swap: restart the engine's clock and module runtime state (note-offs for notes still
+    * sounding on the MIDI output are queued first) and size state for the new graph. The engine keeps its
+    * prepared block size and its MIDI-out capture setting, so the patch is audible straight away.
+    */
+   void resetAudioGraphEngineForPatch();
 }

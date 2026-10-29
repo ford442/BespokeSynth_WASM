@@ -1,0 +1,261 @@
+# WASM module help supplement (English), baked by scripts/bake_module_help.py.
+# Same format as resource/tooltips_eng.txt: "type~description", then "~control~tooltip".
+# Keyed by WASM type ids and control names (the kParams names). Lines here win over the
+# desktop text, so a module that behaves differently in the browser says so here.
+# "@wasmtype=desktoptype" borrows a desktop entry when only the type id differs.
+
+@filter=biquad
+@reverb=freeverb
+
+adsr~shapes the audio passing through with an attack/decay/sustain/release envelope, opened by input notes
+~attack~time to rise to full level after a note-on, in milliseconds
+~decay~time to fall from full level to the sustain level, in milliseconds
+~sustain~level held while the note is down
+~release~time to fade out after the note-off, in milliseconds
+
+arpeggiator~arpeggiates held notes in step with the transport
+~rate~step length of the arpeggio
+~mode~order to play the held notes in: up, down, up/down, random, or as played
+~octaves~how many octaves the pattern climbs before it starts over
+~gate~how long each arpeggiated note sounds, as a fraction of a step
+
+bitcrush~reduce sample resolution and sample rate for lo-fi effects
+~mix~blend between the clean input and the crushed signal
+
+chorder~takes an incoming pitch and plays additional notes to form chords
+~chord~chord shape to build on each incoming note
+~inversion~move the lowest chord tones up an octave
+~tone2~custom chord: semitones above the root of the second note
+~tone3~custom chord: semitones above the root of the third note
+~tone4~custom chord: semitones above the root of the fourth note
+~level~velocity of the added chord tones relative to the played note
+
+chorus~two modulated delay voices for width and shimmer
+~rate~speed of the delay modulation, in Hz
+~depth~amount of delay modulation
+~delay~centre delay time of the voices, in milliseconds
+~feedback~amount of each voice fed back into itself
+~mix~blend between the dry input and the chorused signal
+~width~spread of the two voices across left and right
+
+clockdivider~passes every Nth incoming pulse
+~divide~let one pulse through out of this many
+~offset~which pulse in each group gets through
+
+compressor~try to keep volume at a certain level
+~makeup~gain added after compression, in dB
+~knee~width of the soft transition around the threshold, in dB
+
+delay~echoing delay
+~time~delay time, in seconds
+~mix~blend between the dry input and the echoes
+~pingpong~bounce the echoes between left and right
+
+distortion~waveshaping distortion
+~level~output volume after the distortion
+
+drumseq~four-track drum step sequencer, clocked by pulses. each track has its own note output
+~kick~kick track steps (click the grid)
+~snare~snare track steps (click the grid)
+~hat~hi-hat track steps (click the grid)
+~tom~tom track steps (click the grid)
+~kickpitch~note the kick track plays
+~snarepitch~note the snare track plays
+~hatpitch~note the hi-hat track plays
+~tompitch~note the tom track plays
+~steps~length of the pattern, in steps
+~gate~how long each hit's note lasts, as a fraction of a step
+
+envelope~an ADSR envelope as a modulation output. a note-on starts it, the last note-off releases it, and a pulse fires a one-shot
+~attack~time to rise from low to high, in milliseconds
+~decay~time to fall to the sustain level, in milliseconds
+~sustain~level held while a note is down, as a fraction of the way from low to high
+~release~time to return to low after the note-off, in milliseconds
+~low~output when the envelope is closed
+~high~output at the envelope's peak
+~useVelocity~scale the peak by note velocity or pulse strength
+
+eq~four-band equalizer (low shelf, two peaks, high shelf). the curve shows the combined response
+~lowFreq~corner frequency of the low shelf
+~lowGain~boost or cut of the low shelf, in dB
+~midFreq~centre frequency of the first peak band
+~midGain~boost or cut of the first peak band, in dB
+~midQ~width of the first peak band (higher is narrower)
+~hiMidFreq~centre frequency of the second peak band
+~hiMidGain~boost or cut of the second peak band, in dB
+~hiMidQ~width of the second peak band (higher is narrower)
+~highFreq~corner frequency of the high shelf
+~highGain~boost or cut of the high shelf, in dB
+~output~output trim after the bands, in dB
+
+fmsynth~polyphonic fm synthesis, up to eight voices (the oldest note is stolen past that)
+~attack~volume envelope attack, in milliseconds
+~decay~volume envelope decay, in milliseconds
+~sustain~volume envelope sustain level
+~release~volume envelope release, in milliseconds
+~modAttack~modulation index envelope attack, in milliseconds
+~modDecay~modulation index envelope decay, in milliseconds
+~modSustain~modulation index held while the note is down, as a fraction of mod
+~voices~maximum number of notes that sound at once
+
+filter~resonant filter. the CV input sweeps the cutoff up to two octaves either way
+~cutoff~cutoff frequency, in Hz
+~resonance~emphasis at the cutoff frequency
+~type~filter response: lowpass, highpass, bandpass or notch
+
+input~get audio from input source, like a microphone
+~gain~input level
+~mute~silence the input without closing the microphone
+
+karplusstrong~polyphonic plucked string physical modeling synth
+~source~audio to use for excitation: sine, noise, a pitch-dependent mix, or saw
+~release~how quickly the string is damped after the note-off, in milliseconds
+~voices~maximum number of strings that sound at once
+
+lfo~low-frequency oscillator as a modulation output. cable it to a CV, Mod or Drive input
+~rate~speed of the oscillation, in Hz
+~depth~amount of modulation
+~shape~waveform: sine, saw, square or triangle
+
+looper~loop input audio, in time with the transport
+~mix~level of the loop against the live input
+~bars~length of the loop, in bars
+~command~record, overdub, play, stop or clear the loop
+
+mixer~four-channel mixer with pan
+~level1~volume of channel 1
+~level2~volume of channel 2
+~level3~volume of channel 3
+~level4~volume of channel 4
+~pan1~stereo position of channel 1
+~pan2~stereo position of channel 2
+~pan3~stereo position of channel 3
+~pan4~stereo position of channel 4
+~master~output volume
+
+noise~noise generator
+~volume~output volume
+~color~tone of the noise, from white (bright) to dark
+
+notechance~randomly allow notes through
+~seed~starting point of the random sequence; the same seed repeats the same pattern
+
+notefilter~only allow a range of pitches through
+~low~lowest pitch of the range
+~high~highest pitch of the range
+~mode~pass the notes inside the range, or the ones outside it
+
+noterouter~sends notes to one of several outputs
+~outputs~number of outputs in use
+~mode~round robin (each note to the next output) or pitch split (by key range)
+~split~in pitch split mode, the lowest note of the second output's range
+~zone~in pitch split mode, the width of each output's key range, in semitones
+
+notesequencer~looping sequence of notes on a grid: click a cell to set a step's pitch, drag the lanes below for velocity and length
+~steps~length of the sequence, in steps
+~interval~step length
+~octave~octave of the grid's bottom row
+~rows~number of pitch rows in the grid
+~mode~rows step through the Scale's degrees, or through semitones
+
+oscillator~enveloped oscillator, played by notes (it drones on its own frequency when no note cable is connected)
+~frequency~pitch when no notes are playing it, in Hz
+~volume~output volume
+~waveform~waveform: sine, saw, square or triangle
+
+output~route audio in here to send it to your speakers
+~level~master volume
+~limit~catch peaks with a limiter before they clip
+~dcblock~remove DC offset from the output
+
+panner~pan audio left and right. also, converts a mono input to a stereo output.
+~gain~output volume
+
+pingpongdelay~stereo delay whose echoes alternate left and right, synced to the transport
+~interval~delay time as a note length, or "ms" to use the time slider
+~delay~delay time when the interval is set to ms, in milliseconds
+~feedback~how much of each echo comes back as the next one
+~mix~blend between the dry input and the echoes
+~tone~lowpass on the echoes; each repeat gets a little darker
+~width~how far apart the echoes are panned
+
+pitchbender~add pitch bend to notes
+~range~semitones of bend at full deflection
+
+pulsetonote~turns pulses into notes
+~pitch~note to play on each pulse
+~gate~length of each note, in beats
+
+ramper~a ramp as a modulation output: a note or pulse ramps from start to target over the length, or loop it in time with the transport
+~start~value the ramp starts from
+~target~value the ramp ends at
+~length~time the ramp takes
+~mode~one-shot (ramp when triggered, then hold) or loop (a tempo-synced sawtooth)
+
+reverb~reverb using the "freeverb" algorithm
+~room~size of the room
+~damping~how quickly high frequencies die away in the tail
+~mix~blend between the dry input and the reverb
+
+sampler~polyphonic sample player. drop an audio file on the canvas to load it
+~volume~output volume
+~start~where playback starts in the sample
+~end~where playback ends in the sample
+~loopStart~loop start point, in loop mode
+~loopEnd~loop end point, in loop mode
+~mode~one-shot, loop, or gate (plays while the note is held)
+~root~the note that plays the sample at its original pitch
+
+scale~controls the global scale used by various modules
+~type~scale type: major, minor, dorian, mixolydian, pentatonic, blues or chromatic
+
+seaofgrain~granular synth: each note sprays grains of the sample. drop an audio file on the canvas to load one
+~mode~whether keys set the grain pitch or the position in the sample
+~root~in pitch mode, the key that plays the grains at original speed
+~attack~fade-in of each note's grain cloud, in milliseconds
+~release~fade-out after the note-off, in milliseconds
+~voices~maximum number of notes that sound at once
+~volume~output volume
+~pos~where in the sample the grains come from
+~overlap~number of overlapping grains
+~lenMs~length of each grain in milliseconds
+~posRandom~randomization of grain start point, in milliseconds
+~speedRandom~randomization of grain speed
+~spacingRandom~randomization of time between grains
+~octaves~add grains a fifth up and a fourth down
+~width~stereo spread of the grains
+~speed~grain playback speed
+~keyboardBasePitch~in position mode, the key that maps to the position slider
+~keyboardNumPitches~in position mode, how many keys span the whole sample
+
+send~duplicate a signal and send it to a second destination
+~amount~level of the signal sent to the Send output
+~crossfade~fade the main output down as the send goes up
+
+stepsequencer~sixteen-step gate sequencer that plays one note
+~pattern~the steps that play (click the grid)
+~pitch~note every step plays
+~gate~how long each step's note lasts, as a fraction of a step
+~steps~length of the pattern, in steps
+
+stereowidth~widen or narrow the stereo image
+~width~0 folds to mono, 1 leaves the input as it is, 2 exaggerates the sides
+~widen~delay on the right channel (the Haas effect), which widens even a mono source, in milliseconds
+~level~output volume
+
+transport~controls tempo and current time position
+~bpm~tempo in beats per minute
+
+vocoder~FFT vocoder: the Carrier input (a synth) takes on the spectral envelope of the Modulator input (a voice). one frame of latency
+~input~level of the modulator input
+~carrier~level of the carrier input
+~volume~output volume
+~mix~blend between the dry carrier and the vocoded signal
+~bands~number of frequency bands the envelope is measured in
+~smooth~how slowly the band envelopes follow the modulator
+
+waveshaper~waveshaping distortion with a selectable curve. the Drive input modulates the drive
+~drive~amount of gain into the curve
+~mode~curve: soft, tanh, fold or hard clip
+~mix~blend between the dry input and the shaped signal
+~level~output volume

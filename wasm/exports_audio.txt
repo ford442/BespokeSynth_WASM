@@ -1,0 +1,18 @@
+# Exports of the AudioWorklet engine module (BespokeSynthWASM_audio), one symbol per
+# line without the leading underscore. Every symbol is EMSCRIPTEN_KEEPALIVE in
+# wasm/src/AudioWorkletEngine.cpp; scripts/check-wasm-exports.sh checks both manifests.
+bespoke_audio_wire_abi
+bespoke_audio_init
+bespoke_audio_apply_snapshot
+bespoke_audio_last_error
+bespoke_audio_adopt_sample
+bespoke_audio_evict_sample
+bespoke_audio_apply_events
+bespoke_audio_push_input
+bespoke_audio_set_input_active
+bespoke_audio_set_midi_out_capture
+bespoke_audio_process
+bespoke_audio_drain_midi_out
+bespoke_audio_read_status
+malloc
+free

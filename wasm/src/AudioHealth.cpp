@@ -3,6 +3,7 @@
  */
 
 #include "BespokeWasm/AudioHealth.h"
+#include "BespokeWasm/AudioRtGuard.h"
 
 #include <algorithm>
 #include <atomic>
@@ -28,7 +29,17 @@ namespace bespoke::wasm
       std::atomic<int> gCapacityFrames{ 0 };
       std::atomic<int> gBackend{ 0 };
       std::atomic<uint64_t> gNoteDropCount{ 0 };
-      char gHealthJson[640];
+      std::atomic<uint64_t> gBlockTimeHistogram[kAudioBlockTimeBuckets]{};
+      char gHealthJson[1024];
+
+      int blockTimeBucket(double load)
+      {
+         constexpr double kUpperBounds[kAudioBlockTimeBuckets - 1] = { 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0 };
+         int bucket = 0;
+         while (bucket < kAudioBlockTimeBuckets - 1 && load >= kUpperBounds[bucket])
+            ++bucket;
+         return bucket;
+      }
    }
 
    void audioHealthReset()
@@ -44,6 +55,8 @@ namespace bespoke::wasm
       gMaxQueueDepthFrames.store(0);
       gCapacityFrames.store(0);
       gNoteDropCount.store(0);
+      for (auto& bucket : gBlockTimeHistogram)
+         bucket.store(0);
    }
 
    void audioHealthOnCallback(double processSeconds, double bufferDurationSeconds, double intervalSeconds)
@@ -65,6 +78,7 @@ namespace bespoke::wasm
       {
          const float instantaneous = static_cast<float>(processSeconds / bufferDurationSeconds);
          gCpuLoad.store(gCpuLoad.load() * 0.9f + instantaneous * 0.1f);
+         gBlockTimeHistogram[blockTimeBucket(processSeconds / bufferDurationSeconds)].fetch_add(1);
          if (processSeconds > bufferDurationSeconds * 1.05)
             gUnderrunCount.fetch_add(1);
       }
@@ -115,6 +129,8 @@ namespace bespoke::wasm
       snap.capacityFrames = gCapacityFrames.load();
       snap.backend = gBackend.load();
       snap.noteDropCount = gNoteDropCount.load();
+      for (int i = 0; i < kAudioBlockTimeBuckets; ++i)
+         snap.blockTimeHistogram[i] = gBlockTimeHistogram[i].load();
 #ifdef __EMSCRIPTEN__
       // Linear memory only grows, so the current size is the peak heap size.
       snap.heapBytes = static_cast<uint64_t>(emscripten_get_heap_size());
@@ -125,13 +141,16 @@ namespace bespoke::wasm
    const char* audioHealthJson()
    {
       const AudioHealthSnapshot snap = audioHealthSnapshot();
+      const AudioRtViolations rt = audioRtViolations();
+      const auto* h = snap.blockTimeHistogram;
       std::snprintf(
          gHealthJson, sizeof(gHealthJson),
          "{\"backend\":%d,\"callbackCount\":%llu,\"underrunCount\":%llu,"
          "\"externalUnderrunCount\":%llu,\"noteDropCount\":%llu,\"lastCallbackIntervalMs\":%.3f,"
          "\"lastProcessTimeMs\":%.3f,\"maxProcessTimeMs\":%.3f,\"cpuLoad\":%.4f,"
          "\"queueDepthFrames\":%d,\"maxQueueDepthFrames\":%d,\"capacityFrames\":%d,"
-         "\"heapBytes\":%llu}",
+         "\"heapBytes\":%llu,\"blockTimeHistogram\":[%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu],"
+         "\"rtAllocations\":%llu,\"rtFrees\":%llu,\"rtLocks\":%llu,\"rtCountsAllocations\":%s}",
          snap.backend,
          static_cast<unsigned long long>(snap.callbackCount),
          static_cast<unsigned long long>(snap.underrunCount),
@@ -144,7 +163,19 @@ namespace bespoke::wasm
          snap.queueDepthFrames,
          snap.maxQueueDepthFrames,
          snap.capacityFrames,
-         static_cast<unsigned long long>(snap.heapBytes));
+         static_cast<unsigned long long>(snap.heapBytes),
+         static_cast<unsigned long long>(h[0]),
+         static_cast<unsigned long long>(h[1]),
+         static_cast<unsigned long long>(h[2]),
+         static_cast<unsigned long long>(h[3]),
+         static_cast<unsigned long long>(h[4]),
+         static_cast<unsigned long long>(h[5]),
+         static_cast<unsigned long long>(h[6]),
+         static_cast<unsigned long long>(h[7]),
+         static_cast<unsigned long long>(rt.allocations),
+         static_cast<unsigned long long>(rt.frees),
+         static_cast<unsigned long long>(rt.locks),
+         rt.countsAllocations ? "true" : "false");
       return gHealthJson;
    }
 }

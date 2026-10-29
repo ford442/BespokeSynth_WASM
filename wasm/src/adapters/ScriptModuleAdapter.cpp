@@ -5,15 +5,19 @@
 #include "BespokeWasm/adapters/ScriptModuleAdapter.h"
 #include "BespokeWasm/ScriptNoteQueue.h"
 #include "BespokeWasm/modules/WasmModules.h"
-#include <new>
 
 namespace bespoke
 {
    namespace wasm
    {
-      std::vector<PortDescriptor> ScriptModuleAdapter::outputPorts() const
+      namespace
       {
-         return { { PortType::Note, "Notes" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Note, "Notes" } };
+      }
+
+      std::span<const PortDescriptor> ScriptModuleAdapter::outputPorts() const
+      {
+         return kOutputs;
       }
 
       std::unique_ptr<Module> ScriptModuleAdapter::createUiModule(int id) const
@@ -21,15 +25,10 @@ namespace bespoke
          return std::make_unique<ScriptModule>(id);
       }
 
-      void ScriptModuleAdapter::fillParams(int moduleId,
-                                           const WasmControlMap& controls,
-                                           const WasmStringMap& extras,
-                                           void* dst) const
+      void ScriptModuleAdapter::bindParams(int moduleId, const WasmStringMap& extras, void* params) const
       {
-         (void)controls;
          (void)extras; // the script text never reaches the audio side
-         auto* params = new (dst) ScriptParams();
-         params->moduleId = moduleId;
+         paramsOf(params).moduleId = moduleId;
       }
 
       void ScriptModuleAdapter::emitNotesForBeatRange(void* runtimeState,

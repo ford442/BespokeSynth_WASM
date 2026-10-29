@@ -9,6 +9,7 @@
 #include "BespokeWasm/WasmBridge.h"
 #include "BespokeWasm/WasmBridgeInternal.h"
 #include "BespokeWasm/AudioAnalysis.h"
+#include "BespokeWasm/AudioRemote.h"
 #include "BespokeWasm/WasmInputRouter.h"
 #include "BespokeWasm/ScriptNoteQueue.h"
 #include "BespokeWasm/TuningTable.h"
@@ -24,7 +25,6 @@ using namespace bespoke::wasm;
 
 namespace
 {
-   std::string gLiveJsonBuffer;
 
    std::string escapeJson(const std::string& value)
    {
@@ -125,11 +125,11 @@ EMSCRIPTEN_KEEPALIVE int bespoke_is_text_entry_active(void)
 
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_module_info_json(int moduleId)
 {
-   gLiveJsonBuffer = "{}";
+   runtimeState().liveJsonBuffer = "{}";
    auto* c = canvas();
    Module* module = c ? c->getModule(moduleId) : nullptr;
    if (!module)
-      return gLiveJsonBuffer.c_str();
+      return runtimeState().liveJsonBuffer.c_str();
    // Screen coordinates are CSS pixels relative to the canvas (same space as input).
    constexpr float kCanvasTop = 40.0f;
    const float scale = static_cast<const ModuleCanvas*>(c)->getScale();
@@ -140,16 +140,16 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_module_info_json(int moduleId)
        << ",\"screenX\":" << (module->getX() + c->getOffsetX()) * scale
        << ",\"screenY\":" << (module->getY() + c->getOffsetY()) * scale + kCanvasTop
        << ",\"scale\":" << scale << "}";
-   gLiveJsonBuffer = out.str();
-   return gLiveJsonBuffer.c_str();
+   runtimeState().liveJsonBuffer = out.str();
+   return runtimeState().liveJsonBuffer.c_str();
 }
 
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_modules_json(void)
 {
-   gLiveJsonBuffer = "[]";
+   runtimeState().liveJsonBuffer = "[]";
    auto* c = canvas();
    if (!c)
-      return gLiveJsonBuffer.c_str();
+      return runtimeState().liveJsonBuffer.c_str();
    const auto snapshot = c->createStateSnapshot();
    std::ostringstream out;
    out << "[";
@@ -159,8 +159,8 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_modules_json(void)
       out << (i ? "," : "") << "{\"id\":" << module.id << ",\"type\":\"" << escapeJson(module.type) << "\"}";
    }
    out << "]";
-   gLiveJsonBuffer = out.str();
-   return gLiveJsonBuffer.c_str();
+   runtimeState().liveJsonBuffer = out.str();
+   return runtimeState().liveJsonBuffer.c_str();
 }
 
 // --- MIDI learn / channel -------------------------------------------------
@@ -205,8 +205,8 @@ EMSCRIPTEN_KEEPALIVE int bespoke_midi_learn_get_module(void)
 EMSCRIPTEN_KEEPALIVE const char* bespoke_midi_learn_get_control(void)
 {
    auto* c = canvas();
-   gLiveJsonBuffer = c ? c->midiLearnControl() : std::string();
-   return gLiveJsonBuffer.c_str();
+   runtimeState().liveJsonBuffer = c ? c->midiLearnControl() : std::string();
+   return runtimeState().liveJsonBuffer.c_str();
 }
 
 EMSCRIPTEN_KEEPALIVE int bespoke_midi_cc_unbind(int moduleId, const char* controlName)
@@ -217,10 +217,10 @@ EMSCRIPTEN_KEEPALIVE int bespoke_midi_cc_unbind(int moduleId, const char* contro
 
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_midi_cc_map_json(void)
 {
-   gLiveJsonBuffer = "[]";
+   runtimeState().liveJsonBuffer = "[]";
    auto* c = canvas();
    if (!c)
-      return gLiveJsonBuffer.c_str();
+      return runtimeState().liveJsonBuffer.c_str();
    const auto map = c->midiCcMap();
    std::ostringstream out;
    out << "[";
@@ -232,8 +232,8 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_midi_cc_map_json(void)
           << "\",\"min\":" << binding.min << ",\"max\":" << binding.max << "}";
    }
    out << "]";
-   gLiveJsonBuffer = out.str();
-   return gLiveJsonBuffer.c_str();
+   runtimeState().liveJsonBuffer = out.str();
+   return runtimeState().liveJsonBuffer.c_str();
 }
 
 // --- Undo / redo -----------------------------------------------------------
@@ -289,8 +289,8 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_scale_get_tuning_error(void)
 {
    auto* c = canvas();
    ScaleModule* scale = c ? c->getScale() : nullptr;
-   gLiveJsonBuffer = scale ? scale->tuningError() : std::string();
-   return gLiveJsonBuffer.c_str();
+   runtimeState().liveJsonBuffer = scale ? scale->tuningError() : std::string();
+   return runtimeState().liveJsonBuffer.c_str();
 }
 
 EMSCRIPTEN_KEEPALIVE float bespoke_get_note_frequency(int pitch)
@@ -298,6 +298,61 @@ EMSCRIPTEN_KEEPALIVE float bespoke_get_note_frequency(int pitch)
    auto* c = canvas();
    ScaleModule* scale = c ? c->getScale() : nullptr;
    return noteFrequency(scale ? scale->tuningTable().data() : nullptr, pitch);
+}
+
+// --- Graph notes for the MIDI output ---------------------------------------
+
+/**
+ * While on, the engine keeps a ring of the notes its note sources and processors emit
+ * (sequencers, drum machine, script, arpeggiator, chorder...) for bespoke_drain_graph_notes.
+ * The host turns it on only while a MIDI output port is selected.
+ */
+EMSCRIPTEN_KEEPALIVE void bespoke_set_graph_note_capture(int enabled)
+{
+   auto& state = runtimeState();
+   if (state.audioGraphEngine)
+      state.audioGraphEngine->setMidiOutCapture(enabled != 0);
+}
+
+/**
+ * Pops up to `maxEvents` captured graph notes into `out`, one int each:
+ * pitch | velocity(0-127) << 8 | channel << 16 | isNoteOn << 20. Returns the count.
+ */
+EMSCRIPTEN_KEEPALIVE int bespoke_drain_graph_notes(int* out, int maxEvents)
+{
+   auto& state = runtimeState();
+   if (!out || maxEvents <= 0 || !state.audioGraphEngine)
+      return 0;
+   AudioGraphEngine::MidiOutNote notes[64];
+   const int want = std::min(maxEvents, 64);
+   const int got = state.audioGraphEngine->drainMidiOut(notes, want);
+   for (int i = 0; i < got; ++i)
+   {
+      const int velocity = std::max(0, std::min(127, static_cast<int>(notes[i].velocity * 127.0f + 0.5f)));
+      out[i] = (notes[i].pitch & 0x7F) | (velocity << 8) | ((notes[i].channel & 0xF) << 16) |
+               ((notes[i].isNoteOn ? 1 : 0) << 20);
+   }
+   return got;
+}
+
+/**
+ * 1 when a Note processor with no Note cable is listening to the performance (QWERTY / MIDI in),
+ * so the processor's output - not the raw key - is what reaches MIDI out.
+ */
+EMSCRIPTEN_KEEPALIVE int bespoke_performance_notes_processed(void)
+{
+   auto& state = runtimeState();
+   if (!state.canvas)
+      return 0;
+   const auto snapshot = state.canvas->getAudioGraphSnapshot();
+   return snapshot && snapshot->processPlan.performanceNotesProcessed ? 1 : 0;
+}
+
+/** Saved modules whose type this build doesn't have (kept as labelled placeholders). */
+EMSCRIPTEN_KEEPALIVE int bespoke_get_placeholder_count(void)
+{
+   auto* c = canvas();
+   return c ? c->placeholderCount() : 0;
 }
 
 // --- Script module host ----------------------------------------------------
@@ -308,7 +363,11 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_scripting_enabled(int enabled)
       c->setScriptingEnabled(enabled != 0);
 }
 
-/** Queue a note from a script. Uncabled script modules play like a MIDI keyboard. */
+/**
+ * Queue a note from a script. Uncabled script modules play like a MIDI keyboard.
+ * Returns 0 when rejected, 1 when queued on the script module's own Note cables (the engine
+ * reports those to MIDI out), 2 when played on the performance path (the host echoes them).
+ */
 EMSCRIPTEN_KEEPALIVE int bespoke_script_note(int moduleId, int pitch, float velocity, int isNoteOn)
 {
    auto& state = runtimeState();
@@ -321,15 +380,14 @@ EMSCRIPTEN_KEEPALIVE int bespoke_script_note(int moduleId, int pitch, float velo
    const float clamped = std::max(0.0f, std::min(1.0f, velocity));
    if (!c->hasOutgoingConnection(moduleId))
    {
-      state.audioGraphEngine->queueNote({ pitch, isNoteOn ? clamped : 0.0f, isNoteOn != 0,
-                                          emscripten_get_now() / 1000.0, 0 });
-      return 1;
+      queuePerformanceNote({ pitch, isNoteOn ? clamped : 0.0f, isNoteOn != 0, 0.0, 0 });
+      return 2; // performance path: the engine does not report these to MIDI out
    }
    WasmNoteEvent note;
    note.pitch = pitch;
    note.velocity = isNoteOn ? clamped : 0.0f;
    note.isNoteOn = isNoteOn != 0;
-   return pushScriptNote(moduleId, note) ? 1 : 0;
+   return queueScriptNote(moduleId, note) ? 1 : 0;
 }
 
 /** Script automation: applies immediately and is not recorded for undo. */
@@ -343,13 +401,12 @@ EMSCRIPTEN_KEEPALIVE int bespoke_script_set_control(int moduleId, const char* co
 
 EMSCRIPTEN_KEEPALIVE void bespoke_script_stopped(int moduleId)
 {
-   clearScriptNotes(moduleId);
+   clearScriptNoteQueue(moduleId);
 }
 
 EMSCRIPTEN_KEEPALIVE double bespoke_get_transport_beat(void)
 {
-   auto& state = runtimeState();
-   return state.audioGraphEngine ? state.audioGraphEngine->beatPosition() : 0.0;
+   return playingTransportBeat();
 }
 
 /** Copies the most recent output samples (analyzer ring) for diagnostics/tests. */

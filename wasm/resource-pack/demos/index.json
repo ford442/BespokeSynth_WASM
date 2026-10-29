@@ -1,0 +1,122 @@
+{
+ "version": 1,
+ "demos": [
+  {
+   "id": "fm-arpeggio",
+   "file": "fm-arpeggio.json",
+   "title": "FM arpeggio, ping-pong",
+   "description": "Held chords arpeggiated into the 8-voice FM synth, shaped by the EQ and bounced left and right by a tempo-synced ping-pong delay.",
+   "modules": [
+    "arpeggiator",
+    "chorder",
+    "eq",
+    "fmsynth",
+    "notesequencer",
+    "output",
+    "pingpongdelay"
+   ]
+  },
+  {
+   "id": "fm-chord-pad",
+   "file": "fm-chord-pad.json",
+   "title": "FM chord pad",
+   "description": "Slow chords on the FM synth with a soft attack, widened by the chorus and washed in reverb.",
+   "modules": [
+    "chorder",
+    "chorus",
+    "fmsynth",
+    "notesequencer",
+    "output",
+    "reverb"
+   ]
+  },
+  {
+   "id": "plucked-strings",
+   "file": "plucked-strings.json",
+   "title": "Plucked strings",
+   "description": "A sixteenth-note line on the Karplus-Strong string, thinned out by Note chance (repeatable seed) and spread with the Haas widener.",
+   "modules": [
+    "karplusstrong",
+    "notechance",
+    "notesequencer",
+    "output",
+    "reverb",
+    "stereowidth"
+   ]
+  },
+  {
+   "id": "granular-pad",
+   "file": "granular-pad.json",
+   "title": "Granular pad",
+   "description": "Sea of Grain sprays grains of the bundled pad sample at each note's pitch, with octave grains and a long release into the reverb.",
+   "modules": [
+    "notesequencer",
+    "output",
+    "reverb",
+    "seaofgrain"
+   ]
+  },
+  {
+   "id": "drum-bus",
+   "file": "drum-bus.json",
+   "title": "Drum bus",
+   "description": "Drum sequencer into the bundled kit, panned on the mixer, glued by the compressor and roughened with a little bitcrush.",
+   "modules": [
+    "bitcrush",
+    "compressor",
+    "drumseq",
+    "mixer",
+    "output",
+    "sampler"
+   ]
+  },
+  {
+   "id": "robot-vocoder",
+   "file": "robot-vocoder.json",
+   "title": "Robot drums (vocoder)",
+   "description": "The vocoder's carrier is an FM chord; its modulator is the drum kit, so the chords speak in the rhythm of the beat.",
+   "modules": [
+    "chorder",
+    "drumseq",
+    "fmsynth",
+    "mixer",
+    "notesequencer",
+    "output",
+    "sampler",
+    "vocoder"
+   ]
+  },
+  {
+   "id": "send-bus",
+   "file": "send-bus.json",
+   "title": "Send to an effects bus",
+   "description": "A pluck runs dry to the output while Send taps half of it into a reverb and ping-pong delay bus.",
+   "modules": [
+    "karplusstrong",
+    "notesequencer",
+    "output",
+    "pingpongdelay",
+    "reverb",
+    "send"
+   ]
+  },
+  {
+   "id": "modulated-bass",
+   "file": "modulated-bass.json",
+   "title": "Modulated bass",
+   "description": "A step-sequenced saw bass transposed by Capo and Pitch bender; a looping Ramper sweeps the filter and a note-triggered Envelope pumps the gain.",
+   "modules": [
+    "capo",
+    "distortion",
+    "envelope",
+    "filter",
+    "gain",
+    "oscillator",
+    "output",
+    "pitchbender",
+    "ramper",
+    "stepsequencer"
+   ]
+  }
+ ]
+}

@@ -6,8 +6,8 @@
 #include "BespokeWasm/SliderPanelModule.h"
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
-#include <new>
 
 namespace bespoke
 {
@@ -18,16 +18,30 @@ namespace bespoke
          constexpr float kTwoPi = 6.28318530717958647692f;
          constexpr float kMaxExcursionMs = 6.0f;
 
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "rate", .minValue = 0.05f, .maxValue = 5.0f, .defaultValue = 0.8f, .offset = offsetof(ChorusParams, rateHz), .flags = kParamClamp },
+            { .id = 1, .name = "depth", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.5f, .offset = offsetof(ChorusParams, depth), .smoothingMs = kParamSmoothingMs, .flags = kParamClamp },
+            { .id = 2, .name = "delay", .minValue = 5.0f, .maxValue = 30.0f, .defaultValue = 15.0f, .offset = offsetof(ChorusParams, delayMs), .flags = kParamClamp },
+            { .id = 3, .name = "feedback", .minValue = 0.0f, .maxValue = 0.9f, .defaultValue = 0.0f, .offset = offsetof(ChorusParams, feedback), .flags = kParamClamp },
+            { .id = 4, .name = "mix", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.5f, .offset = offsetof(ChorusParams, mix), .smoothingMs = kParamSmoothingMs, .flags = kParamClamp },
+            { .id = 5, .name = "width", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 1.0f, .offset = offsetof(ChorusParams, width), .smoothingMs = kParamSmoothingMs, .flags = kParamClamp },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Audio, "In" }, { PortType::Modulation, "Mod" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
+
          const std::vector<SliderSpec>& chorusSpecs()
          {
-            static const std::vector<SliderSpec> specs = {
-               { "rate", "Rate", 0.05f, 5.0f, 0.8f, SliderFormat::Hertz },
-               { "depth", "Depth", 0.0f, 1.0f, 0.5f, SliderFormat::Percent },
-               { "delay", "Delay", 5.0f, 30.0f, 15.0f, SliderFormat::Millis },
-               { "feedback", "Fdbk", 0.0f, 0.9f, 0.0f, SliderFormat::Percent },
-               { "mix", "Mix", 0.0f, 1.0f, 0.5f, SliderFormat::Percent },
-               { "width", "Width", 0.0f, 1.0f, 1.0f, SliderFormat::Percent },
-            };
+            static const std::vector<SliderSpec> specs = slidersFromParams(kParams,
+                                                                           {
+                                                                           { "rate", "Rate", SliderFormat::Hertz },
+                                                                           { "depth", "Depth", SliderFormat::Percent },
+                                                                           { "delay", "Delay", SliderFormat::Millis },
+                                                                           { "feedback", "Fdbk", SliderFormat::Percent },
+                                                                           { "mix", "Mix", SliderFormat::Percent },
+                                                                           { "width", "Width", SliderFormat::Percent },
+                                                                           });
             return specs;
          }
 
@@ -43,19 +57,19 @@ namespace bespoke
          }
       }
 
-      std::vector<WasmControlDescriptor> ChorusModuleAdapter::controlDescriptors() const
+      ParamTable ChorusModuleAdapter::paramTable() const
       {
-         return controlDescriptorsFromSpecs(chorusSpecs());
+         return kParams;
       }
 
-      std::vector<PortDescriptor> ChorusModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> ChorusModuleAdapter::inputPorts() const
       {
-         return { { PortType::Audio, "In" }, { PortType::Modulation, "Mod" } };
+         return kInputs;
       }
 
-      std::vector<PortDescriptor> ChorusModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> ChorusModuleAdapter::outputPorts() const
       {
-         return { { PortType::Audio, "Out" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> ChorusModuleAdapter::createUiModule(int id) const
@@ -63,32 +77,10 @@ namespace bespoke
          return std::make_unique<SliderPanelModule>(id, typeId(), displayName(), category(), chorusSpecs());
       }
 
-      void ChorusModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         const auto& specs = chorusSpecs();
-         auto* params = new (dst) ChorusParams();
-         params->rateHz = sliderSpecValue(specs, controls, "rate");
-         params->depth = sliderSpecValue(specs, controls, "depth");
-         params->delayMs = sliderSpecValue(specs, controls, "delay");
-         params->feedback = sliderSpecValue(specs, controls, "feedback");
-         params->mix = sliderSpecValue(specs, controls, "mix");
-         params->width = sliderSpecValue(specs, controls, "width");
-      }
-
       int ChorusModuleAdapter::outputChannelCount(const void* paramsPtr, const WasmAudioProcessContext& context) const
       {
          const auto* params = static_cast<const ChorusParams*>(paramsPtr);
          return (context.inputChannels == 2 || (params && params->width > 0.0f)) ? 2 : 1;
-      }
-
-      void ChorusModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) ChorusRuntimeState();
-      }
-
-      void ChorusModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<ChorusRuntimeState*>(runtimeState)->~ChorusRuntimeState();
       }
 
       void ChorusModuleAdapter::processAudio(void* runtimeState,

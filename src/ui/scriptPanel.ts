@@ -1,4 +1,5 @@
 import type { BespokeSynthModule } from '../../wasm/types/bespoke-synth';
+import type { ScriptEngineLink } from '../audio/engineShared';
 import type { LiveInstrument } from '../app/liveInstrument';
 import { readCString, readJson, withCStrings } from '../app/wasmStrings';
 import { ScriptHost, type ScriptLogEntry, type ScriptStatus } from '../script/scriptHost';
@@ -30,6 +31,8 @@ export function setupScriptPanel(
   headerControls: Element,
   getModule: () => BespokeSynthModule | null,
   live?: LiveInstrument,
+  /** The AudioWorklet engine while it plays: running scripts send it notes directly. */
+  getEngineLink: () => ScriptEngineLink | null = () => null,
 ): ScriptPanelHandle | null {
   if (!isScriptingRequested()) return null;
 
@@ -92,7 +95,7 @@ export function setupScriptPanel(
   const scriptModules = (): number[] => {
     const module = getModule();
     if (!module) return [];
-    const list = readJson<Array<{ id: number; type: string }>>(module, module._bespoke_get_modules_json?.() ?? 0, []);
+    const list = readJson<Array<{ id: number; type: string }>>(module, module._bespoke_get_modules_json(), []);
     return list.filter((m) => m.type === 'script').map((m) => m.id).sort((a, b) => a - b);
   };
 
@@ -135,16 +138,21 @@ export function setupScriptPanel(
     if (!module || id < 0) return null;
     let host = hosts.get(id);
     if (!host) {
-      host = new ScriptHost(module, id, {
-        onLog: appendLog,
-        onStatus: (status) => {
-          if (id === targetId) showStatus(status);
+      host = new ScriptHost(
+        module,
+        id,
+        {
+          onLog: appendLog,
+          onStatus: (status) => {
+            if (id === targetId) showStatus(status);
+          },
+          onNote: (pitch, velocity, on, route) => {
+            // Cabled script notes are reported by the graph; only keyboard-style ones are echoed here.
+            if (route === 2) live?.echoPerformanceNote(on, 0, pitch, velocity);
+          },
         },
-        onNote: (pitch, velocity, on) => {
-          if (on) live?.midiOut.noteOn(0, pitch, velocity);
-          else live?.midiOut.noteOff(0, pitch);
-        },
-      });
+        getEngineLink,
+      );
       hosts.set(id, host);
     }
     return host;
@@ -208,7 +216,7 @@ export function setupScriptPanel(
 
   return {
     attach(module) {
-      module._bespoke_set_scripting_enabled?.(1);
+      module._bespoke_set_scripting_enabled(1);
     },
     run,
     stop,

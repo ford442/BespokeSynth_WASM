@@ -56,32 +56,20 @@ Available when `?renderer=webgl` (header **Debug** dropdown or `bespoke_set_webg
 
 ## Screenshots
 
-### WebGL2 (recommended for CI/agents)
-
-When WebGL2 is explicitly requested (`?renderer=webgl` / render-test), the shell enables `preserveDrawingBuffer` via `bespoke_set_webgl_preserve_drawing_buffer(1)` so standard canvas readback works:
-
 ```js
 await window.__bespoke.captureScreenshot();
 // Header button or Ctrl+Shift+S
 ```
 
-C++ triggers a fresh frame via `bespoke_capture_screenshot()` (returns `1` for WebGL2).
+`captureCanvasScreenshot()` (`src/rendererMode.ts`) calls `bespoke_render()` and then `canvas.toDataURL()` in the same task, on both backends. Within that task the WebGPU current texture (or the WebGL2 drawing buffer) still holds the frame, so no GPU readback is needed. There is no C++ capture API: the synchronous WebGPU readback it used to have could not work without Asyncify/JSPI (`mapAsync` never resolved in a spin loop).
 
-### WebGPU
+Both canvases are opaque. WebGL2 uses `alpha: false` with the same blend state as the WebGPU pipelines, and the WebGPU surface uses `alphaMode: opaque`. Every screenshot pixel has alpha 255 (`tests/e2e/runtime-safety.spec.ts`).
 
-`bespoke_capture_screenshot()` copies the swap-chain texture to CPU memory (BGRA→RGBA) and returns `0`. Pixels are read with:
-
-```js
-const wPtr = Module._malloc(4), hPtr = Module._malloc(4);
-const code = Module._bespoke_capture_screenshot(wPtr, hPtr);
-const lenPtr = Module._malloc(4);
-const ptr = Module._bespoke_get_screenshot_pixels(lenPtr);
-// HEAPU8.subarray(ptr, ptr + HEAP32[lenPtr >> 2])
-```
-
-TypeScript wraps both paths in `captureCanvasScreenshot()` (`src/rendererMode.ts`).
+When WebGL2 is explicitly requested (`?renderer=webgl` / render-test), the shell also enables `preserveDrawingBuffer` (`bespoke_set_webgl_preserve_drawing_buffer(1)`), so a readback outside the rendering task works there too.
 
 ### Cropping
+
+The rect is in canvas (device) pixels, the size of the captured image.
 
 ```js
 await window.__bespoke.captureScreenshot({ x: 0, y: 40, width: 800, height: 500 });
@@ -210,4 +198,10 @@ Progress callbacks (`window.__bespoke_on_init_progress(step, detail)`) emit back
 
 ### Fallback behaviour
 
-When WebGPU init fails and the user did not force `?renderer=webgpu`, `src/index.ts` shuts down and retries with WebGL2 automatically. If WebGL2 is also unavailable, `bespoke_get_webgl2_error()` returns a human-readable reason (missing canvas, blocked WebGL, or canvas already bound to another API).
+When WebGPU init fails and the user did not force `?renderer=webgpu`, `BespokeSynthApp` shuts down and retries with WebGL2 automatically. This covers a synchronous failure (`bespoke_init` returns `-4`, no surface) as well as an asynchronous one: no adapter/device (`-1`), or a shader/pipeline error (`-2`). Pipeline and shader-module creation run inside Validation/Internal/OutOfMemory error scopes, so a WGSL syntax error fails init instead of leaving a black canvas.
+
+### Losing the GPU after init
+
+- **WebGPU device lost** (driver reset, `GPUDevice.destroy()`): the device-lost callback is registered with `WGPUCallbackMode_AllowSpontaneous`, so it fires without anyone pumping `wgpuInstanceProcessEvents`. The host then replaces `#canvas` (a canvas keeps its first context type) and calls `bespoke_reinit_renderer(1)`. That rebuilds only the renderer, on WebGL2. The patch, audio and undo history are untouched.
+- **WebGL2 context lost** (`webglcontextlost`): the same path runs on a fresh canvas, retrying after 0.5 s and 2 s. If every attempt fails, the status screen offers a reload.
+- **Stale swapchain**: when `GetCurrentTexture` returns `Outdated` or `Lost`, the surface is configured again and the texture requested once more. A devicePixelRatio change without a resize (dragging the window to another monitor) is caught by a `matchMedia('(resolution: Xdppx)')` listener, which resizes the canvas. If WebGL2 is also unavailable, `bespoke_get_webgl2_error()` returns a human-readable reason (missing canvas, blocked WebGL, or canvas already bound to another API).

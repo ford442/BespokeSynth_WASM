@@ -1,9 +1,10 @@
 import type { BespokeSynthModule } from '../../wasm/types/bespoke-synth';
 import { getSampleBlob, putSampleBlob, sha256Hex } from './opfsStore';
 import { importTuningFile, tuningKindForFile } from './tuningIo';
+import { wasmMalloc } from '../app/wasmStrings';
 
 function writeHeapBytes(module: BespokeSynthModule, bytes: Uint8Array): number {
-  const ptr = module._malloc(bytes.byteLength);
+  const ptr = wasmMalloc(module, bytes.byteLength);
   module.HEAPU8.set(bytes, ptr);
   return ptr;
 }
@@ -84,7 +85,7 @@ export function installSampleDropTarget(
     event.preventDefault();
     canvas.classList.remove('sample-drop-active');
     const module = getModule();
-    const file = event.dataTransfer?.files?.[0];
+    const file = event.dataTransfer?.files[0];
     if (!module || !file) return;
     // .scl / .kbm share the drop target: they retune the Scale module.
     if (tuningKindForFile(file.name)) {
@@ -122,6 +123,7 @@ export function promptForAudioFile(module: BespokeSynthModule): Promise<number> 
       }
       void importAudioFile(module, file).then(resolve).catch(() => resolve(-1));
     });
+    input.addEventListener('cancel', () => resolve(-1), { once: true });
     input.click();
   });
 }

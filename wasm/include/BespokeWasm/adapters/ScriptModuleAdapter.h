@@ -12,7 +12,7 @@
 
 #pragma once
 
-#include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/AdapterStorage.h"
 
 namespace bespoke
 {
@@ -23,7 +23,7 @@ namespace bespoke
          int moduleId = -1;
       };
 
-      class ScriptModuleAdapter : public WasmModuleAdapter
+      class ScriptModuleAdapter : public AdapterStorage<ScriptParams>
       {
       public:
          const char* typeId() const override { return "script"; }
@@ -31,15 +31,12 @@ namespace bespoke
          ModuleCategory category() const override { return ModuleCategory::Other; }
          WasmAudioRole audioRole() const override { return WasmAudioRole::NoteSource; }
 
-         std::vector<WasmControlDescriptor> controlDescriptors() const override { return {}; }
-         std::vector<PortDescriptor> outputPorts() const override;
+         ParamTable paramTable() const override { return {}; }
+         std::span<const PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
 
-         size_t paramsSize() const override { return sizeof(ScriptParams); }
-         void fillParams(int moduleId,
-                         const WasmControlMap& controls,
-                         const WasmStringMap& extras,
-                         void* dst) const override;
+         /** Stores the module id, which keys this module's ScriptNoteQueue. */
+         void bindParams(int moduleId, const WasmStringMap& extras, void* params) const override;
 
          void emitNotesForBeatRange(void* runtimeState,
                                     const void* params,

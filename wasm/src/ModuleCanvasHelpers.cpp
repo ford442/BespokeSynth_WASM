@@ -61,6 +61,61 @@ namespace bespoke
          return centerY + fontSize * (kPixelFontBaselineRatio - 0.5f);
       }
 
+      std::vector<std::string> wrapText(Renderer2D& renderer, const std::string& text, float maxWidth,
+                                        int maxLines)
+      {
+         std::vector<std::string> lines;
+         bool cut = false;
+         size_t paragraphStart = 0;
+         while (paragraphStart <= text.size() && !cut)
+         {
+            size_t paragraphEnd = text.find('\n', paragraphStart);
+            if (paragraphEnd == std::string::npos)
+               paragraphEnd = text.size();
+            std::string line;
+            size_t wordStart = paragraphStart;
+            while (wordStart < paragraphEnd)
+            {
+               size_t wordEnd = text.find(' ', wordStart);
+               if (wordEnd == std::string::npos || wordEnd > paragraphEnd)
+                  wordEnd = paragraphEnd;
+               const std::string word = text.substr(wordStart, wordEnd - wordStart);
+               const std::string candidate = line.empty() ? word : line + " " + word;
+               if (!line.empty() && renderer.textWidth(candidate.c_str()) > maxWidth)
+               {
+                  if (maxLines > 0 && static_cast<int>(lines.size()) + 1 >= maxLines)
+                  {
+                     cut = true;
+                     break;
+                  }
+                  lines.push_back(line);
+                  line = word;
+               }
+               else
+               {
+                  line = candidate;
+               }
+               wordStart = wordEnd + 1;
+            }
+            if (cut)
+            {
+               // Make room for the ellipsis on the last kept line.
+               while (!line.empty() && renderer.textWidth((line + "...").c_str()) > maxWidth)
+                  line.pop_back();
+               lines.push_back(line + "...");
+               break;
+            }
+            lines.push_back(line);
+            paragraphStart = paragraphEnd + 1;
+            if (paragraphEnd < text.size() && maxLines > 0 && static_cast<int>(lines.size()) >= maxLines)
+            {
+               lines.back() += "...";
+               break;
+            }
+         }
+         return lines;
+      }
+
       float textLineSpacing(float fontSize, float scale)
       {
          return fontSize + 4.0f * scale;
@@ -165,6 +220,20 @@ namespace bespoke
             list.push_back(type);
          else if (!hidden && it != list.end())
             list.erase(it);
+      }
+
+      const SpawnMenuChip& spawnMenuChip(int index)
+      {
+         static const SpawnMenuChip chips[kSpawnMenuChipCount] = {
+            { "All", -1 },
+            { "Synth", static_cast<int>(ModuleCategory::Synth) },
+            { "Note", static_cast<int>(ModuleCategory::NoteEffect) },
+            { "FX", static_cast<int>(ModuleCategory::AudioEffect) },
+            { "Mod", static_cast<int>(ModuleCategory::Modulator) },
+            { "Pulse", static_cast<int>(ModuleCategory::Pulse) },
+            { "Other", static_cast<int>(ModuleCategory::Other) },
+         };
+         return chips[std::max(0, std::min(kSpawnMenuChipCount - 1, index))];
       }
 
       std::vector<ModuleTypeInfo> spawnMenuTypes(int category, const std::string& query)

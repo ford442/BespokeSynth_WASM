@@ -1,5 +1,5 @@
 import type { BespokeSynthModule } from '../../wasm/types/bespoke-synth';
-import { getPatchStateJson, loadPatchStateJson } from '../patchState';
+import { getPatchStateJson, loadPatchStateJson, placeholderNotice } from '../patchState';
 import {
   PatchStorage,
   PATCH_DEFAULT_AUTOSAVE_NAME,
@@ -72,7 +72,7 @@ export function setupPatchPanel(
 
   save.addEventListener('click', async () => {
     const defaultName = select.value
-      ? select.selectedOptions[0]?.textContent ?? 'Untitled patch'
+      ? select.selectedOptions.item(0)?.textContent ?? 'Untitled patch'
       : 'Untitled patch';
     const name = window.prompt('Patch name', defaultName);
     if (name === null) return;
@@ -97,7 +97,7 @@ export function setupPatchPanel(
     if (loadPatchStateJson(getModule(), patch.json)) {
       callbacks.setSelectedPatchId(patch.id);
       callbacks.setLastAutoSaveJson(patch.json);
-      callbacks.showPatchStatus(`Loaded "${patch.name}"`);
+      callbacks.showPatchStatus(`Loaded "${patch.name}"${placeholderNotice(getModule())}`);
     } else {
       callbacks.showPatchStatus('Failed to load patch');
     }
@@ -121,7 +121,7 @@ export function setupPatchPanel(
       callbacks.showPatchStatus('Select a saved patch to delete');
       return;
     }
-    const patchName = select.selectedOptions[0]?.textContent ?? 'patch';
+    const patchName = select.selectedOptions.item(0)?.textContent ?? 'patch';
     await storage.remove(select.value);
     callbacks.setSelectedPatchId(undefined);
     await refresh();
@@ -165,7 +165,7 @@ export function createPatchStatusHelpers(): {
     toast.classList.add('visible');
     if (patchStatusTimerRef.current !== null) window.clearTimeout(patchStatusTimerRef.current);
     patchStatusTimerRef.current = window.setTimeout(() => {
-      toast?.classList.remove('visible');
+      toast.classList.remove('visible');
       patchStatusTimerRef.current = null;
     }, durationMs);
   };

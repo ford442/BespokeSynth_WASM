@@ -5,7 +5,9 @@ test.describe('WebGPU → WebGL2 fallback', () => {
     test.setTimeout(120000);
 
     await page.addInitScript(() => {
-      delete (navigator as Navigator & { gpu?: unknown }).gpu;
+      // `gpu` is a getter on Navigator.prototype where WebGPU is enabled; deleting it from the
+      // instance would be a no-op there.
+      Object.defineProperty(Navigator.prototype, 'gpu', { configurable: true, get: () => undefined });
     });
 
     await page.goto('/');
@@ -14,11 +16,7 @@ test.describe('WebGPU → WebGL2 fallback', () => {
 
     await page.waitForFunction(
       () => {
-        const w = window as Window & {
-          __bespoke?: { getRendererBackend?: () => string };
-          rendererFallbackReason?: string | null;
-        };
-        const backend = w.__bespoke?.getRendererBackend?.();
+        const backend = window.__bespoke?.getRendererBackend();
         const statusHidden = document.querySelector('#status')?.classList.contains('hidden');
         return backend === 'webgl' && statusHidden === true;
       },
@@ -26,8 +24,7 @@ test.describe('WebGPU → WebGL2 fallback', () => {
     );
 
     const backend = await page.evaluate(() => {
-      const w = window as Window & { __bespoke?: { getRendererBackend?: () => string } };
-      return w.__bespoke?.getRendererBackend?.();
+      return window.__bespoke?.getRendererBackend();
     });
     expect(backend).toBe('webgl');
 
@@ -44,7 +41,9 @@ test.describe('WebGPU → WebGL2 fallback', () => {
     test.setTimeout(120000);
 
     await page.addInitScript(() => {
-      delete (navigator as Navigator & { gpu?: unknown }).gpu;
+      // `gpu` is a getter on Navigator.prototype where WebGPU is enabled; deleting it from the
+      // instance would be a no-op there.
+      Object.defineProperty(Navigator.prototype, 'gpu', { configurable: true, get: () => undefined });
     });
 
     await page.goto('/?renderer=webgpu');
