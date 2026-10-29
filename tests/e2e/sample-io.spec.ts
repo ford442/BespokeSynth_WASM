@@ -7,13 +7,8 @@ test.describe('sample I/O and shareable patches', () => {
     await waitForBespokeReady(page);
 
     const url = await page.evaluate(async () => {
-      const api = (window as Window & {
-        __bespoke?: {
-          getStateJson?: () => string;
-          sharePatch?: () => Promise<string>;
-        };
-      }).__bespoke;
-      return api?.sharePatch?.() ?? '';
+      const api = window.__bespoke;
+      return api?.sharePatch() ?? '';
     });
 
     expect(url).toContain('#p=');
@@ -25,8 +20,8 @@ test.describe('sample I/O and shareable patches', () => {
     await waitForBespokeReady(fresh);
 
     const same = await fresh.evaluate(() => {
-      const api = (window as Window & { __bespoke?: { getStateJson?: () => string } }).__bespoke;
-      const json = api?.getStateJson?.() ?? '{}';
+      const api = window.__bespoke;
+      const json = api?.getStateJson() ?? '{}';
       const parsed = JSON.parse(json) as { modules?: unknown[] };
       return (parsed.modules?.length ?? 0) > 0;
     });
@@ -64,10 +59,8 @@ test.describe('sample I/O and shareable patches', () => {
         view.setInt16(44 + i * 2, Math.round(Math.sin((i / frames) * Math.PI * 2) * 16000), true);
       }
       const file = new File([buffer], 'tone.wav', { type: 'audio/wav' });
-      const api = (window as Window & {
-        __bespoke?: { importSampleFile?: (file: File) => Promise<number> };
-      }).__bespoke;
-      const sampleId = await api?.importSampleFile?.(file);
+      const api = window.__bespoke;
+      const sampleId = await api?.importSampleFile(file);
       return { sampleId };
     });
 
@@ -79,13 +72,8 @@ test.describe('sample I/O and shareable patches', () => {
     await waitForBespokeReady(page);
 
     const size = await page.evaluate(() => {
-      const api = (window as Window & {
-        __bespoke?: {
-          play?: () => void;
-          renderOfflineWav?: (opts?: { seconds?: number }) => Uint8Array | null;
-        };
-      }).__bespoke;
-      const wav = api?.renderOfflineWav?.({ seconds: 0.25 });
+      const api = window.__bespoke;
+      const wav = api?.renderOfflineWav({ seconds: 0.25 });
       return wav?.byteLength ?? 0;
     });
 

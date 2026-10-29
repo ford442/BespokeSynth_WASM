@@ -47,8 +47,8 @@ bool SDL2AudioBackend::initialize(int sampleRate, int bufferSize, int numOutputC
     SDL_AudioSpec desired = {};
     desired.freq = sampleRate;
     desired.format = AUDIO_F32;
-    desired.channels = numOutputChannels;
-    desired.samples = bufferSize;
+    desired.channels = static_cast<Uint8>(numOutputChannels);
+    desired.samples = static_cast<Uint16>(bufferSize);
     desired.callback = audioCallbackStatic;
     desired.userdata = this;
     

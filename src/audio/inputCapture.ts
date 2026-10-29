@@ -13,7 +13,19 @@ export interface InputCaptureOptions {
    */
   ring?: SharedArrayBuffer;
   setActive?: (active: boolean) => void;
+  /**
+   * The context that already plays the graph (worklet engine or ring). Reusing it avoids a second
+   * device stream and clock; it is left open on stop. Without one, capture opens and closes its own.
+   */
+  context?: AudioContext | null;
 }
+
+/** Instrument input, not a call: speech processing would gate, duck and colour the signal. */
+export const MIC_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: false,
+};
 
 /** Frames per worklet -> main-thread message; matches the 512-frame buffer the old ScriptProcessor used. */
 const CHUNK_FRAMES = 512;
@@ -31,8 +43,9 @@ export async function startInputCapture(
   module: BespokeSynthModule,
   options: InputCaptureOptions = {},
 ): Promise<InputCaptureHandle> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-  const context = new AudioContext();
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS, video: false });
+  const ownsContext = !options.context;
+  const context = options.context ?? new AudioContext();
   let node: AudioWorkletNode;
   let source: MediaStreamAudioSourceNode;
   try {
@@ -49,12 +62,17 @@ export async function startInputCapture(
     if (context.state === 'suspended') await context.resume();
   } catch (error) {
     stream.getTracks().forEach((track) => track.stop());
-    void context.close();
+    if (ownsContext) void context.close();
     throw error;
   }
 
   // One staging buffer for the capture's lifetime instead of a malloc/free per chunk.
   const stagingPtr = options.ring ? 0 : module._malloc(CHUNK_FRAMES * 4);
+  if (!options.ring && !stagingPtr) {
+    stream.getTracks().forEach((track) => track.stop());
+    if (ownsContext) void context.close();
+    throw new Error('WASM heap exhausted: no room for the mic staging buffer');
+  }
   let running = true;
   if (!options.ring) {
     node.port.onmessage = (event: MessageEvent<{ type: string; samples?: Float32Array }>) => {
@@ -65,7 +83,7 @@ export async function startInputCapture(
     };
   }
   const setActive =
-    options.setActive ?? ((active: boolean) => module._bespoke_set_input_capture_active?.(active ? 1 : 0));
+    options.setActive ?? ((active: boolean) => module._bespoke_set_input_capture_active(active ? 1 : 0));
 
   source.connect(node);
   // The node never writes its output (it stays silent); the connection only
@@ -85,7 +103,7 @@ export async function startInputCapture(
       source.disconnect();
       node.disconnect();
       stream.getTracks().forEach((track) => track.stop());
-      void context.close();
+      if (ownsContext) void context.close();
       if (stagingPtr) module._free(stagingPtr);
     },
   };

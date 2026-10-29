@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/AdapterStorage.h"
 
 namespace bespoke
 {
@@ -18,7 +18,7 @@ namespace bespoke
          int lastEmittedStep = -1;
       };
 
-      class TransportModuleAdapter : public WasmModuleAdapter
+      class TransportModuleAdapter : public AdapterStorage<NoAdapterStorage, TransportPulseRuntimeState>
       {
       public:
          const char* typeId() const override { return "transport"; }
@@ -27,13 +27,10 @@ namespace bespoke
          bool isSingleton() const override { return true; }
          WasmAudioRole audioRole() const override { return WasmAudioRole::PulseSource; }
 
-         std::vector<WasmControlDescriptor> controlDescriptors() const override;
-         std::vector<PortDescriptor> outputPorts() const override;
+         ParamTable paramTable() const override;
+         std::span<const PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
 
-         size_t runtimeStateSize() const override { return sizeof(TransportPulseRuntimeState); }
-         void initRuntimeState(void* runtimeState) const override;
-         void destroyRuntimeState(void* runtimeState) const override;
          void emitPulsesForBeatRange(void* runtimeState,
                                      const void* params,
                                      double beatStart,

@@ -9,6 +9,7 @@
 #include "BespokeWasm/ModuleCanvasHelpers.h"
 #include "BespokeWasm/Theme.h"
 #include "BespokeWasm/WasmModuleAdapter.h"
+#include <algorithm>
 
 namespace bespoke
 {
@@ -225,5 +226,15 @@ namespace bespoke
          renderPorts(renderer, screenX, screenY, scale);
       }
 
+
+      std::string Module::textLineControlAt(float worldX, float worldY, float contentTop, float lineFont,
+                                            std::initializer_list<const char*> names) const
+      {
+         const float localY = worldY - mY - contentTop;
+         if (names.size() == 0 || worldX < mX || worldX > mX + mWidth || localY < 0.0f || worldY > mY + mHeight)
+            return {};
+         const size_t line = static_cast<size_t>(localY / textLineSpacing(lineFont, 1.0f));
+         return *(names.begin() + std::min(line, names.size() - 1));
+      }
    }
 }

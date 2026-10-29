@@ -17,7 +17,9 @@ esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-BUILD_DIR="$SCRIPT_DIR/build/${BUILD_FLAVOR,,}"
+# tr instead of ${VAR,,}: macOS ships bash 3.2.
+BUILD_FLAVOR_DIR="$(printf '%s' "$BUILD_FLAVOR" | tr '[:upper:]' '[:lower:]')"
+BUILD_DIR="$SCRIPT_DIR/build/$BUILD_FLAVOR_DIR"
 EMSCRIPTEN_VERSION_FILE="$PROJECT_ROOT/.emscripten-version"
 
 # Colors for output
@@ -134,12 +136,10 @@ CPU_COUNT="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 DEFAULT_JOBS=$(( CPU_COUNT < 8 ? CPU_COUNT : 8 ))
 BUILD_JOBS="${BESPOKE_WASM_JOBS:-$DEFAULT_JOBS}"
 
-# Profile has optimized code plus symbols and BESPOKE_WASM_FRAME_INSTRUMENTATION.
-# Debug uses -O0/-g and ASSERTIONS=2; Release is assertions-free and Asyncify-free.
-case "$BUILD_FLAVOR" in
-    Debug) CMAKE_BUILD_TYPE=Debug ;;
-    *) CMAKE_BUILD_TYPE=Release ;;
-esac
+# wasm/CMakeLists.txt derives every optimization/debug flag from the flavor:
+# Release -O3 (+LTO) with a symbol map; Profile -O2 --profiling-funcs plus
+# BESPOKE_WASM_FRAME_INSTRUMENTATION; Debug -O0 -g, ASSERTIONS=2 and SAFE_HEAP.
+CMAKE_BUILD_TYPE="$BUILD_FLAVOR"
 
 # Configure with CMake
 echo -e "${YELLOW}Configuring with CMake...${NC}"
@@ -147,40 +147,41 @@ emcmake cmake "$SCRIPT_DIR" \
     -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
     -DBESPOKE_WASM_BUILD_FLAVOR="$BUILD_FLAVOR" \
-    -DBESPOKE_WASM_WEBGPU=ON \
-    -DBESPOKE_WASM_SDL2_AUDIO=ON \
     -DBESPOKE_WASM_LTO="${BESPOKE_WASM_LTO:-ON}" \
+    -DBESPOKE_WASM_CLOSURE="${BESPOKE_WASM_CLOSURE:-ON}" \
     -DBESPOKE_WASM_SIMD="${BESPOKE_WASM_SIMD:-ON}"
 
 # Build
 echo -e "${YELLOW}Building...${NC}"
 cmake --build "$BUILD_DIR" --parallel "$BUILD_JOBS"
 
-# Copy output files
+# Copy output files. set -e means we only get here after a successful build.
+# wasm/dist is regenerated from scratch so a Debug/Profile build can never mix
+# with stale outputs of another flavor.
 echo -e "${YELLOW}Copying output files...${NC}"
 OUTPUT_DIR="$SCRIPT_DIR/dist"
-mkdir -p "$OUTPUT_DIR"
+# BespokeSynthWASM_audio.*: DSP-only engine for the AudioWorklet (docs/wasm-audio.md, Option A).
+REQUIRED_OUTPUTS="BespokeSynthWASM.js BespokeSynthWASM.wasm BespokeSynthWASM_audio.js BespokeSynthWASM_audio.wasm"
+for f in $REQUIRED_OUTPUTS; do
+    if [ ! -f "$BUILD_DIR/$f" ]; then
+        echo -e "${RED}Error: build did not produce $BUILD_DIR/$f; leaving $OUTPUT_DIR untouched${NC}"
+        exit 1
+    fi
+done
 
-if [ -f "$BUILD_DIR/BespokeSynthWASM.html" ]; then
-    cp "$BUILD_DIR/BespokeSynthWASM.html" "$OUTPUT_DIR/index.html"
-fi
-if [ -f "$BUILD_DIR/BespokeSynthWASM.js" ]; then
-    cp "$BUILD_DIR/BespokeSynthWASM.js" "$OUTPUT_DIR/"
-fi
-if [ -f "$BUILD_DIR/BespokeSynthWASM.wasm" ]; then
-    cp "$BUILD_DIR/BespokeSynthWASM.wasm" "$OUTPUT_DIR/"
-fi
+rm -rf "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR"
+for f in $REQUIRED_OUTPUTS; do
+    cp "$BUILD_DIR/$f" "$OUTPUT_DIR/"
+done
+# Preloaded resource pack (docs/wasm/resources.md). The loose $BUILD_DIR/resource
+# copy is not shipped: nothing fetches resource/ over HTTP.
 if [ -f "$BUILD_DIR/BespokeSynthWASM.data" ]; then
     cp "$BUILD_DIR/BespokeSynthWASM.data" "$OUTPUT_DIR/"
 fi
-# DSP-only engine for the AudioWorklet (docs/wasm-audio.md, Option A).
-for f in BespokeSynthWASM_audio.js BespokeSynthWASM_audio.wasm; do
-    if [ -f "$BUILD_DIR/$f" ]; then
-        cp "$BUILD_DIR/$f" "$OUTPUT_DIR/"
-    fi
-done
-if [ -d "$BUILD_DIR/resource" ]; then
-    cp -r "$BUILD_DIR/resource" "$OUTPUT_DIR/"
+# Bare Emscripten shell (SDL2 audio only); the app shell comes from webpack.
+if [ -f "$BUILD_DIR/BespokeSynthWASM.html" ]; then
+    cp "$BUILD_DIR/BespokeSynthWASM.html" "$OUTPUT_DIR/index.html"
 fi
 
 echo -e "${GREEN}Build complete!${NC}"

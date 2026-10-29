@@ -24,7 +24,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
           cache: npm
 
       - name: Restore Emscripten SDK
@@ -68,16 +68,11 @@ jobs:
           source "$EMSDK/emsdk_env.sh"
           npm run build:wasm
 
-      - name: Report WASM sizes
-        shell: bash
-        run: |
-          {
-            echo "| Module | .wasm bytes | .js bytes |"
-            echo "|---|---:|---:|"
-            for m in BespokeSynthWASM BespokeSynthWASM_audio; do
-              echo "| $m | $(wc -c < "wasm/dist/$m.wasm") | $(wc -c < "wasm/dist/$m.js") |"
-            done
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Check WASM size budget
+        run: npm run test:size
+
+      - name: Check module help coverage
+        run: python3 scripts/bake_module_help.py --check "$RUNNER_TEMP/module_help.json"
 
       - name: Verify WASM export manifest
         run: npm run test:exports
@@ -96,6 +91,12 @@ jobs:
 
       - name: Type check
         run: npm run type-check
+
+      - name: Type check tests
+        run: npm run type-check:tests
+
+      - name: Run JavaScript unit tests
+        run: npm run test:unit:js
 
       - name: Lint
         run: npm run lint

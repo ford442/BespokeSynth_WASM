@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/AdapterStorage.h"
 
 namespace bespoke
 {
@@ -30,7 +30,7 @@ namespace bespoke
          double noteOffBeat = -1.0;
       };
 
-      class StepSequencerModuleAdapter : public WasmModuleAdapter
+      class StepSequencerModuleAdapter : public AdapterStorage<StepSequencerParams, StepSequencerRuntimeState>
       {
       public:
          const char* typeId() const override { return "stepsequencer"; }
@@ -38,17 +38,9 @@ namespace bespoke
          ModuleCategory category() const override { return ModuleCategory::Pulse; }
          WasmAudioRole audioRole() const override { return WasmAudioRole::NoteSource; }
 
-         std::vector<WasmControlDescriptor> controlDescriptors() const override;
-         std::vector<PortDescriptor> inputPorts() const override;
-         std::vector<PortDescriptor> outputPorts() const override;
+         ParamTable paramTable() const override;
+         std::span<const PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
-
-         size_t paramsSize() const override { return sizeof(StepSequencerParams); }
-         void fillParams(const WasmControlMap& controls, void* dst) const override;
-
-         size_t runtimeStateSize() const override { return sizeof(StepSequencerRuntimeState); }
-         void initRuntimeState(void* runtimeState) const override;
-         void destroyRuntimeState(void* runtimeState) const override;
 
          void emitNotesForBeatRange(void* runtimeState,
                                     const void* params,

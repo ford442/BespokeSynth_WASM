@@ -129,6 +129,7 @@ namespace bespoke
       {
          (void)worldX;
          (void)worldY;
+         (void)dx;
          if (!mDraggingFreq)
             return false;
 

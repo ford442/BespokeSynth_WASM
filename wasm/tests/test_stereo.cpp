@@ -292,11 +292,20 @@ void test_stereo_patch_migration()
    int viewMode = 0;
    std::string error;
    TEST("V4 patch without pan deserializes", deserializePatchState(v4Json, loaded, viewMode, error));
-   TEST("V4 patch keeps schema 4", loaded.schemaVersion == 4);
+   TEST("V4 patch migrates to the current schema", loaded.schemaVersion == kPatchSchemaVersion);
    bool centred = loaded.modules.size() == 2;
    for (const char* pan : { "pan1", "pan2", "pan3", "pan4" })
       centred = centred && loaded.modules[0].controls.count(pan) && loaded.modules[0].controls[pan] == 0.5f;
    TEST("V4 mixer loads with every pan centred", centred);
    TEST("V4 mixer keeps its levels", loaded.modules.size() == 2 && loaded.modules[0].controls["level1"] == 0.5f);
    TEST("V4 output gains limit on", loaded.modules.size() == 2 && loaded.modules[1].controls["limit"] == 1.0f);
+   TEST("V4 output keeps the DC blocker off", loaded.modules.size() == 2 && loaded.modules[1].controls["dcblock"] == 0.0f);
+
+   // A v5 patch without the control takes the new default.
+   std::string v5Json = v4Json;
+   v5Json.replace(v5Json.find("\"version\": 4"), 12, "\"version\": 5");
+   ModuleCanvas::StateSnapshot current;
+   TEST("V5 patch deserializes", deserializePatchState(v5Json, current, viewMode, error));
+   TEST("V5 output defaults the DC blocker on",
+        current.modules.size() == 2 && current.modules[1].controls["dcblock"] == 1.0f);
 }

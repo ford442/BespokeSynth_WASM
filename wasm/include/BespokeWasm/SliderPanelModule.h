@@ -14,6 +14,7 @@
 
 #include "BespokeWasm/Module.h"
 #include "BespokeWasm/WasmModuleAdapter.h"
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -43,16 +44,26 @@ namespace bespoke
          float maxValue = 1.0f;
          float defaultValue = 0.0f;
          SliderFormat format = SliderFormat::Percent;
-         std::vector<const char*> choices;
+         std::vector<const char*> choices{};
          /** Equal drag distance per octave / decade (frequencies). Requires minValue > 0. */
          bool logarithmic = false;
       };
 
-      /** Control descriptors (serialized names + defaults) straight from the slider table. */
-      std::vector<WasmControlDescriptor> controlDescriptorsFromSpecs(const std::vector<SliderSpec>& specs);
+      /** How one control is shown; range and default come from its ParamDescriptor. */
+      struct SliderUi
+      {
+         const char* name = "";
+         const char* label = "";
+         SliderFormat format = SliderFormat::Percent;
+         std::vector<const char*> choices{};
+         bool logarithmic = false;
+      };
 
-      /** Control value for `name`, clamped to its spec range; default when absent. */
-      float sliderSpecValue(const std::vector<SliderSpec>& specs, const WasmControlMap& controls, const char* name);
+      /**
+       * Slider rows for `ui`, in that order, with min / max / default from the descriptor of the
+       * same name in `params`, so the adapter's table stays the one source of ranges.
+       */
+      std::vector<SliderSpec> slidersFromParams(ParamTable params, std::initializer_list<SliderUi> ui);
 
       class SliderPanelModule : public Module
       {
@@ -62,7 +73,8 @@ namespace bespoke
                            const std::string& name,
                            ModuleCategory category,
                            std::vector<SliderSpec> specs,
-                           float width = 170.0f);
+                           float width = 170.0f,
+                           float headerHeight = 0.0f);
 
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
@@ -87,6 +99,8 @@ namespace bespoke
          std::vector<SliderSpec> mSpecs;
          std::vector<float> mValues;
          int mDragRow = -1;
+         /** Space a subclass draws in between the ports and the first slider (a waveform). */
+         float mHeaderHeight = 0.0f;
       };
 
    } // namespace wasm

@@ -6,8 +6,7 @@
 #include "BespokeWasm/NoteProcessorUtil.h"
 #include "BespokeWasm/SliderPanelModule.h"
 #include <algorithm>
-#include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -36,16 +35,31 @@ namespace bespoke
             { 2, { 0, 12, 0, 0 } }, // Octave
          };
 
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "chord", .minValue = 0.0f, .maxValue = static_cast<float>(kChorderCustomPreset), .defaultValue = 0.0f, .kind = ParamKind::IntRound, .offset = offsetof(ChorderParams, chord), .flags = kParamClamp },
+            { .id = 1, .name = "inversion", .minValue = 0.0f, .maxValue = 3.0f, .defaultValue = 0.0f, .kind = ParamKind::IntRound, .offset = offsetof(ChorderParams, inversion), .flags = kParamClamp },
+            { .id = 2, .name = "tone2", .minValue = 0.0f, .maxValue = 24.0f, .defaultValue = 4.0f, .kind = ParamKind::IntRound, .offset = offsetof(ChorderParams, custom[0]), .flags = kParamClamp },
+            { .id = 3, .name = "tone3", .minValue = 0.0f, .maxValue = 24.0f, .defaultValue = 7.0f, .kind = ParamKind::IntRound, .offset = offsetof(ChorderParams, custom[1]), .flags = kParamClamp },
+            { .id = 4, .name = "tone4", .minValue = 0.0f, .maxValue = 24.0f, .defaultValue = 0.0f, .kind = ParamKind::IntRound, .offset = offsetof(ChorderParams, custom[2]), .flags = kParamClamp },
+            { .id = 5, .name = "level", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 1.0f, .offset = offsetof(ChorderParams, level), .flags = kParamClamp },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Note, "Notes" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Note, "Chord" } };
+
          const std::vector<SliderSpec>& chorderSpecs()
          {
-            static const std::vector<SliderSpec> specs = {
-               { "chord", "Chord", 0.0f, static_cast<float>(kChorderCustomPreset), 0.0f, SliderFormat::Choice, { "Major", "Minor", "Sus2", "Sus4", "Dim", "Aug", "Maj7", "Min7", "Dom7", "Power", "Octave", "Custom" } },
-               { "inversion", "Invert", 0.0f, 3.0f, 0.0f, SliderFormat::Integer },
-               { "tone2", "Tone 2", 0.0f, 24.0f, 4.0f, SliderFormat::Integer },
-               { "tone3", "Tone 3", 0.0f, 24.0f, 7.0f, SliderFormat::Integer },
-               { "tone4", "Tone 4", 0.0f, 24.0f, 0.0f, SliderFormat::Integer },
-               { "level", "Level", 0.0f, 1.0f, 1.0f, SliderFormat::Percent },
-            };
+            static const std::vector<SliderSpec> specs =
+            slidersFromParams(kParams,
+                              {
+                              { "chord", "Chord", SliderFormat::Choice, { "Major", "Minor", "Sus2", "Sus4", "Dim", "Aug", "Maj7", "Min7", "Dom7", "Power", "Octave", "Custom" } },
+                              { "inversion", "Invert", SliderFormat::Integer },
+                              { "tone2", "Tone 2", SliderFormat::Integer },
+                              { "tone3", "Tone 3", SliderFormat::Integer },
+                              { "tone4", "Tone 4", SliderFormat::Integer },
+                              { "level", "Level", SliderFormat::Percent },
+                              });
             return specs;
          }
 
@@ -101,46 +115,24 @@ namespace bespoke
          return count;
       }
 
-      std::vector<WasmControlDescriptor> ChorderModuleAdapter::controlDescriptors() const
+      ParamTable ChorderModuleAdapter::paramTable() const
       {
-         return controlDescriptorsFromSpecs(chorderSpecs());
+         return kParams;
       }
 
-      std::vector<PortDescriptor> ChorderModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> ChorderModuleAdapter::inputPorts() const
       {
-         return { { PortType::Note, "Notes" } };
+         return kInputs;
       }
 
-      std::vector<PortDescriptor> ChorderModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> ChorderModuleAdapter::outputPorts() const
       {
-         return { { PortType::Note, "Chord" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> ChorderModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<SliderPanelModule>(id, typeId(), displayName(), category(), chorderSpecs());
-      }
-
-      void ChorderModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         const auto& specs = chorderSpecs();
-         auto* params = new (dst) ChorderParams();
-         params->chord = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "chord")));
-         params->inversion = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "inversion")));
-         params->custom[0] = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "tone2")));
-         params->custom[1] = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "tone3")));
-         params->custom[2] = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "tone4")));
-         params->level = sliderSpecValue(specs, controls, "level");
-      }
-
-      void ChorderModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) ChorderRuntimeState();
-      }
-
-      void ChorderModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<ChorderRuntimeState*>(runtimeState)->~ChorderRuntimeState();
       }
 
       void ChorderModuleAdapter::processNotes(void* runtimeState,
@@ -166,6 +158,14 @@ namespace bespoke
             const WasmNoteEvent& in = block.notes[n];
             if (in.pitch < 0 || in.pitch > 127)
                continue;
+            if (isPitchBendEvent(in))
+            {
+               // The whole chord a key holds bends with it.
+               const auto& held = state.held[in.pitch];
+               for (int i = 0; i < held.count; ++i)
+                  writer.pushBend(held.pitches[i], in.pitchBend, held.channel);
+               continue;
+            }
 
             // A repeated note-on retriggers: release what this key held, then play the new chord.
             releaseHeld(state, in.pitch, writer);
@@ -182,7 +182,7 @@ namespace bespoke
                   continue;
                held.pitches[held.count++] = static_cast<uint8_t>(pitch);
                if (state.refs[pitch]++ == 0)
-                  writer.push(pitch, isRoot[i] ? in.velocity : addedVelocity, true, in.channel);
+                  writer.push(pitch, isRoot[i] ? in.velocity : addedVelocity, true, in.channel, 0, in.pitchBend);
             }
          }
       }

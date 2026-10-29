@@ -3,7 +3,7 @@
  *
  * Shader modules, render/compute pipelines, the shared bind group, the SDF text
  * atlas texture and the live-analyzer compute pass. Per-frame drawing lives in
- * WebGPURenderer.cpp. WGSL sources are wasm/shaders/*.wgsl, embedded at build
+ * WebGPURenderer.cpp. WGSL sources are the .wgsl files in wasm/shaders, embedded at build
  * time into BespokeWasm/generated/WgslSources.inc (scripts/embed_shaders.cmake).
  *
  * Copyright (C) 2024

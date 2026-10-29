@@ -7,8 +7,7 @@ test.describe('BespokeSynth WASM', () => {
     await waitForBespokeReady(page);
 
     const backend = await page.evaluate(() => {
-      const w = window as Window & { __bespoke?: { getRendererBackend?: () => string } };
-      return w.__bespoke?.getRendererBackend?.();
+      return window.__bespoke?.getRendererBackend();
     });
 
     expect(backend).toBe(testRenderer());

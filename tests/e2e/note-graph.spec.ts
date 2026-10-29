@@ -1,7 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { AUDIO_BACKENDS, gotoApp, waitForBespokeReady } from './helpers';
 
-type Api = Record<string, (...args: never[]) => unknown>;
 type Sent = { bytes: number[]; timestamp: number | undefined; sentAt: number };
 
 /** A loopback MIDI output the page can select; records every message with its timestamp. */
@@ -75,22 +74,14 @@ function patchJson(
 async function loadPatch(page: Page, json: string): Promise<boolean> {
   return page.evaluate(
     (text) =>
-      (
-        window as unknown as {
-          __bespoke: { loadStateJson: (j: string) => boolean };
-        }
-      ).__bespoke.loadStateJson(text),
+      window.__bespoke!.loadStateJson(text),
     json,
   );
 }
 
 async function outputRms(page: Page, count = 2048): Promise<number> {
   return page.evaluate((n) => {
-    const samples = (
-      window as unknown as {
-        __bespoke: { getOutputWaveform: (n: number) => number[] };
-      }
-    ).__bespoke.getOutputWaveform(n);
+    const samples = window.__bespoke!.getOutputWaveform(n);
     let sum = 0;
     for (const v of samples) sum += v * v;
     return Math.sqrt(sum / Math.max(1, samples.length));
@@ -102,14 +93,11 @@ test.describe('Wave 3: note graph, kit, placeholders', () => {
     await gotoApp(page, 'audio=sdl');
     await waitForBespokeReady(page);
     const types = await page.evaluate(() => {
-      const api = (window as unknown as { __bespoke: Api }).__bespoke;
+      const api = window.__bespoke!;
       const created = ['input', 'eq', 'chorder', 'arpeggiator', 'notefilter', 'noterouter'].map(
-        (type) => [type, (api.createModule as (t: string, x: number, y: number) => number)(type, 60, 60)] as const,
+        (type) => [type, api.createModule(type, 60, 60)] as const,
       );
-      const modules = api.getModules() as unknown as Array<{
-        id: number;
-        type: string;
-      }>;
+      const modules = api.getModules();
       return created.map(([type, id]) => ({
         type,
         id,
@@ -192,8 +180,8 @@ test.describe('Wave 3: note graph, kit, placeholders', () => {
         ),
       );
       await page.evaluate(() => {
-        const api = (window as unknown as { __bespoke: Api }).__bespoke;
-        for (const pitch of [60, 64, 67]) (api.midiNoteOn as (c: number, p: number, v: number) => void)(0, pitch, 0.9);
+        const api = window.__bespoke!;
+        for (const pitch of [60, 64, 67]) api.midiNoteOn(0, pitch, 0.9);
       });
       await page.locator('#playBtn').click();
       // 120 BPM: a sixteenth every 125 ms, so ~0.75 s once audio runs (the worklet engine starts on Play).
@@ -211,22 +199,12 @@ test.describe('Wave 3: note graph, kit, placeholders', () => {
     await waitForBespokeReady(page);
     expect(
       await page.evaluate(() =>
-        (
-          window as unknown as {
-            __bespoke: { getPlaceholderCount: () => number };
-          }
-        ).__bespoke.getPlaceholderCount(),
+        window.__bespoke!.getPlaceholderCount(),
       ),
     ).toBe(0);
 
     const level = await page.evaluate(() => {
-      const wav = (
-        window as unknown as {
-          __bespoke: {
-            renderOfflineWav: (o: { seconds: number; bitsPerSample: 16 }) => Uint8Array | null;
-          };
-        }
-      ).__bespoke.renderOfflineWav({
+      const wav = window.__bespoke!.renderOfflineWav({
         seconds: 2,
         bitsPerSample: 16,
       });
@@ -281,7 +259,7 @@ test.describe('Wave 3: note graph, kit, placeholders', () => {
             { id: 1, type: 'oscillator', controls: { volume: 0.5 } },
             {
               id: 2,
-              type: 'vocoder',
+              type: 'multitapdelay', // desktop-only, no WASM adapter
               controls: { depth: 0.7, bands: 16 },
               extras: { preset: 'robot' },
             },
@@ -297,24 +275,17 @@ test.describe('Wave 3: note graph, kit, placeholders', () => {
     ).toBe(true);
 
     const result = await page.evaluate(() => {
-      const api = (
-        window as unknown as {
-          __bespoke: {
-            getPlaceholderCount: () => number;
-            getStateJson: () => string;
-          };
-        }
-      ).__bespoke;
+      const api = window.__bespoke!;
       return {
         count: api.getPlaceholderCount(),
         state: JSON.parse(api.getStateJson()),
       };
     });
     expect(result.count).toBe(1);
-    const vocoder = result.state.modules.find((m: { type: string }) => m.type === 'vocoder');
-    expect(vocoder).toBeTruthy();
-    expect(vocoder.controls.depth).toBeCloseTo(0.7);
-    expect(vocoder.extras.preset).toBe('robot');
+    const unknown = result.state.modules.find((m: { type: string }) => m.type === 'multitapdelay');
+    expect(unknown).toBeTruthy();
+    expect(unknown.controls.depth).toBeCloseTo(0.7);
+    expect(unknown.extras.preset).toBe('robot');
     expect(result.state.modules.some((m: { type: string }) => m.type === 'placeholder')).toBe(false);
     expect(result.state.connections).toHaveLength(3); // the cables through the unknown module are kept
   });

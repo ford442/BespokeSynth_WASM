@@ -6,7 +6,7 @@
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
 #include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -20,50 +20,31 @@ namespace bespoke
          {
             return std::max(minValue, std::min(maxValue, value));
          }
-      }
 
-      std::vector<WasmControlDescriptor> StepSequencerModuleAdapter::controlDescriptors() const
-      {
-         return {
-            { "pattern", static_cast<float>(0x1111) },
-            { "pitch", 60.0f },
-            { "gate", 0.75f },
-            { "steps", 16.0f },
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "pattern", .minValue = 0.0f, .maxValue = 65535.0f, .defaultValue = static_cast<float>(0x1111), .kind = ParamKind::Mask16, .offset = offsetof(StepSequencerParams, patternMask) },
+            { .id = 1, .name = "pitch", .minValue = 0.0f, .maxValue = 127.0f, .defaultValue = 60.0f, .kind = ParamKind::IntRound, .offset = offsetof(StepSequencerParams, pitch) },
+            { .id = 2, .name = "gate", .minValue = 0.05f, .maxValue = 1.0f, .defaultValue = 0.75f, .offset = offsetof(StepSequencerParams, gate), .flags = kParamClamp },
+            { .id = 3, .name = "steps", .minValue = 1.0f, .maxValue = 16.0f, .defaultValue = 16.0f, .kind = ParamKind::IntRound, .offset = offsetof(StepSequencerParams, steps), .flags = kParamClamp },
          };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kOutputs[] = { { PortType::Note, "Notes" } };
       }
 
-      std::vector<PortDescriptor> StepSequencerModuleAdapter::inputPorts() const
+      ParamTable StepSequencerModuleAdapter::paramTable() const
       {
-         return {};
+         return kParams;
       }
 
-      std::vector<PortDescriptor> StepSequencerModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> StepSequencerModuleAdapter::outputPorts() const
       {
-         return { { PortType::Note, "Notes" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> StepSequencerModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<StepSequencerModule>(id);
-      }
-
-      void StepSequencerModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         auto* params = new (dst) StepSequencerParams();
-         params->patternMask = static_cast<int>(wasmControlValue(controls, "pattern", static_cast<float>(0x1111))) & 0xFFFF;
-         params->pitch = static_cast<int>(std::lround(wasmControlValue(controls, "pitch", 60.0f)));
-         params->gate = clampFloat(wasmControlValue(controls, "gate", 0.75f), 0.05f, 1.0f);
-         params->steps = std::max(1, std::min(16, static_cast<int>(std::lround(wasmControlValue(controls, "steps", 16.0f)))));
-      }
-
-      void StepSequencerModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) StepSequencerRuntimeState();
-      }
-
-      void StepSequencerModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<StepSequencerRuntimeState*>(runtimeState)->~StepSequencerRuntimeState();
       }
 
       void StepSequencerModuleAdapter::emitNotesForBeatRange(void* runtimeState,

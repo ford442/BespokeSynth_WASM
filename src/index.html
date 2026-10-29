@@ -6,7 +6,8 @@
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <title>BespokeSynth WASM - Modular Synthesizer</title>
     <meta name="description" content="BespokeSynth WebAssembly - A modular synthesizer running in your browser">
-</head>
+<% if (htmlWebpackPlugin.options.coiServiceWorker) { %>    <script src="coi-serviceworker.js"></script>
+<% } %></head>
 <body>
     <div id="container">
         <header id="header">

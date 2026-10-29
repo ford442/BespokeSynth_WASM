@@ -15,8 +15,14 @@ Emscripten packs `wasm/resource-pack/` into `BespokeSynthWASM.data` at `/resourc
 | `userdata_original/layouts/blank.json` | Blank layout stub |
 | `userdata_original/userdata_version.txt` | Version marker |
 | `fonts/ui_font.bsdf` | SDF UI font atlas + glyph metrics (`SdfFont`), baked by `scripts/bake_sdf_font.sh` |
+| `samples/tonal/pad.wav` | Bundled tonal pad (C4, mono 16-bit 22.05 kHz) for `seaofgrain` and the demos, synthesized by `scripts/gen_tonal_samples.py` |
+| `help/module_help.json` | Spawn-menu descriptions and hover tooltips, baked from `resource/tooltips_*.txt` by `scripts/bake_module_help.py` ([live-instrument.md](live-instrument.md#module-help)) |
+| `demos/*.json`, `demos/index.json` | Demo gallery patches, written by `scripts/gen_demos.py` ([live-instrument.md](live-instrument.md#demo-gallery)) |
 
-Webpack copies the same pack to `dist/resource/` for HTTP access.
+The pack ships once, inside `BespokeSynthWASM.data` (served as `dist/wasm/BespokeSynthWASM.data`).
+Nothing fetches `resource/` over HTTP, so neither `wasm/build.sh` nor webpack copies the loose
+files into `wasm/dist/` or `dist/`. The AudioWorklet engine module has no preload bundle; the
+UI module decodes samples and posts them to it.
 
 ## What stays desktop-only
 
@@ -24,7 +30,7 @@ Under repo-root `resource/` (not in the WASM pack):
 
 - Desktop example `.bsk` savestates (~21 MB)
 - Desktop drum kits (~10 MB) — not bundled. A small synthesized four-piece kit (`kits/basic/`, ~100 KB) is; for anything else load your own WAV/FLAC/MP3 by drag-and-drop (see [samples.md](samples.md#bundled-drum-kit))
-- Controllers, python scripts, tooltips, TTF fonts
+- Controllers, python scripts, TTF fonts (tooltips ship baked, as `help/module_help.json`)
 
 TTFs never ship. `scripts/bake_sdf_font.sh` compiles a host tool
 (`wasm/tools/sdf_font_baker`, stb_truetype from `libs/nanovg`) that bakes
@@ -52,6 +58,7 @@ into the `.wasm`.
 |------|--------------------------|-----------|
 | 5x7 pixel font only | 4,156 bytes | 2,020 bytes of glyph columns inside the `.wasm` |
 | + `fonts/ui_font.bsdf` | 93,428 bytes | 89,272 bytes (81,920 atlas + metrics/kerning); ~35 KB gzip |
+| + Latin-1, Turkish, Cyrillic, quotes (#127, for translated help) | | 204,408 bytes (249 glyphs, 512x376 atlas); ~75 KB gzip |
 
 `wasm/CMakeLists.txt` lists the pack files in `LINK_DEPENDS`, so re-baking the
 atlas relinks and refreshes the `.data` bundle.

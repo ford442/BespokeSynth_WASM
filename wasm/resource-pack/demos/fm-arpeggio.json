@@ -1,0 +1,197 @@
+{
+ "filetype": "bespokesynth",
+ "format": "bespokesynth-wasm-state",
+ "version": 5,
+ "wasm": {
+  "view_mode": 0,
+  "canvas": {
+   "offset_x": 0.0,
+   "offset_y": 0.0,
+   "scale": 0.8
+  }
+ },
+ "transport": {
+  "bpm": 118.0,
+  "playing": false
+ },
+ "modules": [
+  {
+   "id": 1,
+   "type": "transport",
+   "position": {
+    "x": 30.0,
+    "y": 20.0
+   },
+   "controls": {
+    "bpm": 118.0,
+    "swing": 0.0
+   }
+  },
+  {
+   "id": 2,
+   "type": "notesequencer",
+   "position": {
+    "x": 30.0,
+    "y": 180.0
+   },
+   "controls": {
+    "interval": 0.0,
+    "len0": 1.0,
+    "len1": 1.0,
+    "len2": 1.0,
+    "len3": 1.0,
+    "octave": 3.0,
+    "steps": 4.0,
+    "tone0": 0.0,
+    "tone1": 0.0,
+    "tone2": 5.0,
+    "tone3": 3.0,
+    "vel0": 0.8,
+    "vel1": 0.8,
+    "vel2": 0.8,
+    "vel3": 0.8
+   }
+  },
+  {
+   "id": 3,
+   "type": "chorder",
+   "position": {
+    "x": 300.0,
+    "y": 180.0
+   },
+   "controls": {
+    "chord": 1.0
+   }
+  },
+  {
+   "id": 4,
+   "type": "arpeggiator",
+   "position": {
+    "x": 520.0,
+    "y": 180.0
+   },
+   "controls": {
+    "gate": 0.5,
+    "mode": 2.0,
+    "octaves": 2.0,
+    "rate": 2.0
+   }
+  },
+  {
+   "id": 5,
+   "type": "fmsynth",
+   "position": {
+    "x": 740.0,
+    "y": 180.0
+   },
+   "controls": {
+    "decay": 220.0,
+    "harmratio": 6.0,
+    "mod": 3.5,
+    "modDecay": 250.0,
+    "release": 260.0,
+    "sustain": 0.3,
+    "voices": 8.0,
+    "vol": 1.6
+   }
+  },
+  {
+   "id": 6,
+   "type": "eq",
+   "position": {
+    "x": 1010.0,
+    "y": 180.0
+   },
+   "controls": {
+    "highGain": -4.0,
+    "lowGain": -3.0,
+    "midFreq": 900.0,
+    "midGain": 2.5
+   }
+  },
+  {
+   "id": 7,
+   "type": "pingpongdelay",
+   "position": {
+    "x": 1300.0,
+    "y": 180.0
+   },
+   "controls": {
+    "feedback": 0.5,
+    "interval": 3.0,
+    "mix": 0.35
+   }
+  },
+  {
+   "id": 8,
+   "type": "output",
+   "position": {
+    "x": 1560.0,
+    "y": 180.0
+   },
+   "controls": {}
+  }
+ ],
+ "connections": [
+  {
+   "source": {
+    "module": 2,
+    "port": 0
+   },
+   "destination": {
+    "module": 3,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 3,
+    "port": 0
+   },
+   "destination": {
+    "module": 4,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 4,
+    "port": 0
+   },
+   "destination": {
+    "module": 5,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 5,
+    "port": 0
+   },
+   "destination": {
+    "module": 6,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 6,
+    "port": 0
+   },
+   "destination": {
+    "module": 7,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 7,
+    "port": 0
+   },
+   "destination": {
+    "module": 8,
+    "port": 0
+   }
+  }
+ ]
+}

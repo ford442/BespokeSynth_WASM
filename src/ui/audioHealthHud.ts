@@ -15,7 +15,7 @@ export function setupAudioHealthHud(
 
   const timer = window.setInterval(() => {
     const health = getHealth();
-    if (!health || !hud) return;
+    if (!health) return;
     const ring = getRingStats();
     const heapMb = health.heapBytes ? ` heap:${(health.heapBytes / (1024 * 1024)).toFixed(0)}MB` : '';
     hud.textContent =
@@ -26,6 +26,8 @@ export function setupAudioHealthHud(
       `maxP:${health.maxProcessTimeMs.toFixed(2)}ms` +
       heapMb +
       (health.audioHeapBytes ? ` dsp:${(health.audioHeapBytes / (1024 * 1024)).toFixed(0)}MB` : '') +
+      (health.timedNotes ? ` timed:${health.timedNotes} late:${health.lateNotes ?? 0}` : '') +
+      (health.rtLocks || health.rtAllocations ? ` rt!:${health.rtAllocations ?? 0}/${health.rtLocks ?? 0}` : '') +
       (health.engineError ? ` err:${health.engineError}` : '');
   }, 250);
 

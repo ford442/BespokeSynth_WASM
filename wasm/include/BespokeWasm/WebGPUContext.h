@@ -1,7 +1,7 @@
 #pragma once
 
 #include <webgpu/webgpu.h>
-#include <vector>
+#include <string>
 
 struct Uniforms {
     float transform[6];
@@ -33,10 +33,23 @@ public:
     // on HiDPI displays while all layout/hit-testing math stays in CSS pixels.
     void resize(int width, int height);
 
-    // Render Pass Management
+    // Render Pass Management. Screenshots read the canvas itself (toDataURL in the
+    // same task as the frame), so there is no GPU readback here.
     WGPURenderPassEncoder beginFrame();
-    void endFrame(bool captureScreenshot = false);
-    bool readCapturedPixels(std::vector<uint8_t>& outRgba, int& outWidth, int& outHeight);
+    void endFrame();
+
+    // Validation, Internal and OutOfMemory scopes around object creation (pipelines,
+    // shader modules). popErrorScopes resolves asynchronously with ok=false and the
+    // first error message if anything inside failed, so a bad WGSL edit fails init
+    // instead of leaving a black canvas.
+    struct PendingErrorScopes {
+        int remaining = 0;
+        bool failed = false;
+        std::string message;
+        std::function<void(bool, const std::string&)> onComplete;
+    };
+    void pushErrorScopes();
+    void popErrorScopes(std::function<void(bool, const std::string&)> onComplete);
 
     WGPURenderPassEncoder getCurrentPass() const { return mCurrentPass; }
     WGPUDevice getDevice() const { return mDevice; }
@@ -48,6 +61,8 @@ public:
     // issuing GPU commands and surface a recoverable error instead of
     // continuing to draw into an invalid device.
     bool isDeviceLost() const { return mDeviceLost; }
+    // True while releaseGpuResources() runs; the device-lost callback it triggers is ignored.
+    bool isTearingDown() const { return mTearingDown; }
 
     Uniforms mCurrentState;
 
@@ -61,6 +76,8 @@ private:
 
     // Release helpers
     void releaseGpuResources();
+    // Configure the surface again at the canvas's current CSS size and devicePixelRatio.
+    void reconfigureSurface();
 
     WGPUInstance mInstance = nullptr;
     WGPUAdapter mAdapter = nullptr;
@@ -68,9 +85,9 @@ private:
     WGPUQueue mQueue = nullptr;
     WGPUSurface mSurface = nullptr;
     WGPUTextureFormat mFormat = WGPUTextureFormat_BGRA8Unorm;
-    WGPUTextureUsage mSurfaceUsages = WGPUTextureUsage_None;
-    bool mSupportsCopySrc = false;
     bool mDeviceLost = false;
+    bool mTearingDown = false;
+    WGPUSurfaceGetCurrentTextureStatus mLastSurfaceStatus = WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal;
     // Set when wgpuSurfaceGetCurrentTexture() reports SuccessSuboptimal (canvas
     // size/format no longer matches the configured surface); reconfigure at the
     // start of the next frame rather than mid-frame, per the WebGPU spec.
@@ -87,11 +104,7 @@ private:
     // width/height passed to resize() multiplied by devicePixelRatio.
     int mWidth = 0;
     int mHeight = 0;
-
-    WGPUBuffer mScreenshotStagingBuffer = nullptr;
-    size_t mScreenshotStagingBytes = 0;
-    std::vector<uint8_t> mCapturedPixels;
-    int mCapturedWidth = 0;
-    int mCapturedHeight = 0;
-    bool mCaptureReady = false;
+    // Logical size last passed to resize(), the fallback when the canvas has no CSS size.
+    int mLogicalWidth = 0;
+    int mLogicalHeight = 0;
 };

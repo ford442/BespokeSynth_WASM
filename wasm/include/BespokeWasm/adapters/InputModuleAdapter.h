@@ -14,8 +14,8 @@
 
 #pragma once
 
+#include "BespokeWasm/AdapterStorage.h"
 #include "BespokeWasm/SliderPanelModule.h"
-#include "BespokeWasm/WasmModuleAdapter.h"
 
 namespace bespoke
 {
@@ -39,7 +39,7 @@ namespace bespoke
          float mLevel = 0.0f;
       };
 
-      class InputModuleAdapter : public WasmModuleAdapter
+      class InputModuleAdapter : public AdapterStorage<InputParams>
       {
       public:
          const char* typeId() const override { return "input"; }
@@ -53,13 +53,10 @@ namespace bespoke
             return 1;
          }
 
-         std::vector<WasmControlDescriptor> controlDescriptors() const override;
-         std::vector<PortDescriptor> inputPorts() const override;
-         std::vector<PortDescriptor> outputPorts() const override;
+         ParamTable paramTable() const override;
+         std::span<const PortDescriptor> inputPorts() const override;
+         std::span<const PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
-
-         size_t paramsSize() const override { return sizeof(InputParams); }
-         void fillParams(const WasmControlMap& controls, void* dst) const override;
 
          void processAudio(void* runtimeState,
                            const void* params,

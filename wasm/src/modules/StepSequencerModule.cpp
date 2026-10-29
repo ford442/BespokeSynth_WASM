@@ -57,7 +57,7 @@ namespace bespoke
          for (int i = 0; i < mSteps; ++i)
          {
             const float cx = textX + (i % 8) * (cell + gap);
-            const float cy = gridTop + (i / 8) * (cell + gap);
+            const float cy = gridTop + static_cast<float>(i / 8) * (cell + gap);
             const bool on = isStepActive(i);
             const bool beat = (i % 4) == 0;
             if (on)
@@ -84,7 +84,7 @@ namespace bespoke
          for (int i = 0; i < mSteps; ++i)
          {
             const float cx = textX + (i % 8) * (cell + gap);
-            const float cy = gridTop + (i / 8) * (cell + gap);
+            const float cy = gridTop + static_cast<float>(i / 8) * (cell + gap);
             if (localX >= cx && localX <= cx + cell && localY >= cy && localY <= cy + cell)
             {
                setStepActive(i, !isStepActive(i));
@@ -92,6 +92,20 @@ namespace bespoke
             }
          }
          return false;
+      }
+
+      std::string StepSequencerModule::controlNameAt(float worldX, float worldY) const
+      {
+         // Mirrors handleMouseDown: "Pitch N  Gate N%" header, then the step grid.
+         const float localX = worldX - mX;
+         const float localY = worldY - mY;
+         const float contentTop = kTitleBarHeight + 8.0f;
+         const float gridTop = contentTop + textLineSpacing(UITheme::kValueFontSize, 1.0f) + 2.0f;
+         if (localX < 0.0f || localX > mWidth || localY < contentTop || localY > mHeight)
+            return {};
+         if (localY >= gridTop)
+            return "pattern";
+         return localX < 54.0f ? "pitch" : "gate";
       }
 
       void StepSequencerModule::setControlValue(const std::string& name, float value)

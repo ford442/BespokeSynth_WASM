@@ -81,4 +81,57 @@ done < <(find "$SRC_DIR" -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.c' 
 check_manifest "$ROOT/wasm/exports.txt" "wasm/exports.txt" "${main_sources[@]}"
 check_manifest "$ROOT/wasm/exports_audio.txt" "wasm/exports_audio.txt" "${AUDIO_SOURCES[@]}"
 
+# The UI module's typed surface: every `_bespoke_*(` member of BespokeSynthModule in the d.ts must
+# be in wasm/exports.txt and vice versa. main/malloc/free come from the Emscripten runtime typing.
+DTS_FILE="$ROOT/wasm/types/bespoke-synth.d.ts"
+DTS_MEMBER_RE='^[[:space:]]*_\Kbespoke_[a-zA-Z0-9_]*(?=[[:space:]]*\??[[:space:]]*\()'
+
+dts_symbols() {
+  if command -v rg >/dev/null 2>&1; then
+    rg --no-filename -oP "$DTS_MEMBER_RE" "$1" || true
+  else
+    grep -hoP "$DTS_MEMBER_RE" "$1" || true
+  fi | sort -u
+}
+
+check_dts() {
+  local manifest_file="$ROOT/wasm/exports.txt"
+  if [[ ! -f "$DTS_FILE" ]]; then
+    echo "Missing type declarations: $DTS_FILE" >&2
+    status=1
+    return
+  fi
+  local manifest declared sym
+  mapfile -t manifest < <(manifest_symbols "$manifest_file" | grep -vxE 'main|malloc|free' || true)
+  mapfile -t declared < <(dts_symbols "$DTS_FILE")
+
+  local undeclared=() unexported=()
+  for sym in "${manifest[@]}"; do
+    if ! grep -qx "$sym" <<< "$(printf '%s\n' "${declared[@]}")"; then
+      undeclared+=("_$sym")
+    fi
+  done
+  for sym in "${declared[@]}"; do
+    if ! grep -qx "$sym" <<< "$(printf '%s\n' "${manifest[@]}")"; then
+      unexported+=("_$sym")
+    fi
+  done
+
+  if ((${#undeclared[@]} > 0)); then
+    echo "wasm/exports.txt entries not declared in wasm/types/bespoke-synth.d.ts:" >&2
+    printf '  %s\n' "${undeclared[@]}" >&2
+    status=1
+  fi
+  if ((${#unexported[@]} > 0)); then
+    echo "wasm/types/bespoke-synth.d.ts declares members missing from wasm/exports.txt:" >&2
+    printf '  %s\n' "${unexported[@]}" >&2
+    status=1
+  fi
+  if ((${#undeclared[@]} == 0 && ${#unexported[@]} == 0)); then
+    echo "wasm/types/bespoke-synth.d.ts declares all ${#declared[@]} wasm/exports.txt symbols (- main/malloc/free)."
+  fi
+}
+
+check_dts
+
 exit $status

@@ -56,7 +56,7 @@ namespace bespoke::wasm
                }
          for (size_t index = 0; index < state.knobs.size(); ++index)
          {
-            const float knobX = kKnobStartX + index * kKnobSpacing;
+            const float knobX = kKnobStartX + static_cast<float>(index) * kKnobSpacing;
             if (state.knobs[index]->hitTest(static_cast<float>(x), static_cast<float>(y), knobX, kKnobStartY, kKnobSize))
             {
                state.knobs[index]->onMouseDown(static_cast<float>(x), static_cast<float>(y), knobX, kKnobStartY, kKnobSize);
@@ -155,7 +155,7 @@ namespace bespoke::wasm
       }
       for (size_t index = 0; index < state.knobs.size(); ++index)
       {
-         const float knobX = kKnobStartX + index * kKnobSpacing;
+         const float knobX = kKnobStartX + static_cast<float>(index) * kKnobSpacing;
          if (state.knobs[index]->hitTest(static_cast<float>(mouseX), static_cast<float>(mouseY), knobX, kKnobStartY, kKnobSize))
          {
             state.knobs[index]->onScroll(deltaY);

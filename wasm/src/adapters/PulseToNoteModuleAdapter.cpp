@@ -6,7 +6,7 @@
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
 #include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -20,43 +20,35 @@ namespace bespoke
          {
             return std::max(minValue, std::min(maxValue, value));
          }
+
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "pitch", .minValue = 0.0f, .maxValue = 127.0f, .defaultValue = 60.0f, .kind = ParamKind::IntRound, .offset = offsetof(PulseToNoteParams, pitch) },
+            { .id = 1, .name = "gate", .minValue = 0.05f, .maxValue = 1.0f, .defaultValue = 0.75f, .offset = offsetof(PulseToNoteParams, gate), .flags = kParamClamp },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Pulse, "Pulse" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Note, "Notes" } };
       }
 
-      std::vector<WasmControlDescriptor> PulseToNoteModuleAdapter::controlDescriptors() const
+      ParamTable PulseToNoteModuleAdapter::paramTable() const
       {
-         return { { "pitch", 60.0f }, { "gate", 0.75f } };
+         return kParams;
       }
 
-      std::vector<PortDescriptor> PulseToNoteModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> PulseToNoteModuleAdapter::inputPorts() const
       {
-         return { { PortType::Pulse, "Pulse" } };
+         return kInputs;
       }
 
-      std::vector<PortDescriptor> PulseToNoteModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> PulseToNoteModuleAdapter::outputPorts() const
       {
-         return { { PortType::Note, "Notes" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> PulseToNoteModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<PulseToNoteModule>(id);
-      }
-
-      void PulseToNoteModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         auto* params = new (dst) PulseToNoteParams();
-         params->pitch = static_cast<int>(std::lround(wasmControlValue(controls, "pitch", 60.0f)));
-         params->gate = clampFloat(wasmControlValue(controls, "gate", 0.75f), 0.05f, 1.0f);
-      }
-
-      void PulseToNoteModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) PulseToNoteRuntimeState();
-      }
-
-      void PulseToNoteModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<PulseToNoteRuntimeState*>(runtimeState)->~PulseToNoteRuntimeState();
       }
 
       void PulseToNoteModuleAdapter::emitNotesForBeatRange(void* runtimeState,

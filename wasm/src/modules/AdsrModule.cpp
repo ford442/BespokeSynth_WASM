@@ -43,6 +43,12 @@ namespace bespoke
                   line, UITheme::kTextSecondary, valueFont);
       }
 
+      std::string AdsrModule::controlNameAt(float worldX, float worldY) const
+      {
+         return textLineControlAt(worldX, worldY, kTitleBarHeight + 14.0f, UITheme::kValueFontSize,
+                                  { "attack", "decay", "sustain", "release" });
+      }
+
       void AdsrModule::setControlValue(const std::string& name, float value)
       {
          if (name == "attack")

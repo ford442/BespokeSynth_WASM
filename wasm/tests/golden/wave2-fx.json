@@ -1,0 +1,43 @@
+{
+  "filetype": "bespokesynth",
+  "format": "bespokesynth-wasm-state",
+  "version": 4,
+  "transport": { "bpm": 120, "playing": true },
+  "modules": [
+    { "id": 1, "type": "transport", "position": { "x": 0, "y": 0 }, "controls": { "bpm": 120 } },
+    { "id": 2, "type": "clockdivider", "position": { "x": 0, "y": 0 },
+      "controls": { "divide": 1, "offset": 0 } },
+    { "id": 3, "type": "drumseq", "position": { "x": 0, "y": 0 },
+      "controls": { "kick": 4369, "snare": 4112, "hat": 17476, "tom": 0, "kickpitch": 33,
+                      "snarepitch": 38, "hatpitch": 90, "tompitch": 45, "steps": 16, "gate": 0.4 } },
+    { "id": 4, "type": "oscillator", "position": { "x": 0, "y": 0 },
+      "controls": { "frequency": 55, "volume": 0.9, "waveform": 0 } },
+    { "id": 5, "type": "noise", "position": { "x": 0, "y": 0 }, "controls": { "volume": 0.5 } },
+    { "id": 6, "type": "adsr", "position": { "x": 0, "y": 0 },
+      "controls": { "attack": 1, "decay": 40, "sustain": 0, "release": 20 } },
+    { "id": 7, "type": "mixer", "position": { "x": 0, "y": 0 },
+      "controls": { "level1": 0.9, "level2": 0.6, "level3": 0.8, "level4": 0.8, "master": 0.9 } },
+    { "id": 8, "type": "compressor", "position": { "x": 0, "y": 0 },
+      "controls": { "threshold": -18, "ratio": 4, "attack": 5, "release": 120, "makeup": 3, "knee": 6 } },
+    { "id": 9, "type": "chorus", "position": { "x": 0, "y": 0 }, "controls": { "mix": 0.3 } },
+    { "id": 10, "type": "waveshaper", "position": { "x": 0, "y": 0 },
+      "controls": { "drive": 1.5, "mode": 0, "mix": 0.5, "level": 0.8 } },
+    { "id": 11, "type": "reverb", "position": { "x": 0, "y": 0 },
+      "controls": { "room": 0.5, "damping": 0.5, "mix": 0.2 } },
+    { "id": 12, "type": "output", "position": { "x": 0, "y": 0 }, "controls": {} }
+  ],
+  "connections": [
+    { "source": { "module": 1, "port": 0 }, "destination": { "module": 2, "port": 0 } },
+    { "source": { "module": 2, "port": 0 }, "destination": { "module": 3, "port": 0 } },
+    { "source": { "module": 3, "port": 0 }, "destination": { "module": 4, "port": 0 } },
+    { "source": { "module": 3, "port": 2 }, "destination": { "module": 6, "port": 1 } },
+    { "source": { "module": 5, "port": 0 }, "destination": { "module": 6, "port": 0 } },
+    { "source": { "module": 4, "port": 0 }, "destination": { "module": 7, "port": 0 } },
+    { "source": { "module": 6, "port": 0 }, "destination": { "module": 7, "port": 1 } },
+    { "source": { "module": 7, "port": 0 }, "destination": { "module": 8, "port": 0 } },
+    { "source": { "module": 8, "port": 0 }, "destination": { "module": 9, "port": 0 } },
+    { "source": { "module": 9, "port": 0 }, "destination": { "module": 10, "port": 0 } },
+    { "source": { "module": 10, "port": 0 }, "destination": { "module": 11, "port": 0 } },
+    { "source": { "module": 11, "port": 0 }, "destination": { "module": 12, "port": 0 } }
+  ]
+}

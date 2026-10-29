@@ -28,6 +28,12 @@ namespace bespoke
                     const Color& color, float fontSize);
       void truncateWithEllipsis(Renderer2D& renderer, const char* text, float maxWidth,
                                 char* out, size_t outLen);
+      /**
+       * Greedy word wrap at `maxWidth` (the renderer's current font size); honours '\n'.
+       * With maxLines > 0 the last kept line ends in "..." when text was cut.
+       */
+      std::vector<std::string> wrapText(Renderer2D& renderer, const std::string& text, float maxWidth,
+                                        int maxLines = 0);
       void formatFrequency(float hz, char* buf, size_t buflen);
       void formatGainDb(float gain, char* buf, size_t buflen);
       float waveformSample(int waveform, float t);

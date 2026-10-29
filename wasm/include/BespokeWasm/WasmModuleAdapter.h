@@ -1,5 +1,5 @@
 /**
- * BespokeSynth WASM - Module adapter boundary (ADR: docs/wasm-module-porting.md)
+ * BespokeSynth WASM - Module adapter boundary (ADR: docs/wasm/module-porting.md)
  *
  * Adapters connect canvas UI modules, serialization, and audio graph processing.
  * Each adapter owns a POD parameter block, runtime state, and port layout.
@@ -14,9 +14,13 @@
 #include "BespokeWasm/DspSimd.h"
 #include "BespokeWasm/Module.h"
 #include "BespokeWasm/ModuleTypes.h"
+#include "BespokeWasm/ResourceLifetime.h"
+#include "BespokeWasm/WasmParams.h"
 #include <map>
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -36,10 +40,26 @@ namespace bespoke
          float defaultValue = 0.0f;
       };
 
+      /** Audio width a port accepts; the plan adapts each cable (PlanChannelMix), not the adapter. */
+      enum class PortChannels : uint8_t
+      {
+         Any, // cables arrive as they are (mono or stereo)
+         Mono, // stereo cables are summed to (L + R) / 2
+         Stereo, // mono cables feed both sides
+      };
+
       struct PortDescriptor
       {
          PortType type = PortType::Audio;
          const char* name = "";
+         PortChannels channels = PortChannels::Any;
+      };
+
+      enum class NoteEventKind : uint8_t
+      {
+         Note = 0, // note on / off
+         /** New bend for the sounding note at `pitch` (pitchBend; velocity and isNoteOn unused). */
+         PitchBend = 1,
       };
 
       struct WasmNoteEvent
@@ -50,7 +70,15 @@ namespace bespoke
          int channel = 0;
          /** Ordinal among the source's Note outputs (multi-output sources like drumseq). */
          int outputPort = 0;
+         NoteEventKind kind = NoteEventKind::Note;
+         /** Semitones: the bend a note-on starts with, or the new bend of a PitchBend event. */
+         float pitchBend = 0.0f;
       };
+
+      inline bool isPitchBendEvent(const WasmNoteEvent& event)
+      {
+         return event.kind == NoteEventKind::PitchBend;
+      }
 
       struct WasmPulseEvent
       {
@@ -68,6 +96,9 @@ namespace bespoke
          int numChannels = 1;
          int port = 0;
       };
+
+      /** Audio outputs an adapter may declare beyond its first (WasmAudioProcessContext::auxOutputs). */
+      constexpr int kMaxAuxAudioOutputs = 3;
 
       struct WasmAudioProcessContext
       {
@@ -91,6 +122,12 @@ namespace bespoke
          int pulseCount = 0;
          /** MIDI note → Hz from the Scale module (128 entries); null means 12-TET. */
          const float* noteFrequencies = nullptr;
+         /**
+          * Audio outputs after the first (a send's "Send"), zeroed and numChannels wide:
+          * auxOutputs[i * 2 + ch], channel 1 null for a mono block. Null when the adapter has one.
+          */
+         float* const* auxOutputs = nullptr;
+         int auxOutputCount = 0;
          bool hasNoteCable = false;
          bool hasPulseCable = false;
          bool hasAudioInput = false;
@@ -111,6 +148,8 @@ namespace bespoke
          const WasmNoteEvent* notes = nullptr;
          int noteCount = 0;
          bool hasNoteCable = false;
+         /** The graph Scale (capo "diatonic"); null outside the engine. */
+         const GraphMusicScale* scale = nullptr;
       };
 
       inline float wasmControlValue(const WasmControlMap& controls, const char* name, float fallback)
@@ -195,27 +234,45 @@ namespace bespoke
          /** NoteSource output is snapped to the graph Scale unless this returns false. */
          virtual bool quantizesNotesToScale() const { return true; }
 
-         virtual std::vector<WasmControlDescriptor> controlDescriptors() const = 0;
-         virtual std::vector<PortDescriptor> inputPorts() const { return {}; }
-         virtual std::vector<PortDescriptor> outputPorts() const { return {}; }
+         /**
+          * Every control, in serialization order; ParamId is the index (WasmParams.h). Descriptors
+          * with an offset are the audio parameters: fillParams writes them, and a ParamChange
+          * addresses them without a snapshot rebuild. Return a static constexpr table.
+          */
+         virtual ParamTable paramTable() const = 0;
+         /** Names and defaults from paramTable() (UI thread; allocates). */
+         std::vector<WasmControlDescriptor> controlDescriptors() const;
+         /** Static tables: the plan and canvas read these per cable without allocating. */
+         virtual std::span<const PortDescriptor> inputPorts() const { return {}; }
+         virtual std::span<const PortDescriptor> outputPorts() const { return {}; }
          virtual std::unique_ptr<Module> createUiModule(int id) const = 0;
 
          virtual size_t paramsSize() const { return 0; }
-         virtual void fillParams(const WasmControlMap& controls, void* dst) const
-         {
-            (void)controls;
-            (void)dst;
-         }
-
-         virtual void fillParams(int moduleId,
-                                 const WasmControlMap& controls,
-                                 const WasmStringMap& extras,
-                                 void* dst) const
+         /** Default-construct a Params block (AdapterStorage does this). */
+         virtual void initParams(void* params) const { (void)params; }
+         /**
+          * UI thread, after the table's values are written: resolve resources a Params block points
+          * at (a sample by hash, a looper arena or script queue by module id). May allocate.
+          */
+         virtual void bindParams(int moduleId, const WasmStringMap& extras, void* params) const
          {
             (void)moduleId;
             (void)extras;
-            fillParams(controls, dst);
+            (void)params;
          }
+         /**
+          * Recompute fields derived from several controls after any of them changed (a sampler's
+          * end kept after its start). Also runs on the audio thread after a ParamChange: must not
+          * allocate or touch pointer fields.
+          */
+         virtual void finalizeParams(void* params) const { (void)params; }
+
+         /**
+          * Builds the Params block at `dst` (paramsSize() bytes): defaults, then every audio
+          * descriptor from `controls` (its default when absent), bindParams, finalizeParams.
+          */
+         void fillParams(int moduleId, const WasmControlMap& controls, const WasmStringMap& extras, void* dst) const;
+         void fillParams(const WasmControlMap& controls, void* dst) const { fillParams(-1, controls, {}, dst); }
 
          /**
           * `params` were filled by another WASM instance (the UI module) and copied into
@@ -227,6 +284,17 @@ namespace bespoke
          {
             (void)moduleId;
             (void)params;
+         }
+
+         /**
+          * Adds the store memory `params` point at (sample ids, looper arenas by module id).
+          * Publishing pins exactly what the snapshot names; see ResourceLifetime.h.
+          */
+         virtual void collectResources(int moduleId, const void* params, WasmResourceRefs& refs) const
+         {
+            (void)moduleId;
+            (void)params;
+            (void)refs;
          }
 
          virtual size_t runtimeStateSize() const { return 0; }
@@ -329,21 +397,23 @@ namespace bespoke
          static WasmModuleAdapterRegistry& instance();
 
          void registerAdapter(std::unique_ptr<WasmModuleAdapter> adapter);
-         const WasmModuleAdapter* find(const std::string& type) const;
-         const WasmModuleAdapter* adapterAt(int typeIndex) const;
-         int typeIndexFor(const std::string& type) const;
+         // Lookups take a string_view: bridge callers pass C strings without building a std::string.
+         [[nodiscard]] const WasmModuleAdapter* find(std::string_view type) const;
+         [[nodiscard]] const WasmModuleAdapter* adapterAt(int typeIndex) const;
+         [[nodiscard]] int typeIndexFor(std::string_view type) const;
          const std::vector<ModuleTypeInfo>& registeredTypes() const { return mTypes; }
          std::vector<ModuleTypeInfo> typesByCategory(ModuleCategory category) const;
-         std::vector<std::string> serializableControlNames(const std::string& type) const;
+         std::vector<std::string> serializableControlNames(std::string_view type) const;
 
-         std::unique_ptr<Module> createModule(const std::string& type, int id) const;
+         std::unique_ptr<Module> createModule(std::string_view type, int id) const;
 
       private:
          WasmModuleAdapterRegistry() = default;
 
          std::vector<std::unique_ptr<WasmModuleAdapter>> mAdapters;
          std::vector<ModuleTypeInfo> mTypes;
-         std::unordered_map<std::string, int> mIndexByType;
+         /** Keys view the adapters' static typeId() literals. */
+         std::unordered_map<std::string_view, int> mIndexByType;
       };
 
       class WasmModuleAdapterRegistrar

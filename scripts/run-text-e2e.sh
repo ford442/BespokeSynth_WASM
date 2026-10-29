@@ -12,7 +12,8 @@ echo "==> Building web bundle..."
 npm run build:web-only
 
 echo "==> Starting dist server on ${PORT}..."
-npx --yes http-server dist -p "${PORT}" -c-1 --cors &
+# Same COOP/COEP server as playwright.config.ts, so the page is cross-origin isolated.
+node scripts/e2e-static-server.js "${PORT}" &
 SERVER_PID=$!
 trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
 sleep 1

@@ -36,7 +36,7 @@ namespace
 } // namespace
 
 // Adapter callback - new style with WGPUStringView
-static void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void* userdata1, void* userdata2)
+static void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void* userdata1, void* /*userdata2*/)
 {
    std::string msg;
    if (message.data && message.length > 0)
@@ -48,7 +48,7 @@ static void onAdapterRequest(WGPURequestAdapterStatus status, WGPUAdapter adapte
 }
 
 // Device callback - new style with WGPUStringView
-static void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void* userdata1, void* userdata2)
+static void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void* userdata1, void* /*userdata2*/)
 {
    std::string msg;
    if (message.data && message.length > 0)
@@ -60,7 +60,7 @@ static void onDeviceRequest(WGPURequestDeviceStatus status, WGPUDevice device, W
 }
 
 // Device error callback - new style (includes device pointer as first param)
-static void deviceErrorCallback(WGPUDevice const* device, WGPUErrorType type, WGPUStringView message, void* userdata1, void* userdata2)
+static void deviceErrorCallback(WGPUDevice const* device, WGPUErrorType type, WGPUStringView message, void* /*userdata1*/, void* /*userdata2*/)
 {
    (void)device; // Unused
    std::string msg;
@@ -86,13 +86,39 @@ static void deviceLostCallback(WGPUDevice const* device, WGPUDeviceLostReason re
    }
    printf("WebGPU Device Lost (reason=%d): %s\n", (int)reason, msg.c_str());
 
-   // A device destroyed by our own releaseGpuResources() (reason=Destroyed) is an
-   // expected teardown, not a loss the app needs to recover from.
-   if (reason == WGPUDeviceLostReason_Destroyed)
+   // Releasing the device in releaseGpuResources() resolves this callback synchronously
+   // (reason=Destroyed or CallbackCancelled); that teardown is not a loss to recover from.
+   // GPUDevice.destroy() from outside (or a driver reset) is.
+   auto* context = static_cast<WebGPUContext*>(userdata1);
+   if (!context || context->isTearingDown() || reason == WGPUDeviceLostReason_CallbackCancelled ||
+       reason == WGPUDeviceLostReason_FailedCreation)
       return;
 
-   if (auto* context = static_cast<WebGPUContext*>(userdata1))
-      context->notifyDeviceLost(msg.c_str());
+   context->notifyDeviceLost(msg.c_str());
+}
+
+static void onPopErrorScope(WGPUPopErrorScopeStatus status, WGPUErrorType type, WGPUStringView message,
+                            void* userdata1, void* userdata2)
+{
+   (void)userdata2;
+   auto* pending = static_cast<WebGPUContext::PendingErrorScopes*>(userdata1);
+   if (status != WGPUPopErrorScopeStatus_Success)
+      pending->failed = true;
+   if (type != WGPUErrorType_NoError)
+   {
+      pending->failed = true;
+      if (pending->message.empty() && message.data && message.length > 0)
+         pending->message.assign(message.data, message.length);
+   }
+   if (--pending->remaining > 0)
+      return;
+
+   auto done = std::move(pending->onComplete);
+   const bool ok = !pending->failed;
+   std::string text = std::move(pending->message);
+   delete pending;
+   if (done)
+      done(ok, text);
 }
 
 // --- Implementation ---
@@ -132,8 +158,8 @@ static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatu
          printf("WebGPUContext: Adapter found, requesting device\n");
 
          // Default limits cover everything the renderer and analyzer create: the
-         // largest buffer is the screenshot staging buffer (4 bytes per physical
-         // pixel, far below the 256 MiB default), and the FFT workgroup is 256
+         // largest buffer is the frame's vertex buffer (far below the 256 MiB
+         // default), and the FFT workgroup is 256
          // invocations (the default maximum) with 4 KiB of workgroup memory.
          // Requesting every adapter limit instead can make requestDevice fail
          // on multi-adapter machines, so only raise what scales with the user's
@@ -161,7 +187,9 @@ static void handleAdapterRequest(WebGPUContext* context, WGPURequestAdapterStatu
          deviceDesc.uncapturedErrorCallbackInfo.userdata1 = context;
          deviceDesc.uncapturedErrorCallbackInfo.userdata2 = nullptr;
 
-         deviceDesc.deviceLostCallbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+         // Spontaneous: after init nothing pumps wgpuInstanceProcessEvents, so an
+         // AllowProcessEvents device-lost callback would never be delivered.
+         deviceDesc.deviceLostCallbackInfo.mode = WGPUCallbackMode_AllowSpontaneous;
          deviceDesc.deviceLostCallbackInfo.callback = deviceLostCallback;
          deviceDesc.deviceLostCallbackInfo.userdata1 = context;
          deviceDesc.deviceLostCallbackInfo.userdata2 = nullptr;
@@ -210,6 +238,7 @@ WebGPUContext::~WebGPUContext()
 
 void WebGPUContext::releaseGpuResources()
 {
+   mTearingDown = true;
    if (mCurrentPass)
    {
       wgpuRenderPassEncoderRelease(mCurrentPass);
@@ -229,11 +258,6 @@ void WebGPUContext::releaseGpuResources()
    {
       wgpuCommandEncoderRelease(mCurrentEncoder);
       mCurrentEncoder = nullptr;
-   }
-   if (mScreenshotStagingBuffer)
-   {
-      wgpuBufferRelease(mScreenshotStagingBuffer);
-      mScreenshotStagingBuffer = nullptr;
    }
    if (mSurface)
    {
@@ -270,11 +294,10 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
    // 1. Instance
    WGPUInstanceDescriptor instanceDesc = {};
    mInstance = wgpuCreateInstance(&instanceDesc);
+   // Synchronous failures only return false; onComplete is reserved for the async outcome.
    if (!mInstance)
    {
       printf("WebGPUContext: ERROR - Failed to create instance\n");
-      if (mOnComplete)
-         mOnComplete(false);
       return false;
    }
    printf("WebGPUContext: Instance created\n");
@@ -294,8 +317,6 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
       if (selector)
          std::cerr << selector;
       std::cerr << std::endl;
-      if (mOnComplete)
-         mOnComplete(false);
       return false;
    }
    printf("WebGPUContext: Surface created for selector: %s\n", selector);
@@ -321,6 +342,38 @@ bool WebGPUContext::initializeAsync(const char* selector, std::function<void(boo
 
    printf("WebGPUContext: Adapter request submitted (async)\n");
    return true;
+}
+
+void WebGPUContext::pushErrorScopes()
+{
+   if (!mDevice)
+      return;
+   wgpuDevicePushErrorScope(mDevice, WGPUErrorFilter_Validation);
+   wgpuDevicePushErrorScope(mDevice, WGPUErrorFilter_Internal);
+   wgpuDevicePushErrorScope(mDevice, WGPUErrorFilter_OutOfMemory);
+}
+
+void WebGPUContext::popErrorScopes(std::function<void(bool, const std::string&)> onComplete)
+{
+   if (!mDevice)
+   {
+      if (onComplete)
+         onComplete(false, "no device");
+      return;
+   }
+   // Heap-owned: the callbacks resolve after this frame returns (JS promises), and the
+   // last one frees it. Pops run innermost first: OutOfMemory, Internal, Validation.
+   auto* pending = new PendingErrorScopes();
+   pending->remaining = 3;
+   pending->onComplete = std::move(onComplete);
+   for (int i = 0; i < 3; ++i)
+   {
+      WGPUPopErrorScopeCallbackInfo info = WGPU_POP_ERROR_SCOPE_CALLBACK_INFO_INIT;
+      info.mode = WGPUCallbackMode_AllowSpontaneous;
+      info.callback = onPopErrorScope;
+      info.userdata1 = pending;
+      wgpuDevicePopErrorScope(mDevice, info);
+   }
 }
 
 void WebGPUContext::processEvents()
@@ -368,9 +421,6 @@ void WebGPUContext::onDeviceReady()
       mFormat = caps.formats[0];
       printf("WebGPUContext: Selected preferred surface format: %d\n", (int)mFormat);
    }
-   mSurfaceUsages = caps.usages;
-   mSupportsCopySrc = (mSurfaceUsages & WGPUTextureUsage_CopySrc) != 0;
-   printf("WebGPUContext: Surface supports CopySrc: %d\n", mSupportsCopySrc ? 1 : 0);
    wgpuSurfaceCapabilitiesFreeMembers(caps);
 
    // Get current canvas size and configure surface
@@ -412,8 +462,8 @@ void WebGPUContext::notifyComplete(bool success)
 
 // clang-format off
 EM_JS(void, bespoke_js_on_device_lost, (), {
-    if (typeof window !== 'undefined' && window.__bespoke_on_device_lost)
-        window.__bespoke_on_device_lost();
+    if (typeof window !== 'undefined' && window['__bespoke_on_device_lost'])
+        window['__bespoke_on_device_lost']();
 });
 // clang-format on
 
@@ -435,19 +485,32 @@ void WebGPUContext::resize(int width, int height)
    const double dpr = currentDevicePixelRatio();
    mWidth = toPhysicalPixels(width, dpr);
    mHeight = toPhysicalPixels(height, dpr);
+   mLogicalWidth = width;
+   mLogicalHeight = height;
 
+   // Screenshots read the canvas (toDataURL in the rendering task), so the surface needs
+   // no CopySrc. Opaque matches WebGL2 (alpha:false): the page never shows through.
    WGPUSurfaceConfiguration config = {};
    config.device = mDevice;
    config.format = mFormat;
    config.usage = WGPUTextureUsage_RenderAttachment;
-   if (mSupportsCopySrc)
-      config.usage |= WGPUTextureUsage_CopySrc;
    config.width = mWidth;
    config.height = mHeight;
    config.presentMode = WGPUPresentMode_Fifo;
-   config.alphaMode = WGPUCompositeAlphaMode_Auto;
+   config.alphaMode = WGPUCompositeAlphaMode_Opaque;
 
    wgpuSurfaceConfigure(mSurface, &config);
+}
+
+void WebGPUContext::reconfigureSurface()
+{
+   double cssW = 0.0;
+   double cssH = 0.0;
+   emscripten_get_element_css_size("#canvas", &cssW, &cssH);
+   if (cssW > 0 && cssH > 0)
+      resize(static_cast<int>(cssW), static_cast<int>(cssH));
+   else if (mLogicalWidth > 0 && mLogicalHeight > 0)
+      resize(mLogicalWidth, mLogicalHeight);
 }
 
 WGPURenderPassEncoder WebGPUContext::beginFrame()
@@ -464,38 +527,46 @@ WGPURenderPassEncoder WebGPUContext::beginFrame()
       return nullptr;
    }
 
+   if (mDeviceLost)
+      return nullptr;
+
    if (mNeedsReconfigure)
    {
       // A prior frame reported SuccessSuboptimal (canvas resized, DPR changed,
       // etc.); reconfigure against the current CSS size before requesting a
       // new surface texture, per the WebGPU spec's suboptimal-surface guidance.
       mNeedsReconfigure = false;
-      double cssW = 0.0;
-      double cssH = 0.0;
-      emscripten_get_element_css_size("#canvas", &cssW, &cssH);
-      if (cssW > 0 && cssH > 0)
-         resize(static_cast<int>(cssW), static_cast<int>(cssH));
+      reconfigureSurface();
    }
 
-   WGPUSurfaceTexture surfaceTexture;
+   WGPUSurfaceTexture surfaceTexture = WGPU_SURFACE_TEXTURE_INIT;
    wgpuSurfaceGetCurrentTexture(mSurface, &surfaceTexture);
+   if (surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_Outdated ||
+       surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_Lost)
+   {
+      // A stale swapchain does not heal by itself: configure it again and retry once.
+      if (surfaceTexture.texture)
+         wgpuTextureRelease(surfaceTexture.texture);
+      reconfigureSurface();
+      surfaceTexture = WGPU_SURFACE_TEXTURE_INIT;
+      wgpuSurfaceGetCurrentTexture(mSurface, &surfaceTexture);
+   }
 
    const bool textureOk = (surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal ||
                            surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal);
    if (!textureOk || surfaceTexture.texture == nullptr)
    {
-      printf("WebGPUContext: WARNING - Failed to get surface texture, status=%d\n", (int)surfaceTexture.status);
+      if (surfaceTexture.texture)
+         wgpuTextureRelease(surfaceTexture.texture);
+      if (surfaceTexture.status != mLastSurfaceStatus)
+         printf("WebGPUContext: WARNING - Failed to get surface texture, status=%d\n", (int)surfaceTexture.status);
+      mLastSurfaceStatus = surfaceTexture.status;
       return nullptr;
    }
+   mLastSurfaceStatus = surfaceTexture.status;
 
    if (surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal)
       mNeedsReconfigure = true;
-
-   if (!surfaceTexture.texture)
-   {
-      printf("WebGPUContext: ERROR - Surface texture is null\n");
-      return nullptr;
-   }
 
    mCurrentSurfaceTexture = surfaceTexture.texture;
 
@@ -548,7 +619,7 @@ WGPURenderPassEncoder WebGPUContext::beginFrame()
    return mCurrentPass;
 }
 
-void WebGPUContext::endFrame(bool captureScreenshot)
+void WebGPUContext::endFrame()
 {
    if (mCurrentPass)
    {
@@ -557,123 +628,14 @@ void WebGPUContext::endFrame(bool captureScreenshot)
       mCurrentPass = nullptr;
    }
 
-   WGPUCommandEncoder encoder = mCurrentEncoder;
-   WGPUBuffer captureBuffer = nullptr;
-   const uint32_t bytesPerRow = captureScreenshot && mWidth > 0
-                                ? ((static_cast<uint32_t>(mWidth) * 4u + 255u) / 256u) * 256u
-                                : 0u;
-   const size_t captureBytes = captureScreenshot && mHeight > 0
-                               ? static_cast<size_t>(bytesPerRow) * static_cast<size_t>(mHeight)
-                               : 0u;
-
-   if (captureScreenshot && encoder && mCurrentSurfaceTexture && mDevice && mQueue &&
-       mWidth > 0 && mHeight > 0)
-   {
-      if (!mScreenshotStagingBuffer || mScreenshotStagingBytes < captureBytes)
-      {
-         if (mScreenshotStagingBuffer)
-         {
-            wgpuBufferRelease(mScreenshotStagingBuffer);
-            mScreenshotStagingBuffer = nullptr;
-         }
-
-         WGPUBufferDescriptor bufferDesc = {};
-         bufferDesc.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
-         bufferDesc.size = captureBytes;
-         mScreenshotStagingBuffer = wgpuDeviceCreateBuffer(mDevice, &bufferDesc);
-         mScreenshotStagingBytes = captureBytes;
-      }
-
-      if (mScreenshotStagingBuffer)
-      {
-         WGPUTexelCopyTextureInfo src = {};
-         src.texture = mCurrentSurfaceTexture;
-         src.mipLevel = 0;
-         src.origin = { 0, 0, 0 };
-         src.aspect = WGPUTextureAspect_All;
-
-         WGPUTexelCopyBufferInfo dst = {};
-         dst.buffer = mScreenshotStagingBuffer;
-         dst.layout.offset = 0;
-         dst.layout.bytesPerRow = bytesPerRow;
-         dst.layout.rowsPerImage = static_cast<uint32_t>(mHeight);
-
-         WGPUExtent3D copySize = {
-            static_cast<uint32_t>(mWidth),
-            static_cast<uint32_t>(mHeight),
-            1
-         };
-
-         wgpuCommandEncoderCopyTextureToBuffer(encoder, &src, &dst, &copySize);
-         captureBuffer = mScreenshotStagingBuffer;
-      }
-   }
-
-   if (encoder)
+   if (mCurrentEncoder)
    {
       WGPUCommandBufferDescriptor cmdBufDesc = {};
-      WGPUCommandBuffer cmdBuf = wgpuCommandEncoderFinish(encoder, &cmdBufDesc);
+      WGPUCommandBuffer cmdBuf = wgpuCommandEncoderFinish(mCurrentEncoder, &cmdBufDesc);
       wgpuQueueSubmit(mQueue, 1, &cmdBuf);
       wgpuCommandBufferRelease(cmdBuf);
-      wgpuCommandEncoderRelease(encoder);
+      wgpuCommandEncoderRelease(mCurrentEncoder);
       mCurrentEncoder = nullptr;
-   }
-
-   if (captureBuffer && mInstance)
-   {
-      struct MapState
-      {
-         bool done = false;
-         WGPUMapAsyncStatus status = WGPUMapAsyncStatus_Success;
-      } mapState;
-
-      WGPUBufferMapCallbackInfo mapInfo = {};
-      mapInfo.mode = WGPUCallbackMode_AllowProcessEvents;
-      mapInfo.callback = [](WGPUMapAsyncStatus status, WGPUStringView message, void* userdata1, void* userdata2)
-      {
-         (void)message;
-         (void)userdata2;
-         auto* state = static_cast<MapState*>(userdata1);
-         state->status = status;
-         state->done = true;
-      };
-      mapInfo.userdata1 = &mapState;
-
-      wgpuBufferMapAsync(captureBuffer, WGPUMapMode_Read, 0, captureBytes, mapInfo);
-
-      int spin = 0;
-      while (!mapState.done && spin < 5000)
-      {
-         wgpuInstanceProcessEvents(mInstance);
-         ++spin;
-      }
-
-      if (mapState.status == WGPUMapAsyncStatus_Success)
-      {
-         const void* mapped = wgpuBufferGetConstMappedRange(captureBuffer, 0, captureBytes);
-         if (mapped)
-         {
-            mCapturedPixels.resize(static_cast<size_t>(mWidth) * static_cast<size_t>(mHeight) * 4u);
-            const auto* src = static_cast<const uint8_t*>(mapped);
-            for (int y = 0; y < mHeight; ++y)
-            {
-               const uint8_t* row = src + static_cast<size_t>(y) * bytesPerRow;
-               uint8_t* dstRow = mCapturedPixels.data() + static_cast<size_t>(y) * static_cast<size_t>(mWidth) * 4u;
-               for (int x = 0; x < mWidth; ++x)
-               {
-                  const uint8_t* px = row + static_cast<size_t>(x) * 4u;
-                  dstRow[x * 4 + 0] = px[2]; // BGRA -> RGBA
-                  dstRow[x * 4 + 1] = px[1];
-                  dstRow[x * 4 + 2] = px[0];
-                  dstRow[x * 4 + 3] = px[3];
-               }
-            }
-            mCapturedWidth = mWidth;
-            mCapturedHeight = mHeight;
-            mCaptureReady = true;
-         }
-         wgpuBufferUnmap(captureBuffer);
-      }
    }
 
    if (mCurrentView)
@@ -687,16 +649,4 @@ void WebGPUContext::endFrame(bool captureScreenshot)
       wgpuTextureRelease(mCurrentSurfaceTexture);
       mCurrentSurfaceTexture = nullptr;
    }
-}
-
-bool WebGPUContext::readCapturedPixels(std::vector<uint8_t>& outRgba, int& outWidth, int& outHeight)
-{
-   if (!mCaptureReady || mCapturedPixels.empty())
-      return false;
-
-   outRgba = mCapturedPixels;
-   outWidth = mCapturedWidth;
-   outHeight = mCapturedHeight;
-   mCaptureReady = false;
-   return true;
 }

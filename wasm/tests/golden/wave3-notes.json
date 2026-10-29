@@ -1,0 +1,41 @@
+{
+  "filetype": "bespokesynth",
+  "format": "bespokesynth-wasm-state",
+  "version": 4,
+  "transport": { "bpm": 120, "playing": true },
+  "modules": [
+    { "id": 1, "type": "transport", "position": { "x": 0, "y": 0 }, "controls": { "bpm": 120 } },
+    { "id": 2, "type": "input", "position": { "x": 0, "y": 0 }, "controls": { "gain": 1.2, "mute": 0 } },
+    { "id": 3, "type": "eq", "position": { "x": 0, "y": 0 },
+      "controls": { "lowFreq": 120, "lowGain": 3, "midFreq": 1500, "midGain": -4, "midQ": 1.2,
+                      "hiMidFreq": 4000, "hiMidGain": 2, "hiMidQ": 0.8, "highFreq": 9000, "highGain": 1.5,
+                      "output": -1 } },
+    { "id": 4, "type": "output", "position": { "x": 0, "y": 0 }, "controls": {} },
+    { "id": 5, "type": "stepsequencer", "position": { "x": 0, "y": 0 },
+      "controls": { "pattern": 4369, "pitch": 60, "gate": 0.5, "steps": 16 } },
+    { "id": 6, "type": "notefilter", "position": { "x": 0, "y": 0 },
+      "controls": { "low": 36, "high": 96, "mode": 0 } },
+    { "id": 7, "type": "noterouter", "position": { "x": 0, "y": 0 },
+      "controls": { "outputs": 2, "mode": 0, "split": 60, "zone": 12 } },
+    { "id": 8, "type": "chorder", "position": { "x": 0, "y": 0 },
+      "controls": { "chord": 1, "inversion": 0, "tone2": 4, "tone3": 7, "tone4": 0, "level": 0.8 } },
+    { "id": 9, "type": "arpeggiator", "position": { "x": 0, "y": 0 },
+      "controls": { "rate": 1, "mode": 2, "octaves": 2, "gate": 0.5 } },
+    { "id": 10, "type": "oscillator", "position": { "x": 0, "y": 0 },
+      "controls": { "frequency": 220, "volume": 0.5, "waveform": 0 } },
+    { "id": 11, "type": "oscillator", "position": { "x": 0, "y": 0 },
+      "controls": { "frequency": 220, "volume": 0.5, "waveform": 1 } }
+  ],
+  "connections": [
+    { "source": { "module": 2, "port": 0 }, "destination": { "module": 3, "port": 0 } },
+    { "source": { "module": 3, "port": 0 }, "destination": { "module": 4, "port": 0 } },
+    { "source": { "module": 5, "port": 0 }, "destination": { "module": 6, "port": 0 } },
+    { "source": { "module": 6, "port": 0 }, "destination": { "module": 7, "port": 0 } },
+    { "source": { "module": 7, "port": 0 }, "destination": { "module": 8, "port": 0 } },
+    { "source": { "module": 7, "port": 1 }, "destination": { "module": 9, "port": 0 } },
+    { "source": { "module": 8, "port": 0 }, "destination": { "module": 10, "port": 0 } },
+    { "source": { "module": 9, "port": 0 }, "destination": { "module": 11, "port": 0 } },
+    { "source": { "module": 10, "port": 0 }, "destination": { "module": 4, "port": 0 } },
+    { "source": { "module": 11, "port": 0 }, "destination": { "module": 4, "port": 0 } }
+  ]
+}

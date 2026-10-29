@@ -24,7 +24,7 @@ namespace bespoke
    namespace wasm
    {
       /** Bumped whenever the encoded layout changes. Both modules must agree. */
-      constexpr uint32_t kAudioGraphWireVersion = 1;
+      constexpr uint32_t kAudioGraphWireVersion = 3;
 
       /**
        * Version plus the sizes of every struct copied verbatim, so a stale cached

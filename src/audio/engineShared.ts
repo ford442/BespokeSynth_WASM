@@ -79,7 +79,12 @@ export function ringDrainWords(ring: SabRing, out: Int32Array): number {
 export const EVENT_NOTE = 1;
 export const EVENT_SCRIPT_NOTE = 2;
 export const EVENT_SCRIPT_CLEAR = 3;
+export const EVENT_PARAM_CHANGE = 4;
+/** Written by the engine processor from a Script channel record, never by the main thread. */
+export const EVENT_SCRIPT_DIRECT_NOTE = 5;
 export const EVENT_WORDS = 4;
+/** EVENT_NOTE word a: word c holds the low 32 bits of the AudioContext frame it starts on. */
+export const EVENT_NOTE_TIMED = 1 << 13;
 /** 1024 records: a full second of dense QWERTY + script traffic between quanta. */
 export const EVENT_RING_WORDS = 1024 * EVENT_WORDS;
 
@@ -126,7 +131,8 @@ export function readAnalysisRing(
 
 /** Status block: Int32 flags/peaks, then Float64 telemetry (AudioEngineStatusSlot order). */
 export const STATUS_INTS = 16;
-export const STATUS_DOUBLES = 16;
+/** Room for every AudioEngineStatusSlot (STATUS_SLOT_COUNT) and a few more. */
+export const STATUS_DOUBLES = 40;
 export const STATUS_BYTES = STATUS_INTS * 4 + STATUS_DOUBLES * 8;
 export const ST_READY = 0;
 export const ST_PEAK_L = 1;
@@ -146,7 +152,31 @@ export const SLOT_LAST_INTERVAL_MS = 6;
 export const SLOT_NOTE_DROP_COUNT = 7;
 export const SLOT_HEAP_BYTES = 8;
 export const SLOT_MIDI_OUT_DROP_COUNT = 9;
+export const SLOT_PEAK_L = 10;
+export const SLOT_PEAK_R = 11;
+export const SLOT_PEAK_INPUT = 12;
 export const SLOT_SNAPSHOT_COUNT = 13;
+export const SLOT_BPM = 14;
+export const SLOT_PLAYING = 15;
+/** Notes that came with a start frame, those whose frame was already rendered, and blocks split for them. */
+export const SLOT_TIMED_NOTES = 16;
+export const SLOT_LATE_NOTES = 17;
+export const SLOT_SPLIT_BLOCKS = 18;
+/** Script notes that came straight from a worker's channel. */
+export const SLOT_DIRECT_SCRIPT_NOTES = 19;
+/** Real-time violations inside processBlock; allocations/frees are only counted in the Debug flavor. */
+export const SLOT_RT_ALLOCATIONS = 20;
+export const SLOT_RT_FREES = 21;
+export const SLOT_RT_LOCKS = 22;
+export const SLOT_RT_COUNTS_ALLOCATIONS = 23;
+/** AudioThreadScope of the engine's blocks: 3 = AudioWorkletGlobalScope. */
+export const SLOT_ENGINE_SCOPE = 24;
+export const SLOT_BLOCK_TIME_HISTOGRAM = 25;
+/** Block process time over its budget: upper bounds of the first seven buckets (the last is open). */
+export const BLOCK_TIME_BUCKET_LIMITS = Object.freeze([0.1, 0.25, 0.5, 0.75, 1, 1.5, 2]);
+export const BLOCK_TIME_BUCKETS = BLOCK_TIME_BUCKET_LIMITS.length + 1;
+export const STATUS_SLOT_COUNT = SLOT_BLOCK_TIME_HISTOGRAM + BLOCK_TIME_BUCKETS;
+export const ENGINE_SCOPE_AUDIO_WORKLET = 3;
 
 export interface StatusBlock {
   sab: SharedArrayBuffer;
@@ -175,4 +205,81 @@ export function takePeak(status: StatusBlock, index: number): number {
 export function floatBits(value: number): number {
   bitsF[0] = value;
   return bitsI[0];
+}
+
+/**
+ * A Script module's direct channel to the engine (one per running worker): the worker writes
+ * note records into `ring` and reads the engine's transport from `clock`, so script timing does
+ * not depend on the main thread. The engine processor registers both ({ type: 'scriptChannel' }),
+ * stamps every record with the module it registered, and checks indices against its own view of
+ * the ring. Mirrored by wasm/audio_worklet/engineProcessor.js and the worker bootstrap.
+ *
+ * Record (4 words): pitch | on << 7 | timed << 8, velocity bits, low 32 bits of the start frame, 0.
+ */
+export const SCRIPT_RING_WORDS = 256 * EVENT_WORDS;
+export const SCRIPT_NOTE_ON = 1 << 7;
+export const SCRIPT_NOTE_TIMED = 1 << 8;
+
+/**
+ * Clock: Int32 [seq, playing, closed, 0], then Float64 [beat, bpm, frameEnd, sampleRate] written
+ * by the engine after every quantum (seq is odd while it writes). `beat` is the transport at
+ * frameEnd, the AudioContext frame the next quantum starts on. The host sets `closed` when the
+ * script stops; the processor then drops the channel.
+ */
+export const CLOCK_SEQ = 0;
+export const CLOCK_PLAYING = 1;
+export const CLOCK_CLOSED = 2;
+export const CLOCK_BEAT = 0;
+export const CLOCK_BPM = 1;
+export const CLOCK_FRAME_END = 2;
+export const CLOCK_SAMPLE_RATE = 3;
+export const SCRIPT_CLOCK_BYTES = 16 + 4 * 8;
+
+export interface ScriptClock {
+  sab: SharedArrayBuffer;
+  ints: Int32Array;
+  doubles: Float64Array;
+}
+
+export interface ScriptChannel {
+  ring: SabRing;
+  clock: ScriptClock;
+}
+
+export function viewScriptClock(sab: SharedArrayBuffer): ScriptClock {
+  return { sab, ints: new Int32Array(sab, 0, 4), doubles: new Float64Array(sab, 16, 4) };
+}
+
+export function createScriptChannel(): ScriptChannel {
+  return { ring: createSabRing(SCRIPT_RING_WORDS), clock: viewScriptClock(new SharedArrayBuffer(SCRIPT_CLOCK_BYTES)) };
+}
+
+export interface ScriptClockReading {
+  beat: number;
+  bpm: number;
+  playing: boolean;
+  frameEnd: number;
+  sampleRate: number;
+}
+
+/** Seqlock read; null while the engine is mid-write (try again next tick) or has not written yet. */
+export function readScriptClock(clock: ScriptClock): ScriptClockReading | null {
+  const seq = Atomics.load(clock.ints, CLOCK_SEQ);
+  if (seq === 0 || (seq & 1) !== 0) return null;
+  const reading = {
+    beat: clock.doubles[CLOCK_BEAT],
+    bpm: clock.doubles[CLOCK_BPM],
+    playing: Atomics.load(clock.ints, CLOCK_PLAYING) === 1,
+    frameEnd: clock.doubles[CLOCK_FRAME_END],
+    sampleRate: clock.doubles[CLOCK_SAMPLE_RATE],
+  };
+  return Atomics.load(clock.ints, CLOCK_SEQ) === seq ? reading : null;
+}
+
+/** A running engine Script workers can talk to directly (the AudioWorklet engine). */
+export interface ScriptEngineLink {
+  /** Registers a new channel for `moduleId` with the engine; null when it cannot take one now. */
+  openScriptChannel(moduleId: number): ScriptChannel | null;
+  /** The script stopped: the engine drops the channel (its held notes go with ScriptClear). */
+  closeScriptChannel(channel: ScriptChannel): void;
 }

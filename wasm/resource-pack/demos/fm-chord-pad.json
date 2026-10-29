@@ -1,0 +1,170 @@
+{
+ "filetype": "bespokesynth",
+ "format": "bespokesynth-wasm-state",
+ "version": 5,
+ "wasm": {
+  "view_mode": 0,
+  "canvas": {
+   "offset_x": 0.0,
+   "offset_y": 0.0,
+   "scale": 0.8
+  }
+ },
+ "transport": {
+  "bpm": 84.0,
+  "playing": false
+ },
+ "modules": [
+  {
+   "id": 1,
+   "type": "transport",
+   "position": {
+    "x": 30.0,
+    "y": 20.0
+   },
+   "controls": {
+    "bpm": 84.0,
+    "swing": 0.0
+   }
+  },
+  {
+   "id": 2,
+   "type": "notesequencer",
+   "position": {
+    "x": 30.0,
+    "y": 180.0
+   },
+   "controls": {
+    "interval": 0.0,
+    "len0": 1.0,
+    "len1": 1.0,
+    "len2": 1.0,
+    "len3": 1.0,
+    "octave": 3.0,
+    "steps": 4.0,
+    "tone0": 0.0,
+    "tone1": 3.0,
+    "tone2": 5.0,
+    "tone3": 4.0,
+    "vel0": 0.8,
+    "vel1": 0.8,
+    "vel2": 0.8,
+    "vel3": 0.8
+   }
+  },
+  {
+   "id": 3,
+   "type": "chorder",
+   "position": {
+    "x": 300.0,
+    "y": 180.0
+   },
+   "controls": {
+    "chord": 6.0
+   }
+  },
+  {
+   "id": 4,
+   "type": "fmsynth",
+   "position": {
+    "x": 520.0,
+    "y": 180.0
+   },
+   "controls": {
+    "attack": 400.0,
+    "decay": 900.0,
+    "harmratio": 7.0,
+    "mod": 1.2,
+    "modSustain": 0.5,
+    "release": 1200.0,
+    "sustain": 0.7
+   }
+  },
+  {
+   "id": 5,
+   "type": "chorus",
+   "position": {
+    "x": 800.0,
+    "y": 180.0
+   },
+   "controls": {
+    "depth": 0.6,
+    "mix": 0.5,
+    "rate": 0.4
+   }
+  },
+  {
+   "id": 6,
+   "type": "reverb",
+   "position": {
+    "x": 1060.0,
+    "y": 180.0
+   },
+   "controls": {
+    "mix": 0.45,
+    "room": 0.85
+   }
+  },
+  {
+   "id": 7,
+   "type": "output",
+   "position": {
+    "x": 1300.0,
+    "y": 180.0
+   },
+   "controls": {}
+  }
+ ],
+ "connections": [
+  {
+   "source": {
+    "module": 2,
+    "port": 0
+   },
+   "destination": {
+    "module": 3,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 3,
+    "port": 0
+   },
+   "destination": {
+    "module": 4,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 4,
+    "port": 0
+   },
+   "destination": {
+    "module": 5,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 5,
+    "port": 0
+   },
+   "destination": {
+    "module": 6,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 6,
+    "port": 0
+   },
+   "destination": {
+    "module": 7,
+    "port": 0
+   }
+  }
+ ]
+}

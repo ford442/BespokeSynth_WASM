@@ -2,15 +2,9 @@
 
 This directory contains the WebAssembly port of BespokeSynth with WebGPU rendering and SDL2 audio backend.
 
-## Recent Updates
-
-**🔧 Initialization Stability Improvements** - The WASM port now includes comprehensive fixes for startup reliability:
-- Explicit initialization state tracking
-- Thread-safe audio callback handling  
-- Enhanced error handling and validation
-- Health monitoring during startup
-
-See [INITIALIZATION_FIXES.md](INITIALIZATION_FIXES.md) for detailed information about the improvements.
+Start from the canonical contributor guide, [docs/wasm/README.md](../docs/wasm/README.md). Earlier
+startup-reliability fix notes are archived in
+[docs/archive/INITIALIZATION_FIXES.md](../docs/archive/INITIALIZATION_FIXES.md).
 
 ## Features
 
@@ -261,13 +255,13 @@ The `Knob` class supports multiple visual styles:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `BESPOKE_WASM_WEBGPU` | ON | Enable WebGPU rendering |
-| `BESPOKE_WASM_SDL2_AUDIO` | ON | Enable SDL2 audio backend |
-| `BESPOKE_WASM_THREADS` | OFF | Enable threading (experimental) |
 | `BESPOKE_WASM_ASYNCIFY` | OFF | Enable Asyncify only for a future async C++ call stack |
 | `BESPOKE_WASM_SIMD` | ON | `-msimd128` + SIMD DSP kernels (`DspSimd.h`); scalar fallback when OFF |
 | `BESPOKE_WASM_LTO` | ON | `-flto` for the Release flavor; OFF shortens link time |
-| `BESPOKE_WASM_BUILD_FLAVOR` | Release | Release, Debug, or Profile flags and assertions |
+| `BESPOKE_WASM_CLOSURE` | ON | `--closure=1` for the Release flavor (UI glue ~260 → ~100 KB). EM_JS code must read host hooks with bracket access (`window['__bespoke_x']`) |
+| `BESPOKE_WASM_BUILD_FLAVOR` | Release | Release (`-O3`, `--emit-symbol-map`), Debug (`-O0 -g`, `ASSERTIONS=2`, `SAFE_HEAP=1`) or Profile (`-O2 --profiling-funcs`) |
+
+WebGPU, the WebGL2 fallback and SDL2 audio are always built; there are no switches for them. The build has no pthreads. `wasm/src` compiles with `-Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion` and is warning-clean. Third-party headers (dr_libs, tuning-library) are wrapped in `#pragma clang diagnostic` blocks.
 
 ### Build-size comparison
 
@@ -295,7 +289,7 @@ Audio and rendering settings can be configured via the JavaScript API or URL par
 
 ## Known Limitations
 
-1. **Threading**: The AudioWorklet SAB ring (the default audio backend) requires SharedArrayBuffer, which needs the COOP/COEP headers. `npm run dev` and `npm run serve` send them; a production host must send the same pair or the app falls back to SDL2 audio. The shipping WASM build keeps `BESPOKE_WASM_THREADS=OFF` (no pthreads) until a tested pthread audio path is enabled.
+1. **Threading**: Both AudioWorklet backends (the worklet engine, which is the default, and the SAB ring fallback) require SharedArrayBuffer, which needs the COOP/COEP headers. `npm run dev` and `npm run serve` send them; a production host must send the same pair or the app falls back to SDL2 audio. The WASM build has no pthreads.
 
 2. **File System**: The virtual file system is sandboxed. Use IndexedDB for persistent storage.
 

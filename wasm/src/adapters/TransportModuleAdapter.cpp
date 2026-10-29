@@ -5,7 +5,6 @@
 #include "BespokeWasm/adapters/TransportModuleAdapter.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include <cmath>
-#include <new>
 
 namespace bespoke
 {
@@ -14,31 +13,30 @@ namespace bespoke
       namespace
       {
          constexpr double kStepsPerBeat = 4.0;
+
+         // UI-only: bpm reaches the engine as the snapshot's transportBPM (GlobalParam::TransportBpm).
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "bpm", .minValue = 20.0f, .maxValue = 400.0f, .defaultValue = 120.0f },
+            { .id = 1, .name = "swing", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.0f },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kOutputs[] = { { PortType::Pulse, "Clock" } };
       }
 
-      std::vector<WasmControlDescriptor> TransportModuleAdapter::controlDescriptors() const
+      ParamTable TransportModuleAdapter::paramTable() const
       {
-         return { { "bpm", 120.0f }, { "swing", 0.0f } };
+         return kParams;
       }
 
-      std::vector<PortDescriptor> TransportModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> TransportModuleAdapter::outputPorts() const
       {
-         return { { PortType::Pulse, "Clock" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> TransportModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<TransportModule>(id);
-      }
-
-      void TransportModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) TransportPulseRuntimeState();
-      }
-
-      void TransportModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<TransportPulseRuntimeState*>(runtimeState)->~TransportPulseRuntimeState();
       }
 
       void TransportModuleAdapter::emitPulsesForBeatRange(void* runtimeState,

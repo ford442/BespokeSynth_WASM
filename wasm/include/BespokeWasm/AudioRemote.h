@@ -27,6 +27,8 @@ namespace bespoke
       /** A Script module's cabled note. false when the local queue is full. */
       bool queueScriptNote(int moduleId, const WasmNoteEvent& note);
       void clearScriptNoteQueue(int moduleId);
+      /** ModuleCanvas param sink: to whichever engine plays. false when its queue is full. */
+      [[nodiscard]] bool queueParamChange(const ParamChange& change);
 
       /** Snapshot listener, remote mode: the host encodes and posts the latest graph. */
       void notifyAudioGraphPublished();

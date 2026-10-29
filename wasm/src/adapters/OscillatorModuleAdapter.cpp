@@ -9,7 +9,7 @@
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
 #include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -56,48 +56,36 @@ namespace bespoke
                phase = std::fmod(phase, kTwoPi);
             return sample;
          }
-      }
 
-      std::vector<WasmControlDescriptor> OscillatorModuleAdapter::controlDescriptors() const
-      {
-         return {
-            { "frequency", 440.0f },
-            { "volume", 0.7f },
-            { "waveform", 0.0f },
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "frequency", .minValue = 20.0f, .maxValue = 20000.0f, .defaultValue = 440.0f, .offset = offsetof(OscillatorParams, frequency) },
+            { .id = 1, .name = "volume", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.7f, .offset = offsetof(OscillatorParams, volume), .smoothingMs = kParamSmoothingMs },
+            { .id = 2, .name = "waveform", .minValue = 0.0f, .maxValue = 3.0f, .defaultValue = 0.0f, .kind = ParamKind::Int, .offset = offsetof(OscillatorParams, waveform) },
          };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Note, "Pitch" }, { PortType::Modulation, "Mod" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
       }
 
-      std::vector<PortDescriptor> OscillatorModuleAdapter::inputPorts() const
+      ParamTable OscillatorModuleAdapter::paramTable() const
       {
-         return { { PortType::Note, "Pitch" }, { PortType::Modulation, "Mod" } };
+         return kParams;
       }
 
-      std::vector<PortDescriptor> OscillatorModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> OscillatorModuleAdapter::inputPorts() const
       {
-         return { { PortType::Audio, "Out" } };
+         return kInputs;
+      }
+
+      std::span<const PortDescriptor> OscillatorModuleAdapter::outputPorts() const
+      {
+         return kOutputs;
       }
 
       std::unique_ptr<Module> OscillatorModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<OscillatorModule>(id);
-      }
-
-      void OscillatorModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         auto* params = new (dst) OscillatorParams();
-         params->frequency = wasmControlValue(controls, "frequency", 440.0f);
-         params->volume = wasmControlValue(controls, "volume", 0.7f);
-         params->waveform = static_cast<int>(wasmControlValue(controls, "waveform", 0.0f));
-      }
-
-      void OscillatorModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) OscillatorAdapterRuntimeState();
-      }
-
-      void OscillatorModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<OscillatorAdapterRuntimeState*>(runtimeState)->~OscillatorAdapterRuntimeState();
       }
 
       void OscillatorModuleAdapter::processAudio(void* runtimeState,
@@ -118,14 +106,19 @@ namespace bespoke
             for (int noteIndex = 0; noteIndex < context.noteCount; ++noteIndex)
             {
                const auto& note = context.notes[noteIndex];
-               if (note.isNoteOn)
+               if (isPitchBendEvent(note))
+               {
+                  if (OscillatorVoice* voice = findGatedVoiceByPitch(state.voices, kOscillatorVoiceCount, note.pitch))
+                     voice->frequency = noteFrequency(context.noteFrequencies, note.pitch) * pitchBendRatio(note.pitchBend);
+               }
+               else if (note.isNoteOn)
                {
                   OscillatorVoice* voice =
                   allocateVoice(state.voices, kOscillatorVoiceCount, state.ageCounter, note.pitch);
                   voice->gated = true;
                   voice->pitch = note.pitch;
                   voice->velocity = clampFloat(note.velocity, 0.0f, 1.0f);
-                  voice->frequency = noteFrequency(context.noteFrequencies, note.pitch);
+                  voice->frequency = noteFrequency(context.noteFrequencies, note.pitch) * pitchBendRatio(note.pitchBend);
                   state.hasReceivedNote = true;
                }
                else if (OscillatorVoice* voice =

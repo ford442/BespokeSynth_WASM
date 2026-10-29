@@ -11,22 +11,35 @@
 import type { BespokeSynthModule } from '../../wasm/types/bespoke-synth';
 import type { GraphNoteSource } from '../app/graphMidiOut';
 import type { AudioHealth } from './audioHealth';
+import { wasmMalloc } from '../app/wasmStrings';
 import { workletSupport } from './audioMode';
 import {
   ANALYSIS_RING_FRAMES,
+  BLOCK_TIME_BUCKETS,
+  CLOCK_CLOSED,
   EVENT_RING_WORDS,
   INPUT_RING_WORDS,
   MIDI_OUT_RING_WORDS,
   RING_DROPPED,
   SLOT_BEAT,
+  SLOT_BLOCK_TIME_HISTOGRAM,
   SLOT_CALLBACK_COUNT,
   SLOT_CPU_LOAD,
+  SLOT_DIRECT_SCRIPT_NOTES,
+  SLOT_ENGINE_SCOPE,
   SLOT_HEAP_BYTES,
   SLOT_LAST_INTERVAL_MS,
   SLOT_LAST_PROCESS_MS,
+  SLOT_LATE_NOTES,
   SLOT_MAX_PROCESS_MS,
   SLOT_NOTE_DROP_COUNT,
+  SLOT_RT_ALLOCATIONS,
+  SLOT_RT_COUNTS_ALLOCATIONS,
+  SLOT_RT_FREES,
+  SLOT_RT_LOCKS,
   SLOT_SNAPSHOT_COUNT,
+  SLOT_SPLIT_BLOCKS,
+  SLOT_TIMED_NOTES,
   SLOT_UNDERRUN_COUNT,
   ST_INPUT_ACTIVE,
   ST_MIDI_CAPTURE,
@@ -36,6 +49,7 @@ import {
   ST_READY,
   createAnalysisRing,
   createSabRing,
+  createScriptChannel,
   createStatusBlock,
   readAnalysisRing,
   ringDrainWords,
@@ -43,6 +57,7 @@ import {
   takePeak,
   type AnalysisRing,
   type SabRing,
+  type ScriptEngineLink,
   type StatusBlock,
 } from './engineShared';
 import type { WorkletRingStats } from './workletRingBackend';
@@ -55,7 +70,7 @@ const READY_TIMEOUT_MS = 15000;
 
 const assetUrl = (file: string) => new URL(`wasm/${file}`, window.location.href).toString();
 
-export interface WorkletEngineBackend {
+export interface WorkletEngineBackend extends ScriptEngineLink {
   start(): Promise<void>;
   /** Transport stop leaves the engine running: it renders silence until Play. */
   stop(): void;
@@ -73,6 +88,8 @@ export interface WorkletEngineBackend {
   syncToMain(): void;
   /** Seconds between a block leaving the engine and reaching the speakers. */
   outputLatencySeconds(): number;
+  /** Timed notes the engine found already rendered (NoteClock widens its margin on these). */
+  lateNoteCount(): number;
 }
 
 let compiledEngine: Promise<WebAssembly.Module> | null = null;
@@ -113,7 +130,8 @@ export function createWorkletEngineBackend(module: BespokeSynthModule): WorkletE
   let status: StatusBlock | null = null;
   let flushScheduled = false;
   let pendingReset = false;
-  let samplesSent = 0;
+  /** Generation of each sample id the engine holds (index = id; 0 or absent = none). */
+  let sentGenerations: number[] = [];
   let analysisTotal = 0;
   const analysisScratch = new Float32Array(ANALYSIS_RING_FRAMES);
   let scratchPtr = 0;
@@ -125,22 +143,34 @@ export function createWorkletEngineBackend(module: BespokeSynthModule): WorkletE
     if (scratchPtr && scratchBytes >= bytes) return scratchPtr;
     if (scratchPtr) module._free(scratchPtr);
     scratchBytes = Math.max(bytes, 64);
-    scratchPtr = module._malloc(scratchBytes);
+    scratchPtr = wasmMalloc(module, scratchBytes);
     return scratchPtr;
   };
 
-  /** Samples decoded in the UI module since the last call, under the same ids. */
+  /** Samples the UI module (re)loaded since the last call, under the same ids and generations. */
   const sendNewSamples = () => {
     if (!node) return;
     const count = module._bespoke_get_sample_count();
-    for (let id = samplesSent; id < count; id += 1) {
+    for (let id = 0; id < count; id += 1) {
+      const generation = module._bespoke_get_sample_generation(id);
+      if (generation === 0 || generation === (sentGenerations[id] ?? 0)) continue;
       const infoPtr = scratch(16);
       if (!module._bespoke_get_sample_info(id, infoPtr)) continue;
       const [channels, frames, rate, planarPtr] = new Int32Array(module.HEAPU8.buffer, infoPtr, 4);
       const pcm = new Float32Array(module.HEAPU8.buffer, planarPtr, channels * frames).slice();
-      node.port.postMessage({ type: 'sample', id, channels, frames, rate, pcm }, [pcm.buffer]);
+      node.port.postMessage({ type: 'sample', id, generation, channels, frames, rate, pcm }, [pcm.buffer]);
+      sentGenerations[id] = generation;
     }
-    samplesSent = count;
+  };
+
+  /** Samples the UI module evicted: after the snapshot that stopped naming them, drop the engine's copy. */
+  const relayEvictions = () => {
+    if (!node) return;
+    for (let id = 0; id < sentGenerations.length; id += 1) {
+      if (!sentGenerations[id] || module._bespoke_get_sample_generation(id) !== 0) continue;
+      node.port.postMessage({ type: 'evictSample', id });
+      sentGenerations[id] = 0;
+    }
   };
 
   const flushGraph = () => {
@@ -155,6 +185,7 @@ export function createWorkletEngineBackend(module: BespokeSynthModule): WorkletE
     const bytes = module.HEAPU8.slice(ptr, ptr + length);
     node.port.postMessage({ type: 'snapshot', bytes: bytes.buffer, reset: pendingReset }, [bytes.buffer]);
     pendingReset = false;
+    relayEvictions();
   };
 
   /** A knob drag publishes per pointer event; one microtask coalesces a burst into one post. */
@@ -200,7 +231,7 @@ export function createWorkletEngineBackend(module: BespokeSynthModule): WorkletE
   const teardown = () => {
     running = false;
     if (module.bespokeAudioRemote) delete module.bespokeAudioRemote;
-    module._bespoke_set_audio_remote?.(0);
+    module._bespoke_set_audio_remote(0);
     try {
       node?.disconnect();
     } catch {
@@ -225,7 +256,7 @@ export function createWorkletEngineBackend(module: BespokeSynthModule): WorkletE
       midiOut = createSabRing(MIDI_OUT_RING_WORDS);
       analysis = createAnalysisRing();
       status = createStatusBlock();
-      samplesSent = 0;
+      sentGenerations = [];
       analysisTotal = 0;
 
       try {
@@ -254,15 +285,13 @@ export function createWorkletEngineBackend(module: BespokeSynthModule): WorkletE
         throw error;
       }
 
-      module._bespoke_set_external_audio?.(1);
-      module._bespoke_set_external_sample_rate?.(ctx.sampleRate);
-      module._bespoke_set_audio_backend_id?.(AUDIO_BACKEND_WORKLET_WASM);
-      module._bespoke_reset_audio_health?.();
+      module._bespoke_set_external_audio(1);
+      module._bespoke_set_external_sample_rate(ctx.sampleRate);
+      module._bespoke_set_audio_backend_id(AUDIO_BACKEND_WORKLET_WASM);
+      module._bespoke_reset_audio_health();
       const eventRing = events;
       module.bespokeAudioRemote = {
-        event: (type, a, b, c) => {
-          ringPushRecord(eventRing, type, a, b, c);
-        },
+        event: (type, a, b, c) => ringPushRecord(eventRing, type, a, b, c),
         graphChanged: (reset) => {
           if (reset) pendingReset = true;
           scheduleFlush();
@@ -286,8 +315,8 @@ export function createWorkletEngineBackend(module: BespokeSynthModule): WorkletE
       if (scratchPtr) module._free(scratchPtr);
       scratchPtr = 0;
       scratchBytes = 0;
-      module._bespoke_set_external_audio?.(0);
-      module._bespoke_set_audio_backend_id?.(0);
+      module._bespoke_set_external_audio(0);
+      module._bespoke_set_audio_backend_id(0);
     },
 
     isRunning() {
@@ -314,6 +343,8 @@ export function createWorkletEngineBackend(module: BespokeSynthModule): WorkletE
     getHealth() {
       if (!status || Atomics.load(status.ints, ST_READY) !== 1) return null;
       const d = status.doubles;
+      const blockTimeHistogram: number[] = [];
+      for (let i = 0; i < BLOCK_TIME_BUCKETS; i += 1) blockTimeHistogram.push(d[SLOT_BLOCK_TIME_HISTOGRAM + i]);
       return {
         backend: AUDIO_BACKEND_WORKLET_WASM,
         callbackCount: d[SLOT_CALLBACK_COUNT],
@@ -331,7 +362,32 @@ export function createWorkletEngineBackend(module: BespokeSynthModule): WorkletE
         snapshotCount: d[SLOT_SNAPSHOT_COUNT],
         eventDropCount: events ? Atomics.load(events.header, RING_DROPPED) : 0,
         engineError: lastError ?? undefined,
+        blockTimeHistogram,
+        rtAllocations: d[SLOT_RT_ALLOCATIONS],
+        rtFrees: d[SLOT_RT_FREES],
+        rtLocks: d[SLOT_RT_LOCKS],
+        rtCountsAllocations: d[SLOT_RT_COUNTS_ALLOCATIONS] === 1,
+        timedNotes: d[SLOT_TIMED_NOTES],
+        lateNotes: d[SLOT_LATE_NOTES],
+        splitBlocks: d[SLOT_SPLIT_BLOCKS],
+        directScriptNotes: d[SLOT_DIRECT_SCRIPT_NOTES],
+        engineScope: d[SLOT_ENGINE_SCOPE],
       };
+    },
+
+    lateNoteCount() {
+      return status ? status.doubles[SLOT_LATE_NOTES] : 0;
+    },
+
+    openScriptChannel(moduleId: number) {
+      if (!node || !running) return null;
+      const channel = createScriptChannel();
+      node.port.postMessage({ type: 'scriptChannel', moduleId, ring: channel.ring.sab, clock: channel.clock.sab });
+      return channel;
+    },
+
+    closeScriptChannel(channel) {
+      Atomics.store(channel.clock.ints, CLOCK_CLOSED, 1);
     },
 
     getInputRing() {

@@ -91,6 +91,18 @@ namespace bespoke
          renderPorts(renderer, screenX, screenY, scale);
       }
 
+      std::string TransportModule::controlNameAt(float worldX, float worldY) const
+      {
+         // Mirrors render(): BPM after the play button, swing at the right of the top row.
+         const float localX = worldX - mX;
+         const float localY = worldY - mY;
+         if (localX < 0.0f || localX > mWidth || localY < 0.0f || localY > 32.0f)
+            return {};
+         if (localX >= 30.0f && localX < 135.0f)
+            return "bpm";
+         return localX >= 180.0f ? "swing" : std::string();
+      }
+
       void TransportModule::setControlValue(const std::string& name, float value)
       {
          if (name == "bpm")

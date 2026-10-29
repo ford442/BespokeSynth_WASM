@@ -1,0 +1,258 @@
+{
+ "filetype": "bespokesynth",
+ "format": "bespokesynth-wasm-state",
+ "version": 5,
+ "wasm": {
+  "view_mode": 0,
+  "canvas": {
+   "offset_x": 0.0,
+   "offset_y": 0.0,
+   "scale": 0.8
+  }
+ },
+ "transport": {
+  "bpm": 124.0,
+  "playing": false
+ },
+ "modules": [
+  {
+   "id": 1,
+   "type": "transport",
+   "position": {
+    "x": 30.0,
+    "y": 20.0
+   },
+   "controls": {
+    "bpm": 124.0,
+    "swing": 0.0
+   }
+  },
+  {
+   "id": 2,
+   "type": "stepsequencer",
+   "position": {
+    "x": 30.0,
+    "y": 180.0
+   },
+   "controls": {
+    "gate": 0.6,
+    "pattern": 46811.0,
+    "pitch": 48.0,
+    "steps": 16.0
+   }
+  },
+  {
+   "id": 3,
+   "type": "capo",
+   "position": {
+    "x": 300.0,
+    "y": 180.0
+   },
+   "controls": {
+    "capo": -12.0
+   }
+  },
+  {
+   "id": 4,
+   "type": "pitchbender",
+   "position": {
+    "x": 520.0,
+    "y": 180.0
+   },
+   "controls": {
+    "bend": 0.25,
+    "range": 2.0
+   }
+  },
+  {
+   "id": 5,
+   "type": "oscillator",
+   "position": {
+    "x": 740.0,
+    "y": 180.0
+   },
+   "controls": {
+    "volume": 0.6,
+    "waveform": 1.0
+   }
+  },
+  {
+   "id": 6,
+   "type": "ramper",
+   "position": {
+    "x": 740.0,
+    "y": 380.0
+   },
+   "controls": {
+    "length": 5.0,
+    "mode": 1.0,
+    "start": -0.6,
+    "target": 0.8
+   }
+  },
+  {
+   "id": 7,
+   "type": "filter",
+   "position": {
+    "x": 980.0,
+    "y": 180.0
+   },
+   "controls": {
+    "cutoff": 700.0,
+    "resonance": 0.65,
+    "type": 0.0
+   }
+  },
+  {
+   "id": 8,
+   "type": "distortion",
+   "position": {
+    "x": 1220.0,
+    "y": 180.0
+   },
+   "controls": {
+    "level": 0.6,
+    "preamp": 2.5,
+    "type": 1.0
+   }
+  },
+  {
+   "id": 9,
+   "type": "envelope",
+   "position": {
+    "x": 980.0,
+    "y": 380.0
+   },
+   "controls": {
+    "attack": 2.0,
+    "decay": 160.0,
+    "high": 0.3,
+    "low": 0.0,
+    "release": 120.0,
+    "sustain": 0.2
+   }
+  },
+  {
+   "id": 10,
+   "type": "gain",
+   "position": {
+    "x": 1460.0,
+    "y": 180.0
+   },
+   "controls": {
+    "gain": 0.5
+   }
+  },
+  {
+   "id": 11,
+   "type": "output",
+   "position": {
+    "x": 1700.0,
+    "y": 180.0
+   },
+   "controls": {}
+  }
+ ],
+ "connections": [
+  {
+   "source": {
+    "module": 2,
+    "port": 0
+   },
+   "destination": {
+    "module": 3,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 3,
+    "port": 0
+   },
+   "destination": {
+    "module": 4,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 4,
+    "port": 0
+   },
+   "destination": {
+    "module": 5,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 5,
+    "port": 0
+   },
+   "destination": {
+    "module": 7,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 6,
+    "port": 0
+   },
+   "destination": {
+    "module": 7,
+    "port": 1
+   }
+  },
+  {
+   "source": {
+    "module": 7,
+    "port": 0
+   },
+   "destination": {
+    "module": 8,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 8,
+    "port": 0
+   },
+   "destination": {
+    "module": 10,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 2,
+    "port": 0
+   },
+   "destination": {
+    "module": 9,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 9,
+    "port": 0
+   },
+   "destination": {
+    "module": 10,
+    "port": 1
+   }
+  },
+  {
+   "source": {
+    "module": 10,
+    "port": 0
+   },
+   "destination": {
+    "module": 11,
+    "port": 0
+   }
+  }
+ ]
+}

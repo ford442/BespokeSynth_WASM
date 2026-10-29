@@ -145,7 +145,7 @@ namespace bespoke
                renderer.fillColor(Color(0.85f, 0.85f, 0.87f, 1.0f));
             }
 
-            renderer.rect(keyX + i * (keyW + 1), keyY, keyW, isBlack ? keyH * 0.6f : keyH);
+            renderer.rect(keyX + static_cast<float>(i) * (keyW + 1), keyY, keyW, isBlack ? keyH * 0.6f : keyH);
             renderer.fill();
          }
 
@@ -160,6 +160,18 @@ namespace bespoke
             snprintf(tuningLabel, sizeof(tuningLabel), "Root / scale - drop .scl");
          drawText(renderer, screenX + 10 * scale, textBaselineFromTop(renderer, keyY + keyH + 4 * scale),
                   tuningLabel, mCustomTuning ? UITheme::kTextValue : UITheme::kTextSecondary, 9.0f * scale);
+      }
+
+      std::string ScaleModule::controlNameAt(float worldX, float worldY) const
+      {
+         // Mirrors render(): root name then scale type on the top row, root keys below.
+         const float localX = worldX - mX;
+         const float localY = worldY - mY;
+         if (localX < 0.0f || localX > mWidth || localY < 0.0f || localY > mHeight)
+            return {};
+         if (localY < 28.0f)
+            return localX < 36.0f ? "root" : "type";
+         return localY < 54.0f ? "root" : std::string();
       }
 
       void ScaleModule::setControlValue(const std::string& name, float value)

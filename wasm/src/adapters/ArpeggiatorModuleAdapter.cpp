@@ -7,7 +7,7 @@
 #include "BespokeWasm/SliderPanelModule.h"
 #include <algorithm>
 #include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -18,14 +18,27 @@ namespace bespoke
          constexpr int kMaxOctaves = 4;
          constexpr double kBeatEpsilon = 1e-9;
 
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "rate", .minValue = 0.0f, .maxValue = 3.0f, .defaultValue = 2.0f, .kind = ParamKind::IntRound, .offset = offsetof(ArpeggiatorParams, rate), .flags = kParamClamp },
+            { .id = 1, .name = "mode", .minValue = 0.0f, .maxValue = 4.0f, .defaultValue = 0.0f, .kind = ParamKind::IntRound, .offset = offsetof(ArpeggiatorParams, mode), .flags = kParamClamp },
+            { .id = 2, .name = "octaves", .minValue = 1.0f, .maxValue = static_cast<float>(kMaxOctaves), .defaultValue = 1.0f, .kind = ParamKind::IntRound, .offset = offsetof(ArpeggiatorParams, octaves), .flags = kParamClamp },
+            { .id = 3, .name = "gate", .minValue = 0.05f, .maxValue = 1.0f, .defaultValue = 0.6f, .offset = offsetof(ArpeggiatorParams, gate), .flags = kParamClamp },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Note, "Notes" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Note, "Arp" } };
+
          const std::vector<SliderSpec>& arpSpecs()
          {
-            static const std::vector<SliderSpec> specs = {
-               { "rate", "Rate", 0.0f, 3.0f, 2.0f, SliderFormat::Choice, { "1/4", "1/8", "1/16", "1/32" } },
-               { "mode", "Mode", 0.0f, 4.0f, 0.0f, SliderFormat::Choice, { "Up", "Down", "Up/Down", "Random", "As played" } },
-               { "octaves", "Octaves", 1.0f, static_cast<float>(kMaxOctaves), 1.0f, SliderFormat::Integer },
-               { "gate", "Gate", 0.05f, 1.0f, 0.6f, SliderFormat::Percent },
-            };
+            static const std::vector<SliderSpec> specs =
+            slidersFromParams(kParams,
+                              {
+                              { "rate", "Rate", SliderFormat::Choice, { "1/4", "1/8", "1/16", "1/32" } },
+                              { "mode", "Mode", SliderFormat::Choice, { "Up", "Down", "Up/Down", "Random", "As played" } },
+                              { "octaves", "Octaves", SliderFormat::Integer },
+                              { "gate", "Gate", SliderFormat::Percent },
+                              });
             return specs;
          }
 
@@ -86,44 +99,24 @@ namespace bespoke
          }
       }
 
-      std::vector<WasmControlDescriptor> ArpeggiatorModuleAdapter::controlDescriptors() const
+      ParamTable ArpeggiatorModuleAdapter::paramTable() const
       {
-         return controlDescriptorsFromSpecs(arpSpecs());
+         return kParams;
       }
 
-      std::vector<PortDescriptor> ArpeggiatorModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> ArpeggiatorModuleAdapter::inputPorts() const
       {
-         return { { PortType::Note, "Notes" } };
+         return kInputs;
       }
 
-      std::vector<PortDescriptor> ArpeggiatorModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> ArpeggiatorModuleAdapter::outputPorts() const
       {
-         return { { PortType::Note, "Arp" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> ArpeggiatorModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<SliderPanelModule>(id, typeId(), displayName(), category(), arpSpecs());
-      }
-
-      void ArpeggiatorModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         const auto& specs = arpSpecs();
-         auto* params = new (dst) ArpeggiatorParams();
-         params->rate = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "rate")));
-         params->mode = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "mode")));
-         params->octaves = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "octaves")));
-         params->gate = sliderSpecValue(specs, controls, "gate");
-      }
-
-      void ArpeggiatorModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) ArpeggiatorRuntimeState();
-      }
-
-      void ArpeggiatorModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<ArpeggiatorRuntimeState*>(runtimeState)->~ArpeggiatorRuntimeState();
       }
 
       void ArpeggiatorModuleAdapter::processNotes(void* runtimeState,
@@ -156,7 +149,8 @@ namespace bespoke
          for (int n = 0; n < block.noteCount; ++n)
          {
             const WasmNoteEvent& in = block.notes[n];
-            if (in.pitch < 0 || in.pitch > 127)
+            // A bend belongs to one held key; the arp replays keys as new notes, so it does not follow.
+            if (in.pitch < 0 || in.pitch > 127 || isPitchBendEvent(in))
                continue;
             int found = -1;
             for (int i = 0; i < state.heldCount; ++i)

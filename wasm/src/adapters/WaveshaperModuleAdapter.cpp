@@ -6,7 +6,7 @@
 #include "BespokeWasm/SliderPanelModule.h"
 #include <algorithm>
 #include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -14,14 +14,26 @@ namespace bespoke
    {
       namespace
       {
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "drive", .minValue = 1.0f, .maxValue = 20.0f, .defaultValue = 2.0f, .offset = offsetof(WaveshaperParams, drive), .flags = kParamClamp },
+            { .id = 1, .name = "mode", .minValue = 0.0f, .maxValue = 3.0f, .defaultValue = static_cast<float>(kWaveshaperTanh), .kind = ParamKind::IntRound, .offset = offsetof(WaveshaperParams, mode), .flags = kParamClamp },
+            { .id = 2, .name = "mix", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 1.0f, .offset = offsetof(WaveshaperParams, mix), .smoothingMs = kParamSmoothingMs, .flags = kParamClamp },
+            { .id = 3, .name = "level", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.7f, .offset = offsetof(WaveshaperParams, level), .smoothingMs = kParamSmoothingMs, .flags = kParamClamp },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Audio, "In" }, { PortType::Modulation, "Drive" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
+
          const std::vector<SliderSpec>& waveshaperSpecs()
          {
-            static const std::vector<SliderSpec> specs = {
-               { "drive", "Drive", 1.0f, 20.0f, 2.0f, SliderFormat::Decimal },
-               { "mode", "Mode", 0.0f, 3.0f, static_cast<float>(kWaveshaperTanh), SliderFormat::Choice, { "Soft", "Tanh", "Fold", "Hard" } },
-               { "mix", "Mix", 0.0f, 1.0f, 1.0f, SliderFormat::Percent },
-               { "level", "Level", 0.0f, 1.0f, 0.7f, SliderFormat::Percent },
-            };
+            static const std::vector<SliderSpec> specs = slidersFromParams(kParams,
+                                                                           {
+                                                                           { "drive", "Drive", SliderFormat::Decimal },
+                                                                           { "mode", "Mode", SliderFormat::Choice, { "Soft", "Tanh", "Fold", "Hard" } },
+                                                                           { "mix", "Mix", SliderFormat::Percent },
+                                                                           { "level", "Level", SliderFormat::Percent },
+                                                                           });
             return specs;
          }
       }
@@ -46,34 +58,24 @@ namespace bespoke
          }
       }
 
-      std::vector<WasmControlDescriptor> WaveshaperModuleAdapter::controlDescriptors() const
+      ParamTable WaveshaperModuleAdapter::paramTable() const
       {
-         return controlDescriptorsFromSpecs(waveshaperSpecs());
+         return kParams;
       }
 
-      std::vector<PortDescriptor> WaveshaperModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> WaveshaperModuleAdapter::inputPorts() const
       {
-         return { { PortType::Audio, "In" }, { PortType::Modulation, "Drive" } };
+         return kInputs;
       }
 
-      std::vector<PortDescriptor> WaveshaperModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> WaveshaperModuleAdapter::outputPorts() const
       {
-         return { { PortType::Audio, "Out" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> WaveshaperModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<SliderPanelModule>(id, typeId(), displayName(), category(), waveshaperSpecs());
-      }
-
-      void WaveshaperModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         const auto& specs = waveshaperSpecs();
-         auto* params = new (dst) WaveshaperParams();
-         params->drive = sliderSpecValue(specs, controls, "drive");
-         params->mode = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "mode")));
-         params->mix = sliderSpecValue(specs, controls, "mix");
-         params->level = sliderSpecValue(specs, controls, "level");
       }
 
       void WaveshaperModuleAdapter::processAudio(void* runtimeState,

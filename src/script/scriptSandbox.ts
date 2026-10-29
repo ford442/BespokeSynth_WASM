@@ -2,12 +2,16 @@
  * Script module sandbox (?script=1).
  *
  * User JavaScript runs in a dedicated worker built from WORKER_BOOTSTRAP. Before
- * any user code runs, the bootstrap captures what it needs (postMessage, timers)
- * and overwrites network, storage, and worker-spawning globals on every object in
- * the global prototype chain. The script receives only a frozen `bespoke` API;
- * every call becomes a message the main thread validates (scriptHost.ts). The
- * worker never sees the WASM heap, Emscripten FS, or the DOM. See
- * docs/wasm/python.md (security review) and docs/wasm/scripting.md.
+ * any user code runs, the bootstrap captures what it needs (postMessage, timers,
+ * Atomics) and overwrites network, storage, and worker-spawning globals on every
+ * object in the global prototype chain. The script receives only a frozen `bespoke`
+ * API; every call becomes a message the main thread validates (scriptHost.ts), except
+ * notes while the AudioWorklet engine plays: the bootstrap then writes them into the
+ * module's own channel (ScriptChannel in src/audio/engineShared.ts), which the engine
+ * processor validates, and keeps time from the engine's clock instead of the main
+ * thread's ticks. User code never sees the channel. The worker never sees the WASM
+ * heap, Emscripten FS, or the DOM. See docs/wasm/python.md (security review) and
+ * docs/wasm/scripting.md.
  */
 
 export const MAX_SCRIPT_BYTES = 64 * 1024;
@@ -66,11 +70,27 @@ export type WorkerToHostMessage =
   | { type: 'getControl'; req: number; id: number; name: string }
   | { type: 'note'; pitch: number; velocity: number; on: boolean };
 
+/** A ScriptChannel's buffers as posted to the worker. */
+export interface ScriptChannelTransfer {
+  ring: SharedArrayBuffer;
+  clock: SharedArrayBuffer;
+}
+
 export type HostToWorkerMessage =
-  | { type: 'run'; code: string; modules: Array<{ id: number; type: string }>; scriptModuleId: number }
+  | {
+      type: 'run';
+      code: string;
+      modules: Array<{ id: number; type: string }>;
+      scriptModuleId: number;
+      channel: ScriptChannelTransfer | null;
+    }
   | { type: 'tick'; beat: number; bpm: number; playing: boolean }
   | { type: 'ping'; id: number }
-  | { type: 'control'; req: number; value: number | null };
+  | { type: 'control'; req: number; value: number | null }
+  /** The engine is up: notes go to it directly and time comes from its clock. */
+  | { type: 'attach'; channel: ScriptChannelTransfer }
+  /** The engine is gone: back to messages and the host's ticks. */
+  | { type: 'detach' };
 
 /** Returns a sanitized message, or null when the worker sent something invalid. */
 export function sanitizeWorkerMessage(raw: unknown): WorkerToHostMessage | null {
@@ -118,11 +138,24 @@ export const WORKER_BOOTSTRAP = String.raw`'use strict';
   const post = self.postMessage.bind(self);
   const listen = self.addEventListener.bind(self);
   const timers = { set: self.setTimeout.bind(self), clear: self.clearTimeout.bind(self) };
+  // Captured before user code can replace them (the direct channel needs them to stay honest).
+  const atomicLoad = Atomics.load;
+  const atomicStore = Atomics.store;
+  const atomicAdd = Atomics.add;
+  const SAB = typeof SharedArrayBuffer === 'function' ? SharedArrayBuffer : null;
+  const I32 = Int32Array;
+  const F32 = Float32Array;
+  const F64 = Float64Array;
+  const { floor, round, max, min } = Math;
   const BLOCKED = __BLOCKED__;
   const MAX_TIMERS = 64;
   const MAX_SCHEDULED = 256;
   const MAX_BEAT_HANDLERS = 16;
+  const MAX_PENDING_OFFS = 256;
   const MAX_LOG_CHARS = __MAX_LOG__;
+  // Direct mode: beats fire this far ahead of the engine, checked this often.
+  const LOOKAHEAD_S = 0.03;
+  const DIRECT_TICK_MS = 5;
 
   // Remove capabilities everywhere they can be looked up, then freeze.
   for (let scope = self; scope && scope !== Object.prototype; scope = Object.getPrototypeOf(scope)) {
@@ -161,6 +194,71 @@ export const WORKER_BOOTSTRAP = String.raw`'use strict';
     if (!Number.isInteger(id) || id < 0) throw new TypeError('module id must be a non-negative integer');
   };
 
+  // --- Direct channel to the AudioWorklet engine (ScriptChannel, src/audio/engineShared.ts) ---
+  const direct = {
+    on: false, header: null, words: null, capacity: 0, clockI: null, clockD: null,
+    timer: null, frameEnd: 0, rate: 0, lastBeat: 0,
+  };
+  /** Start frame of the beat or scheduled call running now; 0 outside them (play at once). */
+  let noteFrame = 0;
+  /** Its frame on the beat grid, even when it fired too late to start there (durations count from it). */
+  let noteAnchor = 0;
+  /** Note-offs of noteOn(..., durationMs), written once their frame is inside the lookahead. */
+  const pendingOffs = [];
+  const velocityBits = new F32(1);
+  const velocityWord = new I32(velocityBits.buffer);
+
+  const writeNote = (pitch, velocity, on, frame) => {
+    const { header, words, capacity } = direct;
+    const write = atomicLoad(header, 0);
+    let used = write - atomicLoad(header, 1);
+    if (used < 0) used += capacity;
+    if (write < 0 || write >= capacity || write % 4 !== 0 || capacity - 4 - used < 4) {
+      atomicAdd(header, 3, 1);
+      return;
+    }
+    velocityBits[0] = on ? velocity : 0;
+    words[write] = pitch | (on ? 128 : 0) | (frame > 0 ? 256 : 0);
+    words[write + 1] = velocityWord[0];
+    words[write + 2] = frame > 0 ? frame : 0; // Int32Array keeps the low 32 bits
+    words[write + 3] = 0;
+    atomicStore(header, 0, write + 4 >= capacity ? 0 : write + 4);
+  };
+
+  const readClock = () => {
+    const seq = atomicLoad(direct.clockI, 0);
+    if (seq === 0 || (seq & 1) !== 0) return null;
+    const d = direct.clockD;
+    const clock = { beat: d[0], bpm: d[1], frameEnd: d[2], rate: d[3], playing: atomicLoad(direct.clockI, 1) === 1 };
+    return atomicLoad(direct.clockI, 0) === seq ? clock : null;
+  };
+
+  const detach = () => {
+    if (direct.timer !== null) timers.clear(direct.timer);
+    Object.assign(direct, { on: false, header: null, words: null, clockI: null, clockD: null, timer: null });
+    pendingOffs.length = 0;
+  };
+
+  const attach = (channel) => {
+    detach();
+    if (!SAB || !channel || !(channel.ring instanceof SAB) || !(channel.clock instanceof SAB)) return;
+    if (channel.ring.byteLength < 16 + 32 || channel.clock.byteLength < 48) return;
+    const words = (channel.ring.byteLength - 16) >> 2;
+    direct.capacity = words - (words % 4);
+    direct.header = new I32(channel.ring, 0, 4);
+    direct.words = new I32(channel.ring, 16, direct.capacity);
+    direct.clockI = new I32(channel.clock, 0, 4);
+    direct.clockD = new F64(channel.clock, 16, 4);
+    direct.on = true;
+    direct.lastBeat = 0;
+    const clock = readClock();
+    if (clock) {
+      direct.frameEnd = clock.frameEnd;
+      direct.rate = clock.rate;
+    }
+    direct.timer = timers.set(directTick, DIRECT_TICK_MS);
+  };
+
   const bespoke = Object.freeze({
     get transport() {
       const beat = state.beat;
@@ -180,7 +278,11 @@ export const WORKER_BOOTSTRAP = String.raw`'use strict';
     },
     setControl(id, name, value) {
       checkId(id);
-      post({ type: 'setControl', id, name: String(name), value: Number(value) });
+      const message = { type: 'setControl', id, name: String(name), value: Number(value) };
+      // Inside a beat that fired ahead of the engine: send it when that beat is about to play.
+      const wait = direct.on && noteFrame > 0 && direct.rate > 0 ? ((noteFrame - direct.frameEnd) / direct.rate) * 1000 : 0;
+      if (wait >= 1) timers.set(() => post(message), wait);
+      else post(message);
     },
     getControl(id, name) {
       checkId(id);
@@ -191,10 +293,29 @@ export const WORKER_BOOTSTRAP = String.raw`'use strict';
       });
     },
     noteOn(pitch, velocity = 0.8, durationMs) {
-      post({ type: 'note', pitch: Math.round(pitch), velocity: Number(velocity), on: true });
+      if (direct.on) {
+        const p = round(pitch);
+        if (!(p >= 0 && p <= 127)) return;
+        const v = Number(velocity);
+        writeNote(p, Number.isFinite(v) ? max(0, min(1, v)) : 0.8, true, noteFrame);
+        if (durationMs === undefined) return;
+        if (direct.rate > 0) {
+          if (pendingOffs.length >= MAX_PENDING_OFFS) throw new RangeError('too many pending note-offs');
+          const start = noteAnchor || direct.frameEnd;
+          pendingOffs.push({ frame: start + (max(0, Number(durationMs) || 0) * direct.rate) / 1000, pitch: p });
+          return;
+        }
+      } else {
+        post({ type: 'note', pitch: Math.round(pitch), velocity: Number(velocity), on: true });
+      }
       if (durationMs !== undefined) bespoke.setTimeout(() => bespoke.noteOff(pitch), durationMs);
     },
     noteOff(pitch) {
+      if (direct.on) {
+        const p = round(pitch);
+        if (p >= 0 && p <= 127) writeNote(p, 0, false, noteFrame);
+        return;
+      }
       post({ type: 'note', pitch: Math.round(pitch), velocity: 0, on: false });
     },
     /** fn(beatIndex) on every beat while playing; beat 0 is bar 1, beat 1. */
@@ -252,6 +373,92 @@ export const WORKER_BOOTSTRAP = String.raw`'use strict';
     }
   };
 
+  /**
+   * Direct mode's tick: fires everything due before the lookahead horizon in frame order (a
+   * note-off before a note-on at the same frame), each with noteFrame set to its own frame.
+   */
+  const directAdvance = (clock) => {
+    const wasPlaying = state.playing;
+    state.bpm = clock.bpm;
+    state.playing = clock.playing;
+    const framesPerBeat = (clock.rate * 60) / clock.bpm;
+    const horizonFrame = clock.frameEnd + LOOKAHEAD_S * clock.rate;
+    const horizonBeat = clock.beat + (horizonFrame - clock.frameEnd) / framesPerBeat;
+    const frameOfBeat = (beat) => clock.frameEnd + (beat - clock.beat) * framesPerBeat;
+    // A frame the engine already rendered plays at once rather than counting as late.
+    const startOf = (frame) => (frame >= clock.frameEnd ? round(frame) : 0);
+    if (!clock.playing) {
+      state.beat = 0;
+      state.prevBeat = -1;
+    } else if (!wasPlaying || clock.beat < direct.lastBeat) {
+      state.prevBeat = -1e-9; // (re)start, or the transport jumped back: beat 0 fires again
+    } else if (frameOfBeat(floor(state.prevBeat) + 1) < clock.frameEnd - clock.rate) {
+      state.prevBeat = floor(clock.beat); // a stall longer than a second: skip, don't burst
+    }
+    direct.lastBeat = clock.beat;
+    for (let guard = 0; guard < 512; ++guard) {
+      let kind = 0;
+      let at = Infinity;
+      let index = -1;
+      let beat = 0;
+      for (let i = 0; i < pendingOffs.length; ++i) {
+        if (pendingOffs[i].frame < at) {
+          at = pendingOffs[i].frame;
+          kind = 1;
+          index = i;
+        }
+      }
+      if (clock.playing) {
+        const next = floor(state.prevBeat) + 1;
+        if (frameOfBeat(next) < at) {
+          at = frameOfBeat(next);
+          kind = 2;
+          beat = next;
+        }
+        for (let i = 0; i < scheduled.length; ++i) {
+          const frame = frameOfBeat(scheduled[i].beat);
+          if (frame < at) {
+            at = frame;
+            kind = 3;
+            index = i;
+            beat = scheduled[i].beat;
+          }
+        }
+      }
+      if (kind === 0 || at > horizonFrame) break;
+      if (kind === 1) {
+        const [off] = pendingOffs.splice(index, 1);
+        writeNote(off.pitch, 0, false, startOf(off.frame));
+        continue;
+      }
+      state.beat = beat;
+      noteFrame = startOf(at);
+      noteAnchor = round(at);
+      if (kind === 2) {
+        state.prevBeat = beat;
+        for (const handler of beatHandlers) guarded(handler, beat);
+      } else {
+        const [event] = scheduled.splice(index, 1);
+        guarded(event.fn);
+      }
+      noteFrame = 0;
+      noteAnchor = 0;
+    }
+    state.beat = clock.playing ? max(0, horizonBeat) : 0;
+  };
+
+  const directTick = () => {
+    direct.timer = null;
+    if (!direct.on) return;
+    const clock = readClock();
+    if (clock && clock.rate > 0 && clock.bpm > 0) {
+      direct.frameEnd = clock.frameEnd;
+      direct.rate = clock.rate;
+      directAdvance(clock);
+    }
+    if (direct.on) direct.timer = timers.set(directTick, DIRECT_TICK_MS);
+  };
+
   listen('message', (event) => {
     const msg = event.data || {};
     switch (msg.type) {
@@ -259,7 +466,13 @@ export const WORKER_BOOTSTRAP = String.raw`'use strict';
         post({ type: 'pong', id: msg.id });
         break;
       case 'tick':
-        onTick(msg);
+        if (!direct.on) onTick(msg);
+        break;
+      case 'attach':
+        attach(msg.channel);
+        break;
+      case 'detach':
+        detach();
         break;
       case 'control': {
         const resolve = pendingControls.get(msg.req);
@@ -270,6 +483,7 @@ export const WORKER_BOOTSTRAP = String.raw`'use strict';
       case 'run': {
         state.modules = Array.isArray(msg.modules) ? msg.modules : [];
         state.scriptModuleId = msg.scriptModuleId;
+        if (msg.channel) attach(msg.channel);
         if (/\bimport\b/.test(msg.code)) {
           report(new Error('import is not available in scripts'));
           break;

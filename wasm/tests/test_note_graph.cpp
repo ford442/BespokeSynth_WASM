@@ -492,8 +492,8 @@ void test_note_processor_graph()
       {
          const auto& chorderPlan = plan.noteSourcePlans[static_cast<size_t>(chorderSlot)];
          TEST("Chorder plan reads exactly the earlier filter slot",
-              chorderPlan.isProcessor && chorderPlan.hasNoteCable && chorderPlan.noteSourceScratchSlots.size() == 1 &&
-              chorderPlan.noteSourceScratchSlots.data[0] < chorderSlot);
+              chorderPlan.isProcessor && chorderPlan.hasNoteCable && chorderPlan.noteSources.count == 1 &&
+              plan.noteScratchSlotsOf(chorderPlan.noteSources)[0] < chorderSlot);
          TEST("Chorder (a processor with a cable) leaves the performance alone", !plan.performanceNotesProcessed);
          TEST("Chorder output reports to MIDI out", chorderPlan.reportsToMidiOut);
       }
@@ -639,9 +639,10 @@ void test_note_processor_graph()
       int filtersFound = 0;
       for (const auto& step : fan.graph.processPlan.steps)
       {
-         if (step.moduleId == 2 && step.noteSourcePortFilters.size() == 1 && step.noteSourcePortFilters.data[0] == 0)
+         const auto filters = fan.graph.processPlan.notePortFiltersOf(step.noteSources);
+         if (step.moduleId == 2 && filters.size() == 1 && filters[0] == 0)
             ++filtersFound;
-         if (step.moduleId == 3 && step.noteSourcePortFilters.size() == 1 && step.noteSourcePortFilters.data[0] == 1)
+         if (step.moduleId == 3 && filters.size() == 1 && filters[0] == 1)
             ++filtersFound;
       }
       TEST("Router outputs map to per-consumer port filters", filtersFound == 2);

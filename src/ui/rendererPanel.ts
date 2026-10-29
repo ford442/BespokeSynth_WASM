@@ -86,7 +86,7 @@ export function setupRendererPanel(options: RendererPanelOptions): void {
   debugSelect.disabled = options.rendererBackend !== 'webgl';
   debugSelect.addEventListener('change', () => {
     const mode = Number(debugSelect.value);
-    options.getModule()?._bespoke_set_webgl_debug_mode?.(mode);
+    options.getModule()?._bespoke_set_webgl_debug_mode(mode);
   });
 
   const screenshotBtn = document.createElement('button');
@@ -105,7 +105,7 @@ export function setupRendererPanel(options: RendererPanelOptions): void {
   undoBtn.textContent = '↶';
   undoBtn.title = 'Undo (Ctrl+Z)';
   undoBtn.setAttribute('aria-label', 'Undo');
-  undoBtn.addEventListener('click', () => options.getModule()?._bespoke_undo?.());
+  undoBtn.addEventListener('click', () => options.getModule()?._bespoke_undo());
 
   const redoBtn = document.createElement('button');
   redoBtn.id = 'redoBtn';
@@ -113,7 +113,7 @@ export function setupRendererPanel(options: RendererPanelOptions): void {
   redoBtn.textContent = '↷';
   redoBtn.title = 'Redo (Ctrl+Shift+Z)';
   redoBtn.setAttribute('aria-label', 'Redo');
-  redoBtn.addEventListener('click', () => options.getModule()?._bespoke_redo?.());
+  redoBtn.addEventListener('click', () => options.getModule()?._bespoke_redo());
 
   const saveBtn = document.createElement('button');
   saveBtn.id = 'savePatchBtn';

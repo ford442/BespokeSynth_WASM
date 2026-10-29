@@ -23,7 +23,7 @@ namespace bespoke
          bool isSingleton() const override { return true; }
          WasmAudioRole audioRole() const override { return WasmAudioRole::None; }
 
-         std::vector<WasmControlDescriptor> controlDescriptors() const override;
+         ParamTable paramTable() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
       };
 

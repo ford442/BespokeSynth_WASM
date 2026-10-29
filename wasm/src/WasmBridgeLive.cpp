@@ -25,7 +25,6 @@ using namespace bespoke::wasm;
 
 namespace
 {
-   std::string gLiveJsonBuffer;
 
    std::string escapeJson(const std::string& value)
    {
@@ -126,11 +125,11 @@ EMSCRIPTEN_KEEPALIVE int bespoke_is_text_entry_active(void)
 
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_module_info_json(int moduleId)
 {
-   gLiveJsonBuffer = "{}";
+   runtimeState().liveJsonBuffer = "{}";
    auto* c = canvas();
    Module* module = c ? c->getModule(moduleId) : nullptr;
    if (!module)
-      return gLiveJsonBuffer.c_str();
+      return runtimeState().liveJsonBuffer.c_str();
    // Screen coordinates are CSS pixels relative to the canvas (same space as input).
    constexpr float kCanvasTop = 40.0f;
    const float scale = static_cast<const ModuleCanvas*>(c)->getScale();
@@ -141,16 +140,16 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_module_info_json(int moduleId)
        << ",\"screenX\":" << (module->getX() + c->getOffsetX()) * scale
        << ",\"screenY\":" << (module->getY() + c->getOffsetY()) * scale + kCanvasTop
        << ",\"scale\":" << scale << "}";
-   gLiveJsonBuffer = out.str();
-   return gLiveJsonBuffer.c_str();
+   runtimeState().liveJsonBuffer = out.str();
+   return runtimeState().liveJsonBuffer.c_str();
 }
 
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_modules_json(void)
 {
-   gLiveJsonBuffer = "[]";
+   runtimeState().liveJsonBuffer = "[]";
    auto* c = canvas();
    if (!c)
-      return gLiveJsonBuffer.c_str();
+      return runtimeState().liveJsonBuffer.c_str();
    const auto snapshot = c->createStateSnapshot();
    std::ostringstream out;
    out << "[";
@@ -160,8 +159,8 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_modules_json(void)
       out << (i ? "," : "") << "{\"id\":" << module.id << ",\"type\":\"" << escapeJson(module.type) << "\"}";
    }
    out << "]";
-   gLiveJsonBuffer = out.str();
-   return gLiveJsonBuffer.c_str();
+   runtimeState().liveJsonBuffer = out.str();
+   return runtimeState().liveJsonBuffer.c_str();
 }
 
 // --- MIDI learn / channel -------------------------------------------------
@@ -206,8 +205,8 @@ EMSCRIPTEN_KEEPALIVE int bespoke_midi_learn_get_module(void)
 EMSCRIPTEN_KEEPALIVE const char* bespoke_midi_learn_get_control(void)
 {
    auto* c = canvas();
-   gLiveJsonBuffer = c ? c->midiLearnControl() : std::string();
-   return gLiveJsonBuffer.c_str();
+   runtimeState().liveJsonBuffer = c ? c->midiLearnControl() : std::string();
+   return runtimeState().liveJsonBuffer.c_str();
 }
 
 EMSCRIPTEN_KEEPALIVE int bespoke_midi_cc_unbind(int moduleId, const char* controlName)
@@ -218,10 +217,10 @@ EMSCRIPTEN_KEEPALIVE int bespoke_midi_cc_unbind(int moduleId, const char* contro
 
 EMSCRIPTEN_KEEPALIVE const char* bespoke_get_midi_cc_map_json(void)
 {
-   gLiveJsonBuffer = "[]";
+   runtimeState().liveJsonBuffer = "[]";
    auto* c = canvas();
    if (!c)
-      return gLiveJsonBuffer.c_str();
+      return runtimeState().liveJsonBuffer.c_str();
    const auto map = c->midiCcMap();
    std::ostringstream out;
    out << "[";
@@ -233,8 +232,8 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_get_midi_cc_map_json(void)
           << "\",\"min\":" << binding.min << ",\"max\":" << binding.max << "}";
    }
    out << "]";
-   gLiveJsonBuffer = out.str();
-   return gLiveJsonBuffer.c_str();
+   runtimeState().liveJsonBuffer = out.str();
+   return runtimeState().liveJsonBuffer.c_str();
 }
 
 // --- Undo / redo -----------------------------------------------------------
@@ -290,8 +289,8 @@ EMSCRIPTEN_KEEPALIVE const char* bespoke_scale_get_tuning_error(void)
 {
    auto* c = canvas();
    ScaleModule* scale = c ? c->getScale() : nullptr;
-   gLiveJsonBuffer = scale ? scale->tuningError() : std::string();
-   return gLiveJsonBuffer.c_str();
+   runtimeState().liveJsonBuffer = scale ? scale->tuningError() : std::string();
+   return runtimeState().liveJsonBuffer.c_str();
 }
 
 EMSCRIPTEN_KEEPALIVE float bespoke_get_note_frequency(int pitch)
@@ -381,7 +380,7 @@ EMSCRIPTEN_KEEPALIVE int bespoke_script_note(int moduleId, int pitch, float velo
    const float clamped = std::max(0.0f, std::min(1.0f, velocity));
    if (!c->hasOutgoingConnection(moduleId))
    {
-      queuePerformanceNote({ pitch, isNoteOn ? clamped : 0.0f, isNoteOn != 0, emscripten_get_now() / 1000.0, 0 });
+      queuePerformanceNote({ pitch, isNoteOn ? clamped : 0.0f, isNoteOn != 0, 0.0, 0 });
       return 2; // performance path: the engine does not report these to MIDI out
    }
    WasmNoteEvent note;
