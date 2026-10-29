@@ -15,7 +15,7 @@ namespace bespoke
    namespace wasm
    {
       constexpr int kPatchSchemaVersionV1 = 1;
-      constexpr int kPatchSchemaVersion = 4;
+      constexpr int kPatchSchemaVersion = 5;
 
       std::string serializePatchState(const ModuleCanvas::StateSnapshot& snapshot, int viewMode);
       bool deserializePatchState(const std::string& json,

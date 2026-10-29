@@ -33,6 +33,7 @@ void test_graph_contract_pulse_voices_midi_scale()
 
    AudioGraphEngine pulseEngine;
    pulseEngine.prepareForBlock(512, 128, 32);
+   pulseEngine.prepareRuntimeStates(pulseGraph);
    double pulseEnergy = 0.0;
    for (int block = 0; block < 80; ++block)
    {
@@ -49,6 +50,7 @@ void test_graph_contract_pulse_voices_midi_scale()
    compileAudioProcessPlan(silentPulse, silentPulse.processPlan);
    AudioGraphEngine silentEngine;
    silentEngine.prepareForBlock(512, 128, 32);
+   silentEngine.prepareRuntimeStates(silentPulse);
    double silentEnergy = 0.0;
    for (int block = 0; block < 40; ++block)
    {
@@ -72,7 +74,7 @@ void test_graph_contract_pulse_voices_midi_scale()
    oscContext.notes = chord;
    oscContext.noteCount = 2;
    float oscBuffer[64] = {};
-   oscAdapter.processAudio(oscRuntime.data(), &oscParams, oscBuffer, oscContext);
+   oscAdapter.processMono(oscRuntime.data(), &oscParams, oscBuffer, oscContext);
    auto* oscState = reinterpret_cast<OscillatorAdapterRuntimeState*>(oscRuntime.data());
    int gated = 0;
    for (int i = 0; i < kOscillatorVoiceCount; ++i)
@@ -85,7 +87,7 @@ void test_graph_contract_pulse_voices_midi_scale()
    WasmNoteEvent off60{ 60, 0.0f, false };
    oscContext.notes = &off60;
    oscContext.noteCount = 1;
-   oscAdapter.processAudio(oscRuntime.data(), &oscParams, oscBuffer, oscContext);
+   oscAdapter.processMono(oscRuntime.data(), &oscParams, oscBuffer, oscContext);
    gated = 0;
    int remainingPitch = -1;
    for (int i = 0; i < kOscillatorVoiceCount; ++i)
@@ -133,6 +135,8 @@ void test_graph_contract_pulse_voices_midi_scale()
    seqEngineB.prepareForBlock(512, 128, 32);
    compileAudioProcessPlan(seqC, seqC.processPlan);
    compileAudioProcessPlan(seqMajor, seqMajor.processPlan);
+   seqEngineA.prepareRuntimeStates(seqC);
+   seqEngineB.prepareRuntimeStates(seqMajor);
    double diff = 0.0;
    for (int block = 0; block < 40; ++block)
    {

@@ -5,9 +5,11 @@
 #include "BespokeWasm/SliderPanelModule.h"
 #include "BespokeWasm/ModuleCanvasHelpers.h"
 #include "BespokeWasm/Theme.h"
+#include "BespokeWasm/WidgetPainter.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 namespace bespoke
 {
@@ -18,25 +20,31 @@ namespace bespoke
          constexpr float kPortStep = 15.0f;
       }
 
-      std::vector<WasmControlDescriptor> controlDescriptorsFromSpecs(const std::vector<SliderSpec>& specs)
+      std::vector<SliderSpec> slidersFromParams(ParamTable params, std::initializer_list<SliderUi> ui)
       {
-         std::vector<WasmControlDescriptor> descriptors;
-         descriptors.reserve(specs.size());
-         for (const auto& spec : specs)
-            descriptors.push_back({ spec.name, spec.defaultValue });
-         return descriptors;
-      }
-
-      float sliderSpecValue(const std::vector<SliderSpec>& specs, const WasmControlMap& controls, const char* name)
-      {
-         for (const auto& spec : specs)
+         std::vector<SliderSpec> specs;
+         specs.reserve(ui.size());
+         for (const SliderUi& row : ui)
          {
-            if (std::string(spec.name) != name)
-               continue;
-            const float value = wasmControlValue(controls, name, spec.defaultValue);
-            return std::max(spec.minValue, std::min(spec.maxValue, value));
+            SliderSpec spec;
+            spec.name = row.name;
+            spec.label = row.label;
+            spec.format = row.format;
+            spec.choices = row.choices;
+            spec.logarithmic = row.logarithmic;
+            if (const ParamDescriptor* param = findParam(params, row.name))
+            {
+               spec.minValue = param->minValue;
+               spec.maxValue = param->maxValue;
+               spec.defaultValue = param->defaultValue;
+            }
+            else
+            {
+               printf("SliderPanelModule: no parameter named '%s'\n", row.name);
+            }
+            specs.push_back(std::move(spec));
          }
-         return wasmControlValue(controls, name, 0.0f);
+         return specs;
       }
 
       SliderPanelModule::SliderPanelModule(int id,
@@ -44,9 +52,11 @@ namespace bespoke
                                            const std::string& name,
                                            ModuleCategory category,
                                            std::vector<SliderSpec> specs,
-                                           float width)
+                                           float width,
+                                           float headerHeight)
       : Module(id, type, name, category)
       , mSpecs(std::move(specs))
+      , mHeaderHeight(headerHeight)
       {
          mValues.reserve(mSpecs.size());
          for (const auto& spec : mSpecs)
@@ -57,7 +67,7 @@ namespace bespoke
       float SliderPanelModule::slidersTop() const
       {
          const size_t portRows = std::max(mInputs.size(), mOutputs.size());
-         return kTitleBarHeight + 6.0f + static_cast<float>(portRows) * kPortStep;
+         return kTitleBarHeight + 6.0f + static_cast<float>(portRows) * kPortStep + mHeaderHeight;
       }
 
       int SliderPanelModule::rowAt(float worldX, float worldY) const
@@ -107,7 +117,10 @@ namespace bespoke
          const SliderSpec& spec = mSpecs[static_cast<size_t>(row)];
          const float trackW = std::max(1.0f, mWidth - 2.0f * kSidePad);
          const float t = std::max(0.0f, std::min(1.0f, (worldX - mX - kSidePad) / trackW));
-         mValues[static_cast<size_t>(row)] = snap(row, spec.minValue + t * (spec.maxValue - spec.minValue));
+         const float value = spec.logarithmic && spec.minValue > 0.0f
+                             ? spec.minValue * std::pow(spec.maxValue / spec.minValue, t)
+                             : spec.minValue + t * (spec.maxValue - spec.minValue);
+         mValues[static_cast<size_t>(row)] = snap(row, value);
       }
 
       void SliderPanelModule::formatValue(int row, char* buf, size_t len) const
@@ -137,6 +150,15 @@ namespace bespoke
             case SliderFormat::Ratio:
                snprintf(buf, len, "%.1f:1", value);
                break;
+            case SliderFormat::Pan:
+            {
+               const int amount = static_cast<int>(std::lround((value - 0.5f) * 200.0f));
+               if (amount == 0)
+                  snprintf(buf, len, "C");
+               else
+                  snprintf(buf, len, "%c%d", amount < 0 ? 'L' : 'R', std::abs(amount));
+               break;
+            }
             case SliderFormat::Choice:
             {
                const int index = static_cast<int>(std::lround(value));
@@ -167,8 +189,10 @@ namespace bespoke
             const float barY = screenY + (slidersTop() + static_cast<float>(row) * kRowStep) * scale;
             const float barH = kRowHeight * scale;
             const float range = spec.maxValue - spec.minValue;
-            const float t = range > 0.0f ? (mValues[row] - spec.minValue) / range : 0.0f;
-            renderer.drawSlider(barX, barY, barW, barH, std::max(0.0f, std::min(1.0f, t)), track, fill);
+            float t = range > 0.0f ? (mValues[row] - spec.minValue) / range : 0.0f;
+            if (spec.logarithmic && spec.minValue > 0.0f && range > 0.0f)
+               t = std::log(std::max(mValues[row], spec.minValue) / spec.minValue) / std::log(spec.maxValue / spec.minValue);
+            WidgetPainter(renderer).drawSlider(barX, barY, barW, barH, std::max(0.0f, std::min(1.0f, t)), track, fill);
 
             char valueText[32];
             formatValue(static_cast<int>(row), valueText, sizeof(valueText));

@@ -101,19 +101,6 @@ export function onScreenshotCaptured(callback: ScreenshotCallback | null): void 
   screenshotCallback = callback;
 }
 
-function rgbaToPngDataUrl(rgba: Uint8Array, width: number, height: number): string {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('2D canvas context unavailable for PNG encoding');
-
-  const imageData = ctx.createImageData(width, height);
-  imageData.data.set(rgba);
-  ctx.putImageData(imageData, 0, 0);
-  return canvas.toDataURL('image/png');
-}
-
 function cropDataUrl(
   dataUrl: string,
   rect: ScreenshotRect,
@@ -148,75 +135,23 @@ function cropDataUrl(
   });
 }
 
-function readWasmScreenshot(module: BespokeSynthModule): { rgba: Uint8Array; width: number; height: number } | null {
-  if (!module?._bespoke_capture_screenshot || !module?._bespoke_get_screenshot_pixels) return null;
-
-  const widthPtr = module._malloc(4);
-  const heightPtr = module._malloc(4);
-  try {
-    const backendCode = module._bespoke_capture_screenshot(widthPtr, heightPtr);
-    const width = module.HEAP32[widthPtr >> 2];
-    const height = module.HEAP32[heightPtr >> 2];
-
-    if (backendCode === 1) {
-      return null; // WebGL2 — use canvas readback
-    }
-    if (backendCode !== 0 || width <= 0 || height <= 0) {
-      return null;
-    }
-
-    const byteLenPtr = module._malloc(4);
-    try {
-      const ptr = module._bespoke_get_screenshot_pixels(byteLenPtr);
-      const byteLen = module.HEAP32[byteLenPtr >> 2];
-      if (!ptr || byteLen <= 0) return null;
-      const rgba = new Uint8Array(module.HEAPU8.buffer, ptr, byteLen).slice();
-      return { rgba, width, height };
-    } finally {
-      module._free(byteLenPtr);
-    }
-  } finally {
-    module._free(widthPtr);
-    module._free(heightPtr);
-  }
-}
-
+/**
+ * Renders a frame and reads the canvas in the same task, so the WebGPU current texture (or the
+ * WebGL2 drawing buffer) still holds it. The crop rect is in canvas (device) pixels.
+ */
 export async function captureCanvasScreenshot(
   canvas: HTMLCanvasElement,
   module?: BespokeSynthModule | null,
   options: CaptureScreenshotOptions = {},
 ): Promise<string> {
-  let dataUrl: string;
-  let fullWidth = canvas.width;
-  let fullHeight = canvas.height;
-
-  const wasmPixels = module ? readWasmScreenshot(module) : null;
-  if (wasmPixels) {
-    dataUrl = rgbaToPngDataUrl(wasmPixels.rgba, wasmPixels.width, wasmPixels.height);
-    fullWidth = wasmPixels.width;
-    fullHeight = wasmPixels.height;
-  } else {
-    if (options.renderFirst !== false && module?._bespoke_capture_screenshot) {
-      const widthPtr = module._malloc(4);
-      const heightPtr = module._malloc(4);
-      try {
-        module._bespoke_capture_screenshot(widthPtr, heightPtr);
-        fullWidth = module.HEAP32[widthPtr >> 2];
-        fullHeight = module.HEAP32[heightPtr >> 2];
-      } finally {
-        module._free(widthPtr);
-        module._free(heightPtr);
-      }
-    } else if (options.renderFirst !== false && module?._bespoke_render) {
-      module._bespoke_render();
-    }
-    dataUrl = canvas.toDataURL('image/png');
-  }
+  if (options.renderFirst !== false) module?._bespoke_render();
+  const dataUrl = canvas.toDataURL('image/png');
+  const fullWidth = canvas.width;
+  const fullHeight = canvas.height;
 
   const cropped = await cropDataUrl(dataUrl, options, fullWidth, fullHeight);
 
-  const backend: RendererBackend =
-    module?._bespoke_get_renderer_backend?.() === 1 ? 'webgl' : 'webgpu';
+  const backend: RendererBackend = module?._bespoke_get_renderer_backend() === 1 ? 'webgl' : 'webgpu';
 
   if (screenshotCallback) {
     screenshotCallback(cropped, {

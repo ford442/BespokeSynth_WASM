@@ -156,14 +156,47 @@ function installPointerInput(canvas: HTMLCanvasElement, module: BespokeSynthModu
 
 function installMouseInput(canvas: HTMLCanvasElement, module: BespokeSynthModule): void {
   canvas.addEventListener('mousedown', (e) => {
-    module._bespoke_mouse_down?.(e.offsetX, e.offsetY, e.button);
+    module._bespoke_mouse_down(e.offsetX, e.offsetY, e.button);
   });
   canvas.addEventListener('mouseup', (e) => {
-    module._bespoke_mouse_up?.(e.offsetX, e.offsetY, e.button);
+    module._bespoke_mouse_up(e.offsetX, e.offsetY, e.button);
   });
   canvas.addEventListener('mousemove', (e) => {
-    module._bespoke_mouse_move?.(e.offsetX, e.offsetY);
+    module._bespoke_mouse_move(e.offsetX, e.offsetY);
   });
+}
+
+/** Pixels per wheel "line" (Firefox reports DOM_DELTA_LINE, ~3 per notch, vs ~100 px elsewhere). */
+const WHEEL_LINE_PX = 40;
+
+/** Wheel deltas in pixels whatever the event's deltaMode. */
+export function wheelDeltaPixels(e: Pick<WheelEvent, 'deltaX' | 'deltaY' | 'deltaMode'>, pageHeight: number) {
+  const scale = e.deltaMode === 1 ? WHEEL_LINE_PX : e.deltaMode === 2 ? pageHeight : 1;
+  return { x: e.deltaX * scale, y: e.deltaY * scale };
+}
+
+/**
+ * Listeners that live on the canvas element itself. Called again for a replacement canvas
+ * (renderer recovery swaps #canvas, since a canvas keeps its first context type).
+ */
+export function installCanvasInput(canvas: HTMLCanvasElement, module: BespokeSynthModule): void {
+  if (typeof window.PointerEvent === 'function') {
+    installPointerInput(canvas, module);
+  } else {
+    installMouseInput(canvas, module);
+  }
+
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  canvas.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      const delta = wheelDeltaPixels(e, canvas.clientHeight || window.innerHeight);
+      module._bespoke_mouse_wheel(delta.x, delta.y);
+    },
+    { passive: false },
+  );
 }
 
 /**
@@ -178,33 +211,18 @@ export function installInputBridge(
   if (inputBridgeInstalled) return;
   inputBridgeInstalled = true;
 
-  if (typeof window.PointerEvent === 'function' && typeof module._bespoke_pointer_down === 'function') {
-    installPointerInput(canvas, module);
-  } else {
-    installMouseInput(canvas, module);
-  }
-
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-
-  canvas.addEventListener(
-    'wheel',
-    (e) => {
-      e.preventDefault();
-      module._bespoke_mouse_wheel?.(e.deltaX, e.deltaY);
-    },
-    { passive: false },
-  );
+  installCanvasInput(canvas, module);
 
   const piano = callbacks.piano;
 
   document.addEventListener('keydown', (e) => {
-    if (!module._bespoke_key_down || isEditableTarget(e.target)) return;
+    if (isEditableTarget(e.target)) return;
     const modifiers = getModifiers(e);
     const keyCode = keyboardEventToWasmKeyCode(e);
     lastKeyDownCode = keyCode;
 
     // The spawn-menu search box owns letters while it is open.
-    const typingInCanvas = (module._bespoke_is_text_entry_active?.() ?? 0) === 1;
+    const typingInCanvas = module._bespoke_is_text_entry_active() === 1;
     if (piano && !typingInCanvas && piano.handleKeyDown(e)) {
       e.preventDefault();
       return;
@@ -218,7 +236,6 @@ export function installInputBridge(
   });
 
   document.addEventListener('keyup', (e) => {
-    if (!module._bespoke_key_up) return;
     const modifiers = getModifiers(e);
     const keyCode = keyboardEventToWasmKeyCode(e);
     lastKeyUpCode = keyCode;

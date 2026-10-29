@@ -147,8 +147,7 @@ void Knob::render(Renderer2D& renderer, float x, float y, float size) {
 
 void Knob::renderClassicKnob(Renderer2D& renderer, float x, float y, float size) {
     float radius = size * 0.4f;
-    float normalizedValue = getValueNormalized();
-    
+
     // Draw shadow
     renderer.fillColor(Color(0.0f, 0.0f, 0.0f, 0.3f));
     renderer.circle(x + 2, y + 2, radius);
@@ -323,7 +322,7 @@ void Knob::renderLEDKnob(Renderer2D& renderer, float x, float y, float size) {
     
     // Draw LED ring
     for (int i = 0; i < numLEDs; i++) {
-        float ledPos = static_cast<float>(i) / (numLEDs - 1);
+        float ledPos = static_cast<float>(i) / static_cast<float>(numLEDs - 1);
         float angle = kStartAngle + ledPos * kAngleRange;
         float ledX = x + cosf(angle) * radius;
         float ledY = y + sinf(angle) * radius;
@@ -387,13 +386,13 @@ bool Knob::hitTest(float mouseX, float mouseY, float knobX, float knobY, float s
     return (dx * dx + dy * dy) <= (radius * radius);
 }
 
-void Knob::onMouseDown(float x, float y, float knobX, float knobY, float size) {
+void Knob::onMouseDown(float /*x*/, float y, float /*knobX*/, float /*knobY*/, float /*size*/) {
     mDragging = true;
     mDragStartValue = mValue;
     mDragStartY = y;
 }
 
-void Knob::onMouseDrag(float x, float y, float prevX, float prevY) {
+void Knob::onMouseDrag(float /*x*/, float y, float /*prevX*/, float prevY) {
     if (!mDragging) return;
     
     float sensitivity = mFineMode ? mSensitivity * 0.1f : mSensitivity;

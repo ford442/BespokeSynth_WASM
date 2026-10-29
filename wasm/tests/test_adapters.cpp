@@ -1,4 +1,6 @@
 #include "test_common.h"
+#include "BespokeWasm/AdapterStorage.h"
+#include <cstddef>
 
 void test_filter_module_adapter()
 {
@@ -26,7 +28,7 @@ void test_filter_module_adapter()
    WasmAudioProcessContext context;
    context.sampleRate = 44100.0f;
    context.numSamples = 64;
-   adapter.processAudio(&runtime, &params, buffer, context);
+   adapter.processMono(&runtime, &params, buffer, context);
    double energy = 0.0;
    for (float sample : buffer)
       energy += sample * sample;
@@ -57,7 +59,7 @@ void test_first_wave_module_adapters()
       WasmAudioProcessContext context;
       context.sampleRate = 44100.0f;
       context.numSamples = 256;
-      adapter.processAudio(&runtime, &params, buffer, context);
+      adapter.processMono(&runtime, &params, buffer, context);
       TEST("Noise adapter produces non-silent output", buffer_rms(std::vector<float>(buffer, buffer + 256)) > 0.01f);
       TEST("Noise adapter registered", WasmModuleAdapterRegistry::instance().find("noise") != nullptr);
    }
@@ -74,7 +76,7 @@ void test_first_wave_module_adapters()
       WasmAudioProcessContext context;
       context.sampleRate = 44100.0f;
       context.numSamples = 512;
-      adapter.processAudio(runtimeStorage.data(), &params, buffer, context);
+      adapter.processMono(runtimeStorage.data(), &params, buffer, context);
       double tail = 0.0;
       for (int i = 100; i < 512; ++i)
          tail += std::fabs(buffer[i]);
@@ -102,7 +104,7 @@ void test_first_wave_module_adapters()
       context.blockStartTimeSeconds = 1.0;
       context.notes = &noteOn;
       context.noteCount = 1;
-      adapter.processAudio(&runtime, &params, buffer, context);
+      adapter.processMono(&runtime, &params, buffer, context);
       TEST("ADSR adapter applies envelope after note-on", buffer_rms(std::vector<float>(buffer, buffer + 256)) > 0.01f);
       TEST("ADSR adapter registered", WasmModuleAdapterRegistry::instance().find("adsr") != nullptr);
 
@@ -122,7 +124,7 @@ void test_first_wave_module_adapters()
       appendAudioGraphNode(graph, 1, "noise", true, { { "volume", 0.4f } });
       appendAudioGraphNode(graph, 2, "delay", true,
                            { { "time", 0.05f }, { "feedback", 0.2f }, { "mix", 0.4f } });
-      appendAudioGraphNode(graph, 3, "output", true, {});
+      appendAudioGraphNode(graph, 3, "output", true, { { "dcblock", 0.0f } }); // a constant must pass through
 
       AudioGraphConnection c1;
       c1.sourceModuleId = 1;
@@ -185,7 +187,7 @@ void test_step_sequencer_note_graph()
    appendAudioGraphNode(graph, 1, "stepsequencer", true,
                         { { "pattern", 1.0f }, { "pitch", 60.0f }, { "gate", 0.5f }, { "steps", 16.0f } });
    appendAudioGraphNode(graph, 2, "oscillator", true, { { "volume", 1.0f }, { "frequency", 440.0f } });
-   appendAudioGraphNode(graph, 3, "output", true, {});
+   appendAudioGraphNode(graph, 3, "output", true, { { "dcblock", 0.0f } }); // exact-silence checks below
 
    AudioGraphConnection noteConn;
    noteConn.sourceModuleId = 1;
@@ -214,7 +216,7 @@ void test_step_sequencer_note_graph()
       if (step.moduleId == 2)
       {
          oscNoteCable = step.hasNoteCable;
-         oscScratchCount = step.noteSourceScratchSlots.size();
+         oscScratchCount = static_cast<int>(step.noteSources.count);
       }
    }
    TEST("Oscillator plan has note cable", oscNoteCable);
@@ -244,7 +246,7 @@ void test_step_sequencer_note_graph()
       ctx.notes = emitted;
       ctx.noteCount = emittedCount;
       float buf[128] = {};
-      oscAdapter.processAudio(oscRt.data(), &oscP, buf, ctx);
+      oscAdapter.processMono(oscRt.data(), &oscP, buf, ctx);
       TEST("Oscillator sounds when gated by sequencer notes", buffer_rms(std::vector<float>(buf, buf + 128)) > 0.01f);
       oscAdapter.destroyRuntimeState(oscRt.data());
       seqAdapter.destroyRuntimeState(seqRt.data());
@@ -252,6 +254,7 @@ void test_step_sequencer_note_graph()
 
    AudioGraphEngine engine;
    engine.prepareForBlock(bufferSize, 128, 32);
+   engine.prepareRuntimeStates(graph);
    constexpr int blocks = 180; // ~2 seconds
    double energyOn = 0.0;
    double energyOff = 0.0;
@@ -304,62 +307,75 @@ void test_typed_adapter_round_trip()
 {
    printf("\n=== Typed Adapter Round-Trip Tests ===\n");
 
-   class FakeConstantAdapter : public WasmModuleAdapter
+   struct FakeConstantParams
+   {
+      float value = 0.25f;
+   };
+
+   class FakeConstantAdapter : public AdapterStorage<FakeConstantParams>
    {
    public:
-      struct Params
-      {
-         float value = 0.25f;
-      };
-
       const char* typeId() const override { return "test.constant"; }
       const char* displayName() const override { return "Test Constant"; }
       ModuleCategory category() const override { return ModuleCategory::Synth; }
       WasmAudioRole audioRole() const override { return WasmAudioRole::AudioSource; }
-      std::vector<WasmControlDescriptor> controlDescriptors() const override { return { { "value", 0.25f } }; }
-      std::vector<PortDescriptor> outputPorts() const override { return { { PortType::Audio, "Out" } }; }
-      std::unique_ptr<Module> createUiModule(int) const override { return nullptr; }
-      size_t paramsSize() const override { return sizeof(Params); }
-      void fillParams(const WasmControlMap& controls, void* dst) const override
+      ParamTable paramTable() const override
       {
-         auto* params = static_cast<Params*>(dst);
-         params->value = wasmControlValue(controls, "value", 0.25f);
+         static constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "value", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.25f, .offset = offsetof(FakeConstantParams, value) },
+         };
+         return kParams;
       }
-      void processAudio(void*, const void* paramsPtr, float* buffer, const WasmAudioProcessContext& context) const override
+      std::span<const PortDescriptor> outputPorts() const override
+      {
+         static constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
+         return kOutputs;
+      }
+      std::unique_ptr<Module> createUiModule(int) const override { return nullptr; }
+      void processAudio(void*, const void* paramsPtr, float* const* channels, const WasmAudioProcessContext& context) const override
       {
          const auto& params = *static_cast<const Params*>(paramsPtr);
          for (int i = 0; i < context.numSamples; ++i)
-            buffer[i] = params.value;
+            channels[0][i] = params.value;
       }
    };
 
-   class FakeScaleAdapter : public WasmModuleAdapter
+   struct FakeScaleParams
+   {
+      float scale = 2.0f;
+   };
+
+   class FakeScaleAdapter : public AdapterStorage<FakeScaleParams>
    {
    public:
-      struct Params
-      {
-         float scale = 2.0f;
-      };
-
       const char* typeId() const override { return "test.scale"; }
       const char* displayName() const override { return "Test Scale"; }
       ModuleCategory category() const override { return ModuleCategory::AudioEffect; }
       WasmAudioRole audioRole() const override { return WasmAudioRole::AudioProcessor; }
-      std::vector<WasmControlDescriptor> controlDescriptors() const override { return { { "scale", 2.0f } }; }
-      std::vector<PortDescriptor> inputPorts() const override { return { { PortType::Audio, "In" } }; }
-      std::vector<PortDescriptor> outputPorts() const override { return { { PortType::Audio, "Out" } }; }
-      std::unique_ptr<Module> createUiModule(int) const override { return nullptr; }
-      size_t paramsSize() const override { return sizeof(Params); }
-      void fillParams(const WasmControlMap& controls, void* dst) const override
+      ParamTable paramTable() const override
       {
-         auto* params = static_cast<Params*>(dst);
-         params->scale = wasmControlValue(controls, "scale", 2.0f);
+         static constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "scale", .minValue = 0.0f, .maxValue = 4.0f, .defaultValue = 2.0f, .offset = offsetof(FakeScaleParams, scale) },
+         };
+         return kParams;
       }
-      void processAudio(void*, const void* paramsPtr, float* buffer, const WasmAudioProcessContext& context) const override
+      std::span<const PortDescriptor> inputPorts() const override
+      {
+         static constexpr PortDescriptor kInputs[] = { { PortType::Audio, "In" } };
+         return kInputs;
+      }
+      std::span<const PortDescriptor> outputPorts() const override
+      {
+         static constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
+         return kOutputs;
+      }
+      std::unique_ptr<Module> createUiModule(int) const override { return nullptr; }
+      void processAudio(void*, const void* paramsPtr, float* const* channels, const WasmAudioProcessContext& context) const override
       {
          const auto& params = *static_cast<const Params*>(paramsPtr);
-         for (int i = 0; i < context.numSamples; ++i)
-            buffer[i] *= params.scale;
+         for (int ch = 0; ch < context.numChannels; ++ch)
+            for (int i = 0; i < context.numSamples; ++i)
+               channels[ch][i] *= params.scale;
       }
    };
 
@@ -375,7 +391,7 @@ void test_typed_adapter_round_trip()
    graph.transportPlaying = true;
    appendAudioGraphNode(graph, 1, "test.constant", true, { { "value", 0.25f } });
    appendAudioGraphNode(graph, 2, "test.scale", true, { { "scale", 2.0f } });
-   appendAudioGraphNode(graph, 3, "output", true, {});
+   appendAudioGraphNode(graph, 3, "output", true, { { "dcblock", 0.0f } }); // a constant must pass through
 
    AudioGraphConnection c1;
    c1.sourceModuleId = 1;
@@ -416,7 +432,7 @@ void test_reverb_adapter()
    WasmAudioProcessContext context;
    context.sampleRate = 44100.0f;
    context.numSamples = 2048;
-   adapter.processAudio(runtime.data(), &params, buffer, context);
+   adapter.processMono(runtime.data(), &params, buffer, context);
    double tail = 0.0;
    for (int i = 1200; i < 2048; ++i)
       tail += std::fabs(buffer[i]);

@@ -45,8 +45,7 @@ cd build
 # Configure with Emscripten
 emcmake cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
-    -DBESPOKE_WASM_WEBGPU=ON \
-    -DBESPOKE_WASM_SDL2_AUDIO=ON
+    -DBESPOKE_WASM_BUILD_FLAVOR=Release
 
 # Build
 cmake --build . --parallel
@@ -54,6 +53,7 @@ cmake --build . --parallel
 # The output files will be in wasm/build/:
 # - BespokeSynthWASM.js
 # - BespokeSynthWASM.wasm
+# - BespokeSynthWASM_audio.js / BespokeSynthWASM_audio.wasm (AudioWorklet engine)
 ```
 
 ## Step 3: Copy Output Files
@@ -62,11 +62,13 @@ After a successful build, copy the files from `wasm/build/` or `wasm/dist/`:
 
 ```bash
 # From the wasm directory
-ls -lh build/BespokeSynthWASM.*
+ls -lh build/BespokeSynthWASM*
 # You should see:
 # BespokeSynthWASM.js
 # BespokeSynthWASM.wasm
 # BespokeSynthWASM.data   # preload bundle (~4 KB) — required at runtime
+# BespokeSynthWASM_audio.js
+# BespokeSynthWASM_audio.wasm   # AudioWorklet engine; without it the app falls back to the main-thread ring
 ```
 
 ## Step 4: Deploy to Your Server
@@ -77,6 +79,8 @@ Upload the new files to replace the existing ones:
 - `https://test.1ink.us/modular/wasm/BespokeSynthWASM.js`
 - `https://test.1ink.us/modular/wasm/BespokeSynthWASM.wasm`
 - `https://test.1ink.us/modular/wasm/BespokeSynthWASM.data`
+- `https://test.1ink.us/modular/wasm/BespokeSynthWASM_audio.js`
+- `https://test.1ink.us/modular/wasm/BespokeSynthWASM_audio.wasm`
 
 **Deploy method options:**
 
@@ -85,6 +89,7 @@ Upload the new files to replace the existing ones:
 scp wasm/build/BespokeSynthWASM.js user@test.1ink.us:/path/to/modular/wasm/
 scp wasm/build/BespokeSynthWASM.wasm user@test.1ink.us:/path/to/modular/wasm/
 scp wasm/build/BespokeSynthWASM.data user@test.1ink.us:/path/to/modular/wasm/
+scp wasm/build/BespokeSynthWASM_audio.js wasm/build/BespokeSynthWASM_audio.wasm user@test.1ink.us:/path/to/modular/wasm/
 ```
 
 ### Option B: Using FTP/SFTP
@@ -92,10 +97,12 @@ Use your FTP client (FileZilla, WinSCP, etc.) to upload:
 - `wasm/build/BespokeSynthWASM.js` → `/modular/wasm/BespokeSynthWASM.js`
 - `wasm/build/BespokeSynthWASM.wasm` → `/modular/wasm/BespokeSynthWASM.wasm`
 - `wasm/build/BespokeSynthWASM.data` → `/modular/wasm/BespokeSynthWASM.data`
+- `wasm/build/BespokeSynthWASM_audio.js` → `/modular/wasm/BespokeSynthWASM_audio.js`
+- `wasm/build/BespokeSynthWASM_audio.wasm` → `/modular/wasm/BespokeSynthWASM_audio.wasm`
 
 ### Option C: Using rsync
 ```bash
-rsync -avz wasm/build/BespokeSynthWASM.* user@test.1ink.us:/path/to/modular/wasm/
+rsync -avz wasm/build/BespokeSynthWASM*.{js,wasm,data} user@test.1ink.us:/path/to/modular/wasm/
 ```
 
 ### Option D: Web-based File Manager
@@ -135,9 +142,24 @@ Header always set Cross-Origin-Resource-Policy "same-origin"
   Cross-Origin-Resource-Policy: same-origin
 ```
 
-**GitHub Pages** cannot set response headers, so it always runs on SDL2.
+**GitHub Pages** cannot set response headers. Without the service worker below it runs on SDL2.
 
-`COEP: require-corp` blocks cross-origin images, fonts, and scripts that do not opt in with CORP/CORS. Host assets on the same origin. These headers do **not** turn on pthreads (`BESPOKE_WASM_THREADS` stays OFF).
+#### Hosts without header control (service worker)
+
+Build with the opt-in COOP/COEP service worker:
+
+```bash
+BESPOKE_COI_SW=1 npm run build:web-only   # or: npx webpack --mode production --env coiServiceWorker
+```
+
+This copies `coi-serviceworker.js` to the site root and loads it first in `<head>`. On the first visit it registers itself and reloads the page once. From then on it re-serves every response with COOP/COEP/CORP added, so the page is cross-origin isolated and the AudioWorklet engine runs. Limits:
+
+- The first load runs without isolation until the reload.
+- It needs HTTPS (or `localhost`), service workers enabled, and a browser that honours headers added by a service worker. If the reload still isn't isolated, the page stays on SDL2 and does not reload again (a `sessionStorage` flag).
+- Cross-origin `no-cors` resources (opaque responses) can't be changed, so COEP still blocks them. Host assets on the same origin.
+- On hosts that send the real headers it does nothing; leave it off there.
+
+`COEP: require-corp` blocks cross-origin images, fonts, and scripts that do not opt in with CORP/CORS. Host assets on the same origin. These headers do **not** turn on pthreads; the build has none.
 
 ## Step 5: Verify the Deployment
 
@@ -227,6 +249,7 @@ WebGPU is required and supported in:
 Typical file sizes after build:
 - `BespokeSynthWASM.js`: ~100KB - 500KB
 - `BespokeSynthWASM.wasm`: ~1MB - 2MB (depends on what's included)
+- `BespokeSynthWASM_audio.wasm`: ~0.5 MB; `BespokeSynthWASM_audio.js`: ~70 KB
 - `BespokeSynthWASM.data`: ~4 KB (slim `wasm/resource-pack/` preload: scales, starter patch, blank layout)
 
 The full desktop `resource/` tree is still ~32 MB on disk and is **not** packed into `.data`. See [docs/wasm/resources.md](wasm/resources.md).
@@ -252,7 +275,7 @@ After successful deployment:
 If you encounter problems:
 
 1. Check the console logs for specific error messages
-2. Review `WASM_FIX_SUMMARY.md` for technical details
+2. Review [`archive/WASM_FIX_SUMMARY.md`](archive/WASM_FIX_SUMMARY.md) for historical technical details
 3. Check the troubleshooting section in `README_NPM.md`
 4. Open an issue on GitHub with:
    - Browser and version

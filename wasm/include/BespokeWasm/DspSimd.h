@@ -69,6 +69,56 @@ namespace bespoke::wasm::dsp
          dst[i] = a[i] * gainA + b[i] * gainB;
    }
 
+   /** Mono into planar stereo: dstL[i] += src[i] * gainL; dstR[i] += src[i] * gainR */
+   inline void accumulatePanned(float* dstL, float* dstR, const float* src, int n, float gainL, float gainR)
+   {
+      int i = 0;
+#if BESPOKE_DSP_SIMD128
+      const v128_t gl = wasm_f32x4_splat(gainL);
+      const v128_t gr = wasm_f32x4_splat(gainR);
+      for (; i + 4 <= n; i += 4)
+      {
+         const v128_t s = wasm_v128_load(src + i);
+         wasm_v128_store(dstL + i, wasm_f32x4_add(wasm_v128_load(dstL + i), wasm_f32x4_mul(s, gl)));
+         wasm_v128_store(dstR + i, wasm_f32x4_add(wasm_v128_load(dstR + i), wasm_f32x4_mul(s, gr)));
+      }
+#endif
+      for (; i < n; ++i)
+      {
+         const float s = src[i];
+         dstL[i] += s * gainL;
+         dstR[i] += s * gainR;
+      }
+   }
+
+   /** dst[i] = (l[i] + r[i]) * 0.5 (stereo collapse; dst may alias l or r) */
+   inline void midDownmix(float* dst, const float* l, const float* r, int n)
+   {
+      mix2(dst, l, 0.5f, r, 0.5f, n);
+   }
+
+   /** max |buf[i]| (0 for n <= 0; NaN samples are ignored) */
+   inline float peakAbs(const float* buf, int n)
+   {
+      float peak = 0.0f;
+      int i = 0;
+#if BESPOKE_DSP_SIMD128
+      v128_t acc = wasm_f32x4_splat(0.0f);
+      for (; i + 4 <= n; i += 4)
+         acc = wasm_f32x4_pmax(acc, wasm_f32x4_abs(wasm_v128_load(buf + i)));
+      const float lanes[4] = { wasm_f32x4_extract_lane(acc, 0), wasm_f32x4_extract_lane(acc, 1),
+                               wasm_f32x4_extract_lane(acc, 2), wasm_f32x4_extract_lane(acc, 3) };
+      for (float lane : lanes)
+         peak = lane > peak ? lane : peak;
+#endif
+      for (; i < n; ++i)
+      {
+         const float a = std::fabs(buf[i]);
+         peak = a > peak ? a : peak;
+      }
+      return peak;
+   }
+
    /** dst[i] *= src[i] */
    inline void multiply(float* dst, const float* src, int n)
    {

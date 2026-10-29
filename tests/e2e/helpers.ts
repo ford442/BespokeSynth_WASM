@@ -7,6 +7,12 @@ export function testRenderer(): 'webgl' | 'webgpu' {
   return 'webgl';
 }
 
+/**
+ * Backends a feature test should pass on: SDL2 plays the graph on the main thread; `worklet`
+ * (the cross-origin-isolated default) runs it in the AudioWorklet engine module.
+ */
+export const AUDIO_BACKENDS = ['sdl', 'worklet'] as const;
+
 export async function gotoApp(page: Page, query = '', basePath = '/'): Promise<void> {
   const renderer = testRenderer();
   const suffix = query ? `&${query}` : '';
@@ -18,8 +24,7 @@ export async function gotoApp(page: Page, query = '', basePath = '/'): Promise<v
 export async function waitForBespokeReady(page: Page, timeout = 60000): Promise<void> {
   await page.waitForFunction(
     () => {
-      const w = window as Window & { __bespoke?: { getRendererBackend?: () => string } };
-      const hasApi = w.__bespoke?.getRendererBackend !== undefined;
+      const hasApi = window.__bespoke?.getRendererBackend !== undefined;
       const statusHidden = document.querySelector('#status')?.classList.contains('hidden');
       return hasApi && statusHidden === true;
     },

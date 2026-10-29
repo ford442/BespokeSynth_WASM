@@ -7,8 +7,9 @@
 
 #pragma once
 
+#include "BespokeWasm/AdapterStorage.h"
 #include "BespokeWasm/SampleBuffer.h"
-#include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/SampleStore.h"
 
 namespace bespoke
 {
@@ -26,7 +27,10 @@ namespace bespoke
 
       struct SamplerParams
       {
+         /** `handle` resolved when the params were filled; pinned by the snapshot (collectResources). */
          const SampleBuffer* sample = nullptr;
+         /** The buffer in the SampleStore; rebindParams resolves it in another heap. */
+         SampleHandle handle;
          float volume = 0.85f;
          float start = 0.0f;
          float end = 1.0f;
@@ -53,32 +57,31 @@ namespace bespoke
          uint32_t ageCounter = 0;
       };
 
-      class SamplerModuleAdapter : public WasmModuleAdapter
+      class SamplerModuleAdapter : public AdapterStorage<SamplerParams, SamplerAdapterRuntimeState>
       {
       public:
          const char* typeId() const override { return "sampler"; }
          const char* displayName() const override { return "Sampler"; }
          ModuleCategory category() const override { return ModuleCategory::Synth; }
          WasmAudioRole audioRole() const override { return WasmAudioRole::AudioSource; }
+         /** Stereo files play stereo; mono files (or no sample) stay mono. */
+         int outputChannelCount(const void* params, const WasmAudioProcessContext& context) const override;
 
-         std::vector<WasmControlDescriptor> controlDescriptors() const override;
-         std::vector<PortDescriptor> inputPorts() const override;
-         std::vector<PortDescriptor> outputPorts() const override;
+         ParamTable paramTable() const override;
+         std::span<const PortDescriptor> inputPorts() const override;
+         std::span<const PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
 
-         size_t paramsSize() const override { return sizeof(SamplerParams); }
-         void fillParams(const WasmControlMap& controls, void* dst) const override;
-         void fillParams(int moduleId,
-                         const WasmControlMap& controls,
-                         const WasmStringMap& extras,
-                         void* dst) const override;
+         /** Resolves extras["sampleHash"] to `sample` / `sampleId`. */
+         void bindParams(int moduleId, const WasmStringMap& extras, void* params) const override;
+         /** Keeps end after start and loopEnd after loopStart. */
+         void finalizeParams(void* params) const override;
+         void rebindParams(int moduleId, void* params) const override;
+         void collectResources(int moduleId, const void* params, WasmResourceRefs& refs) const override;
 
-         size_t runtimeStateSize() const override { return sizeof(SamplerAdapterRuntimeState); }
-         void initRuntimeState(void* runtimeState) const override;
-         void destroyRuntimeState(void* runtimeState) const override;
          void processAudio(void* runtimeState,
                            const void* params,
-                           float* buffer,
+                           float* const* channels,
                            const WasmAudioProcessContext& context) const override;
       };
 

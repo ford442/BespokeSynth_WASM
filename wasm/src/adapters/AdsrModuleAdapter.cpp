@@ -5,7 +5,7 @@
 #include "BespokeWasm/adapters/AdsrModuleAdapter.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -17,26 +17,32 @@ namespace bespoke
          {
             return std::max(minValue, std::min(maxValue, value));
          }
-      }
 
-      std::vector<WasmControlDescriptor> AdsrModuleAdapter::controlDescriptors() const
-      {
-         return {
-            { "attack", 10.0f },
-            { "decay", 120.0f },
-            { "sustain", 0.7f },
-            { "release", 200.0f },
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "attack", .minValue = 1.0f, .maxValue = 2000.0f, .defaultValue = 10.0f, .offset = offsetof(AdsrParams, attack) },
+            { .id = 1, .name = "decay", .minValue = 1.0f, .maxValue = 2000.0f, .defaultValue = 120.0f, .offset = offsetof(AdsrParams, decay) },
+            { .id = 2, .name = "sustain", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.7f, .offset = offsetof(AdsrParams, sustain) },
+            { .id = 3, .name = "release", .minValue = 1.0f, .maxValue = 4000.0f, .defaultValue = 200.0f, .offset = offsetof(AdsrParams, release) },
          };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Audio, "In" }, { PortType::Note, "Gate" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
       }
 
-      std::vector<PortDescriptor> AdsrModuleAdapter::inputPorts() const
+      ParamTable AdsrModuleAdapter::paramTable() const
       {
-         return { { PortType::Audio, "In" }, { PortType::Note, "Gate" } };
+         return kParams;
       }
 
-      std::vector<PortDescriptor> AdsrModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> AdsrModuleAdapter::inputPorts() const
       {
-         return { { PortType::Audio, "Out" } };
+         return kInputs;
+      }
+
+      std::span<const PortDescriptor> AdsrModuleAdapter::outputPorts() const
+      {
+         return kOutputs;
       }
 
       std::unique_ptr<Module> AdsrModuleAdapter::createUiModule(int id) const
@@ -44,31 +50,12 @@ namespace bespoke
          return std::make_unique<AdsrModule>(id);
       }
 
-      void AdsrModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         auto* params = new (dst) AdsrParams();
-         params->attack = wasmControlValue(controls, "attack", 10.0f);
-         params->decay = wasmControlValue(controls, "decay", 120.0f);
-         params->sustain = wasmControlValue(controls, "sustain", 0.7f);
-         params->release = wasmControlValue(controls, "release", 200.0f);
-      }
-
-      void AdsrModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) AdsrAdapterRuntimeState();
-      }
-
-      void AdsrModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<AdsrAdapterRuntimeState*>(runtimeState)->~AdsrAdapterRuntimeState();
-      }
-
       void AdsrModuleAdapter::processAudio(void* runtimeState,
                                            const void* paramsPtr,
-                                           float* buffer,
+                                           float* const* channels,
                                            const WasmAudioProcessContext& context) const
       {
-         if (!runtimeState || !paramsPtr || !buffer)
+         if (!runtimeState || !paramsPtr || !channels)
             return;
 
          auto& state = *static_cast<AdsrAdapterRuntimeState*>(runtimeState);
@@ -82,6 +69,8 @@ namespace bespoke
          for (int n = 0; n < context.noteCount; ++n)
          {
             const WasmNoteEvent& note = context.notes[n];
+            if (isPitchBendEvent(note))
+               continue;
             if (note.isNoteOn)
             {
                state.stage = AdsrAdapterRuntimeState::Stage::Attack;
@@ -151,7 +140,8 @@ namespace bespoke
                   break;
             }
 
-            buffer[i] *= state.level;
+            for (int ch = 0; ch < context.numChannels; ++ch)
+               channels[ch][i] *= state.level;
          }
       }
 

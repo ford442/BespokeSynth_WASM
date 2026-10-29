@@ -1,0 +1,205 @@
+{
+ "filetype": "bespokesynth",
+ "format": "bespokesynth-wasm-state",
+ "version": 5,
+ "wasm": {
+  "view_mode": 0,
+  "canvas": {
+   "offset_x": 0.0,
+   "offset_y": 0.0,
+   "scale": 0.8
+  }
+ },
+ "transport": {
+  "bpm": 104.0,
+  "playing": false
+ },
+ "modules": [
+  {
+   "id": 1,
+   "type": "transport",
+   "position": {
+    "x": 30.0,
+    "y": 20.0
+   },
+   "controls": {
+    "bpm": 104.0,
+    "swing": 0.0
+   }
+  },
+  {
+   "id": 2,
+   "type": "notesequencer",
+   "position": {
+    "x": 30.0,
+    "y": 180.0
+   },
+   "controls": {
+    "interval": 2.0,
+    "len0": 0.5,
+    "len1": 0.5,
+    "len10": 0.5,
+    "len11": 0.5,
+    "len12": 0.5,
+    "len13": 0.5,
+    "len14": 0.5,
+    "len15": 0.5,
+    "len2": 0.5,
+    "len3": 0.5,
+    "len4": 0.5,
+    "len5": 0.5,
+    "len6": 0.5,
+    "len7": 0.5,
+    "len8": 0.5,
+    "len9": 0.5,
+    "octave": 4.0,
+    "rows": 12.0,
+    "steps": 16.0,
+    "tone0": 0.0,
+    "tone1": 4.0,
+    "tone10": 7.0,
+    "tone11": 11.0,
+    "tone12": 9.0,
+    "tone13": 7.0,
+    "tone14": 4.0,
+    "tone15": 2.0,
+    "tone2": 7.0,
+    "tone3": 4.0,
+    "tone4": 9.0,
+    "tone5": 7.0,
+    "tone6": 4.0,
+    "tone7": 2.0,
+    "tone8": 0.0,
+    "tone9": 4.0,
+    "vel0": 0.8,
+    "vel1": 0.8,
+    "vel10": 0.8,
+    "vel11": 0.8,
+    "vel12": 0.8,
+    "vel13": 0.8,
+    "vel14": 0.8,
+    "vel15": 0.8,
+    "vel2": 0.8,
+    "vel3": 0.8,
+    "vel4": 0.8,
+    "vel5": 0.8,
+    "vel6": 0.8,
+    "vel7": 0.8,
+    "vel8": 0.8,
+    "vel9": 0.8
+   }
+  },
+  {
+   "id": 3,
+   "type": "notechance",
+   "position": {
+    "x": 300.0,
+    "y": 180.0
+   },
+   "controls": {
+    "chance": 0.75,
+    "deterministic": 1.0,
+    "length": 16.0,
+    "seed": 7.0
+   }
+  },
+  {
+   "id": 4,
+   "type": "karplusstrong",
+   "position": {
+    "x": 520.0,
+    "y": 180.0
+   },
+   "controls": {
+    "feedback": 0.985,
+    "filter": 1.4,
+    "source": 2.0
+   }
+  },
+  {
+   "id": 5,
+   "type": "stereowidth",
+   "position": {
+    "x": 800.0,
+    "y": 180.0
+   },
+   "controls": {
+    "widen": 12.0,
+    "width": 1.4
+   }
+  },
+  {
+   "id": 6,
+   "type": "reverb",
+   "position": {
+    "x": 1040.0,
+    "y": 180.0
+   },
+   "controls": {
+    "mix": 0.3,
+    "room": 0.6
+   }
+  },
+  {
+   "id": 7,
+   "type": "output",
+   "position": {
+    "x": 1280.0,
+    "y": 180.0
+   },
+   "controls": {}
+  }
+ ],
+ "connections": [
+  {
+   "source": {
+    "module": 2,
+    "port": 0
+   },
+   "destination": {
+    "module": 3,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 3,
+    "port": 0
+   },
+   "destination": {
+    "module": 4,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 4,
+    "port": 0
+   },
+   "destination": {
+    "module": 5,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 5,
+    "port": 0
+   },
+   "destination": {
+    "module": 6,
+    "port": 0
+   }
+  },
+  {
+   "source": {
+    "module": 6,
+    "port": 0
+   },
+   "destination": {
+    "module": 7,
+    "port": 0
+   }
+  }
+ ]
+}

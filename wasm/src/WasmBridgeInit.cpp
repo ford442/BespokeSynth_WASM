@@ -15,6 +15,9 @@
 #include "BespokeWasm/SDL2AudioBackend.h"
 #include "BespokeWasm/ModuleCanvas.h"
 #include "BespokeWasm/AudioGraphEngine.h"
+#include "BespokeWasm/AudioRemote.h"
+#include "BespokeWasm/ResourceLifetime.h"
+#include "BespokeWasm/SampleStore.h"
 #include "BespokeWasm/WasmAudioEngine.h"
 #include "BespokeWasm/WasmRuntimeState.h"
 #include "BespokeWasm/Theme.h"
@@ -26,24 +29,34 @@
 
 using namespace bespoke::wasm;
 
-namespace bespoke
-{
-   namespace wasm
-   {
-      bool gBespokePendingScreenshotCapture = false;
-      RuntimeTheme gRuntimeTheme;
-   } // namespace wasm
-} // namespace bespoke
-
 // clang-format off
 EM_JS(void, bespoke_js_on_init_progress, (const char* step, const char* detail), {
-   if (typeof window !== 'undefined' && window.__bespoke_on_init_progress)
-      window.__bespoke_on_init_progress(UTF8ToString(step), UTF8ToString(detail));
+   if (typeof window !== 'undefined' && window['__bespoke_on_init_progress'])
+      window['__bespoke_on_init_progress'](UTF8ToString(step), UTF8ToString(detail));
 });
 
 EM_JS(void, bespoke_js_on_init_complete, (int status), {
-   if (typeof window !== 'undefined' && window.__bespoke_on_init_complete)
-      window.__bespoke_on_init_complete(status);
+   if (typeof window !== 'undefined' && window['__bespoke_on_init_complete'])
+      window['__bespoke_on_init_complete'](status);
+});
+
+// emdawnwebgpu calls navigator.gpu.requestAdapter() unguarded; without WebGPU that throws
+// out of bespoke_init instead of failing into the WebGL2 fallback.
+EM_JS(int, bespoke_js_has_webgpu, (), {
+   return (typeof navigator !== 'undefined' && navigator['gpu']) ? 1 : 0;
+});
+
+EM_JS(void, bespoke_js_on_canvas_notice, (const char* message), {
+   if (typeof window !== 'undefined' && window['__bespoke_on_canvas_notice'])
+      window['__bespoke_on_canvas_notice'](UTF8ToString(message));
+});
+
+// A snapshot names samples that are not resident (evicted, then undo). The host reads the
+// hashes (bespoke_take_missing_samples) and loads them from OPFS; deferred, since this runs
+// inside a publish.
+EM_JS(void, bespoke_js_on_samples_missing, (), {
+   if (typeof window !== 'undefined' && window['__bespoke_on_samples_missing'])
+      queueMicrotask(function() { window['__bespoke_on_samples_missing'](); });
 });
 // clang-format on
 
@@ -84,6 +97,7 @@ namespace bespoke
          }
 
          printf("WasmBridge: Audio backend initialized successfully\n");
+         syncSampleStoreRate();
          reportInitProgress("audio_ready", "Audio device opened successfully");
          state.initState = InitState::AudioReady;
          state.audioBackend->setCallback(wasmAudioCallback);
@@ -95,16 +109,34 @@ namespace bespoke
          printf("WasmBridge: Creating modular canvas...\n");
          reportInitProgress("controls_init", "Creating modular canvas...");
          state.canvas = std::make_unique<ModuleCanvas>();
+         state.canvas->setNoticeListener([](const std::string& message)
+                                         {
+                                            bespoke_js_on_canvas_notice(message.c_str());
+                                         });
          state.audioGraphEngine = std::make_unique<AudioGraphEngine>();
          state.audioGraphEngine->prepareForBlock(std::max(bufferSize, 2048), 128, 32);
          prepareWasmAudioScratch(std::max(bufferSize, 2048));
          // Size engine runtime state on every publish (spawn/delete/undo), so
-         // processBlock never grows an arena inside the audio callback.
+         // processBlock never grows an arena inside the audio callback. While the
+         // AudioWorklet engine plays, it sizes its own state; ours stays idle.
          state.canvas->setSnapshotListener([](const AudioGraphSnapshot& graph)
                                            {
-                                              if (auto* engine = runtimeState().audioGraphEngine.get())
+                                              if (audioRemoteActive())
+                                                 notifyAudioGraphPublished();
+                                              else if (auto* engine = runtimeState().audioGraphEngine.get())
                                                  engine->prepareRuntimeStates(graph);
+                                              // No pthreads: the next block on this instance adopts `graph`
+                                              // before it reads a param, so nothing older can be processed.
+                                              // The worklet drops its copies when the host relays evictions.
+                                              collectUnusedResources(graph.generation);
+                                              if (SampleStore::instance().hasMissing())
+                                                 bespoke_js_on_samples_missing();
                                            });
+         // Knob drags, MIDI CC and transport edits skip the publish: one queued change each.
+         state.canvas->setParamSink([](const ParamChange& change)
+                                    {
+                                       return queueParamChange(change);
+                                    });
 
          const int oscId = state.canvas->createModule("oscillator", 100, 150);
          const int filterId = state.canvas->createModule("filter", 300, 155);
@@ -180,25 +212,48 @@ bespoke::wasm::Color bespoke::wasm::RuntimeTheme::resolve(bespoke::wasm::ThemeCo
    }
 }
 
+/** Context + renderer on #canvas; leaves initState alone so a recovery can reuse it. */
+static bool createWebGL2RendererOnCanvas(std::string& error)
+{
+   auto& state = runtimeState();
+   state.webGL2Context = std::make_unique<WebGL2Context>();
+   WebGL2Context::setPreserveDrawingBuffer(state.webGLPreserveDrawingBuffer);
+   if (!state.webGL2Context->initialize("#canvas"))
+   {
+      error = WebGL2Context::getLastError();
+      if (error.empty())
+         error = "WebGL2 context creation failed";
+      state.webGL2Context.reset();
+      return false;
+   }
+   state.webGL2Context->resize(state.width, state.height);
+
+   auto glRenderer = createWebGL2Renderer(*state.webGL2Context);
+   glRenderer->setDebugMode(state.webGLDebugMode);
+   if (!glRenderer->initialize())
+   {
+      error = "WebGL2 renderer initialization failed — shader compilation error";
+      state.webGL2Context.reset();
+      return false;
+   }
+   state.renderer = std::move(glRenderer);
+   return true;
+}
+
 static bool initializeWebGL2Renderer(int sampleRate, int bufferSize)
 {
    auto& state = runtimeState();
    state.initState = InitState::WebGL2Requested;
    reportInitProgress("webgl_requested", "Creating WebGL2 context on #canvas");
 
-   state.webGL2Context = std::make_unique<WebGL2Context>();
-   WebGL2Context::setPreserveDrawingBuffer(state.webGLPreserveDrawingBuffer);
-   if (!state.webGL2Context->initialize("#canvas"))
+   std::string error;
+   if (!createWebGL2RendererOnCanvas(error))
    {
       state.initState = InitState::Failed;
-      state.initErrorMessage = WebGL2Context::getLastError();
-      if (state.initErrorMessage.empty())
-         state.initErrorMessage = "WebGL2 context creation failed";
-      reportInitProgress("webgl_failed", state.initErrorMessage.c_str());
+      state.initErrorMessage = error;
+      reportInitProgress(state.webGL2Context ? "renderer_failed" : "webgl_failed", error.c_str());
       return false;
    }
-
-   state.webGL2Context->resize(state.width, state.height);
    state.initState = InitState::WebGL2Ready;
 
    const auto& caps = state.webGL2Context->getCapabilities();
@@ -210,18 +265,6 @@ static bool initializeWebGL2Renderer(int sampleRate, int bufferSize)
             caps.instancedArrays ? "yes" : "no");
    reportInitProgress("webgl_ready", readyDetail);
 
-   reportInitProgress("renderer_init", "Creating WebGL2 shader programs...");
-   auto glRenderer = createWebGL2Renderer(*state.webGL2Context);
-   glRenderer->setDebugMode(state.webGLDebugMode);
-   if (!glRenderer->initialize())
-   {
-      state.initState = InitState::Failed;
-      state.initErrorMessage = "WebGL2 renderer initialization failed — shader compilation error";
-      reportInitProgress("renderer_failed", state.initErrorMessage.c_str());
-      return false;
-   }
-
-   state.renderer = std::move(glRenderer);
    state.initState = InitState::RendererReady;
    reportInitProgress("renderer_ready", "WebGL2 renderer ready");
    return initializeAudioAndControls(sampleRate, bufferSize);
@@ -253,15 +296,27 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
       return 0;
    }
 
+   if (!bespoke_js_has_webgpu())
+   {
+      printf("BespokeSynth WASM: navigator.gpu is unavailable\n");
+      reportInitProgress("webgpu_start_failed", "WebGPU is not available in this browser");
+      state.initState = InitState::Failed;
+      state.initErrorMessage = "WebGPU is not available in this browser (navigator.gpu is missing)";
+      return -4;
+   }
+
    state.initState = InitState::WebGPURequested;
    reportInitProgress("webgpu_requested", "Creating WebGPU instance and surface");
 
    state.context = std::make_unique<WebGPUContext>();
    printf("WasmBridge: starting async WebGPU initialization (selector=#canvas)\n");
 
-   bool started = state.context->initializeAsync("#canvas", [sampleRate, bufferSize](bool success)
+   WebGPUContext* context = state.context.get();
+   bool started = state.context->initializeAsync("#canvas", [sampleRate, bufferSize, context](bool success)
                                                  {
                                                     auto& rt = runtimeState();
+                                                    if (rt.context.get() != context)
+                                                       return; // shut down (or retried) meanwhile
                                                     if (!success)
                                                     {
                                                        printf("BespokeSynth WASM: Failed to initialize WebGPU\n");
@@ -279,27 +334,39 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
 
                                                     printf("WasmBridge: Initializing renderer...\n");
                                                     reportInitProgress("renderer_init", "Creating shader pipelines...");
+                                                    // WGSL and pipeline errors are reported asynchronously, through
+                                                    // error scopes; without them a bad shader leaves a black canvas.
+                                                    rt.context->pushErrorScopes();
                                                     auto gpuRenderer = createWebGPURenderer(*rt.context);
-                                                    if (!gpuRenderer->initialize())
-                                                    {
-                                                       reportInitProgress("renderer_failed", "Shader pipeline compilation failed");
-                                                       rt.initState = InitState::Failed;
-                                                       rt.initErrorMessage = "Renderer initialization failed";
-                                                       reportInitComplete(-2);
-                                                       return;
-                                                    }
-
+                                                    const bool created = gpuRenderer->initialize();
                                                     rt.renderer = std::move(gpuRenderer);
-                                                    reportInitProgress("renderer_ready", "All shader pipelines compiled successfully");
-                                                    rt.initState = InitState::RendererReady;
+                                                    rt.context->popErrorScopes([sampleRate, bufferSize, created, context](bool ok, const std::string& error)
+                                                                               {
+                                                                                  auto& st = runtimeState();
+                                                                                  if (st.context.get() != context)
+                                                                                     return;
+                                                                                  if (!created || !ok)
+                                                                                  {
+                                                                                     printf("BespokeSynth WASM: WebGPU pipeline creation failed: %s\n", error.c_str());
+                                                                                     st.renderer.reset();
+                                                                                     st.initState = InitState::Failed;
+                                                                                     st.initErrorMessage = "Shader pipeline creation failed";
+                                                                                     if (!error.empty())
+                                                                                        st.initErrorMessage += ": " + error;
+                                                                                     reportInitProgress("renderer_failed", st.initErrorMessage.c_str());
+                                                                                     reportInitComplete(-2);
+                                                                                     return;
+                                                                                  }
 
-                                                    if (!initializeAudioAndControls(sampleRate, bufferSize))
-                                                    {
-                                                       reportInitComplete(-3);
-                                                       return;
-                                                    }
-
-                                                    reportInitComplete(0);
+                                                                                  reportInitProgress("renderer_ready", "All shader pipelines compiled successfully");
+                                                                                  st.initState = InitState::RendererReady;
+                                                                                  if (!initializeAudioAndControls(sampleRate, bufferSize))
+                                                                                  {
+                                                                                     reportInitComplete(-3);
+                                                                                     return;
+                                                                                  }
+                                                                                  reportInitComplete(0);
+                                                                               });
                                                  });
 
    if (!started)
@@ -312,6 +379,29 @@ EMSCRIPTEN_KEEPALIVE int bespoke_init(int width, int height, int sampleRate, int
    }
 
    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_reinit_renderer(int backend)
+{
+   auto& state = runtimeState();
+   if (backend != 1 || state.initState != InitState::FullyInitialized)
+      return -1;
+
+   printf("BespokeSynth WASM: Re-initializing the renderer on WebGL2\n");
+   // Renderers hold a reference to their context: release them first.
+   state.renderer.reset();
+   state.context.reset();
+   state.webGL2Context.reset();
+   state.rendererBackend = RendererBackendType::WebGL2;
+
+   std::string error;
+   if (!createWebGL2RendererOnCanvas(error))
+   {
+      state.initErrorMessage = error;
+      printf("BespokeSynth WASM: Renderer re-initialization failed: %s\n", error.c_str());
+      return -5;
+   }
+   return 0;
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_process_events(void)
@@ -369,12 +459,12 @@ EMSCRIPTEN_KEEPALIVE int bespoke_is_fully_initialized(void)
 EMSCRIPTEN_KEEPALIVE void bespoke_set_theme_color(int colorId, float r, float g, float b, float a)
 {
    auto id = static_cast<ThemeColorId>(colorId);
-   gRuntimeTheme.setColor(id, Color(r, g, b, a));
+   runtimeState().theme.setColor(id, Color(r, g, b, a));
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_reset_theme(void)
 {
-   gRuntimeTheme.reset();
+   runtimeState().theme.reset();
 }
 
 EMSCRIPTEN_KEEPALIVE void bespoke_set_renderer_backend(int backend)

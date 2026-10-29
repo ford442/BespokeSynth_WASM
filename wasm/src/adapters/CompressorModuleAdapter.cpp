@@ -6,7 +6,7 @@
 #include "BespokeWasm/SliderPanelModule.h"
 #include <algorithm>
 #include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -18,16 +18,30 @@ namespace bespoke
          constexpr int kPortMain = 0;
          constexpr int kPortSidechain = 1;
 
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "threshold", .minValue = -60.0f, .maxValue = 0.0f, .defaultValue = -18.0f, .offset = offsetof(CompressorParams, thresholdDb), .flags = kParamClamp },
+            { .id = 1, .name = "ratio", .minValue = 1.0f, .maxValue = 20.0f, .defaultValue = 4.0f, .offset = offsetof(CompressorParams, ratio), .flags = kParamClamp },
+            { .id = 2, .name = "attack", .minValue = 0.1f, .maxValue = 100.0f, .defaultValue = 5.0f, .offset = offsetof(CompressorParams, attackMs), .flags = kParamClamp },
+            { .id = 3, .name = "release", .minValue = 10.0f, .maxValue = 1000.0f, .defaultValue = 120.0f, .offset = offsetof(CompressorParams, releaseMs), .flags = kParamClamp },
+            { .id = 4, .name = "makeup", .minValue = 0.0f, .maxValue = 24.0f, .defaultValue = 0.0f, .offset = offsetof(CompressorParams, makeupDb), .smoothingMs = kParamSmoothingMs, .flags = kParamClamp },
+            { .id = 5, .name = "knee", .minValue = 0.0f, .maxValue = 24.0f, .defaultValue = 6.0f, .offset = offsetof(CompressorParams, kneeDb), .flags = kParamClamp },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Audio, "In" }, { PortType::Audio, "Sidechain" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
+
          const std::vector<SliderSpec>& compressorSpecs()
          {
-            static const std::vector<SliderSpec> specs = {
-               { "threshold", "Thresh", -60.0f, 0.0f, -18.0f, SliderFormat::Decibels },
-               { "ratio", "Ratio", 1.0f, 20.0f, 4.0f, SliderFormat::Ratio },
-               { "attack", "Attack", 0.1f, 100.0f, 5.0f, SliderFormat::Millis },
-               { "release", "Release", 10.0f, 1000.0f, 120.0f, SliderFormat::Millis },
-               { "makeup", "Makeup", 0.0f, 24.0f, 0.0f, SliderFormat::Decibels },
-               { "knee", "Knee", 0.0f, 24.0f, 6.0f, SliderFormat::Decibels },
-            };
+            static const std::vector<SliderSpec> specs = slidersFromParams(kParams,
+                                                                           {
+                                                                           { "threshold", "Thresh", SliderFormat::Decibels },
+                                                                           { "ratio", "Ratio", SliderFormat::Ratio },
+                                                                           { "attack", "Attack", SliderFormat::Millis },
+                                                                           { "release", "Release", SliderFormat::Millis },
+                                                                           { "makeup", "Makeup", SliderFormat::Decibels },
+                                                                           { "knee", "Knee", SliderFormat::Decibels },
+                                                                           });
             return specs;
          }
 
@@ -52,19 +66,19 @@ namespace bespoke
          return slope * over;
       }
 
-      std::vector<WasmControlDescriptor> CompressorModuleAdapter::controlDescriptors() const
+      ParamTable CompressorModuleAdapter::paramTable() const
       {
-         return controlDescriptorsFromSpecs(compressorSpecs());
+         return kParams;
       }
 
-      std::vector<PortDescriptor> CompressorModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> CompressorModuleAdapter::inputPorts() const
       {
-         return { { PortType::Audio, "In" }, { PortType::Audio, "Sidechain" } };
+         return kInputs;
       }
 
-      std::vector<PortDescriptor> CompressorModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> CompressorModuleAdapter::outputPorts() const
       {
-         return { { PortType::Audio, "Out" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> CompressorModuleAdapter::createUiModule(int id) const
@@ -72,34 +86,20 @@ namespace bespoke
          return std::make_unique<SliderPanelModule>(id, typeId(), displayName(), category(), compressorSpecs());
       }
 
-      void CompressorModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
+
+      int CompressorModuleAdapter::outputChannelCount(const void* params, const WasmAudioProcessContext& context) const
       {
-         const auto& specs = compressorSpecs();
-         auto* params = new (dst) CompressorParams();
-         params->thresholdDb = sliderSpecValue(specs, controls, "threshold");
-         params->ratio = sliderSpecValue(specs, controls, "ratio");
-         params->attackMs = sliderSpecValue(specs, controls, "attack");
-         params->releaseMs = sliderSpecValue(specs, controls, "release");
-         params->makeupDb = sliderSpecValue(specs, controls, "makeup");
-         params->kneeDb = sliderSpecValue(specs, controls, "knee");
+         (void)params;
+         return std::max(1, audioInputPortChannels(context, kPortMain));
       }
 
-      void CompressorModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) CompressorRuntimeState();
-      }
-
-      void CompressorModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<CompressorRuntimeState*>(runtimeState)->~CompressorRuntimeState();
-      }
 
       void CompressorModuleAdapter::processAudio(void* runtimeState,
                                                  const void* paramsPtr,
-                                                 float* buffer,
+                                                 float* const* channels,
                                                  const WasmAudioProcessContext& context) const
       {
-         if (!runtimeState || !paramsPtr || !buffer)
+         if (!runtimeState || !paramsPtr || !channels)
             return;
 
          auto& state = *static_cast<CompressorRuntimeState*>(runtimeState);
@@ -110,41 +110,50 @@ namespace bespoke
          // Below this linear level the gain computer is exactly 0 dB: skip the log.
          const float quietLinear = std::pow(10.0f, (params.thresholdDb - params.kneeDb * 0.5f) / 20.0f);
 
-         // `buffer` arrives zeroed; the main input is port 0, the detector key is port 1 when cabled.
-         accumulateAudioInputPort(context, kPortMain, buffer);
-         bool hasSidechain = false;
-         for (int c = 0; c < context.audioInputCount; ++c)
-            hasSidechain |= context.audioInputs[c].port == kPortSidechain && context.audioInputs[c].buffer;
+         // `channels` arrive zeroed; the main input is port 0, the detector key is port 1 when cabled.
+         accumulateAudioInputPort(context, kPortMain, channels, context.numChannels);
+         const bool hasSidechain = audioInputPortChannels(context, kPortSidechain) > 0;
 
+         // Linked stereo: one detector on max(|L|, |R|) of the key, one gain for every channel.
          float key[kChunk];
          for (int start = 0; start < context.numSamples; start += kChunk)
          {
             const int count = std::min(kChunk, context.numSamples - start);
+            std::fill(key, key + count, 0.0f);
             if (hasSidechain)
             {
-               std::fill(key, key + count, 0.0f);
                for (int c = 0; c < context.audioInputCount; ++c)
                {
                   const WasmAudioInput& input = context.audioInputs[c];
-                  if (input.port != kPortSidechain || !input.buffer)
+                  if (input.port != kPortSidechain || !input.channels[0])
                      continue;
                   for (int i = 0; i < count; ++i)
-                     key[i] += input.buffer[start + i];
+                  {
+                     const float l = input.channels[0][start + i];
+                     const float r = input.channels[1][start + i];
+                     key[i] = std::max(key[i], std::max(std::fabs(l), std::fabs(r)));
+                  }
                }
             }
             else
             {
-               std::copy(buffer + start, buffer + start + count, key);
+               for (int ch = 0; ch < context.numChannels; ++ch)
+               {
+                  for (int i = 0; i < count; ++i)
+                     key[i] = std::max(key[i], std::fabs(channels[ch][start + i]));
+               }
             }
 
             for (int i = 0; i < count; ++i)
             {
-               const float level = std::fabs(key[i]);
+               const float level = key[i];
                const float targetDb =
                level > quietLinear ? gainComputerDb(20.0f * std::log10(level), params) : 0.0f;
                const float coeff = targetDb < state.envelopeDb ? attack : release;
                state.envelopeDb = targetDb + coeff * (state.envelopeDb - targetDb);
-               buffer[start + i] *= std::pow(10.0f, (state.envelopeDb + params.makeupDb) / 20.0f);
+               const float gain = std::pow(10.0f, (state.envelopeDb + params.makeupDb) / 20.0f);
+               for (int ch = 0; ch < context.numChannels; ++ch)
+                  channels[ch][start + i] *= gain;
             }
          }
       }

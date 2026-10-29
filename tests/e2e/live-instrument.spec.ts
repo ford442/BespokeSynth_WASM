@@ -1,8 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { gotoApp, waitForBespokeReady } from './helpers';
-
-/** Loose view of window.__bespoke for page.evaluate callbacks. */
-type Api = Record<string, (...args: never[]) => unknown>;
+import { AUDIO_BACKENDS, gotoApp, waitForBespokeReady } from './helpers';
 
 const JUST_MAJOR_SCL = [
   '! just_major.scl',
@@ -27,7 +24,7 @@ async function canvasBox(page: Page) {
 
 async function moduleInfo(page: Page, id: number) {
   return page.evaluate((moduleId) => {
-    const api = (window as unknown as { __bespoke: { getModuleInfo: (id: number) => Record<string, number> } }).__bespoke;
+    const api = window.__bespoke!;
     return api.getModuleInfo(moduleId);
   }, id);
 }
@@ -35,7 +32,7 @@ async function moduleInfo(page: Page, id: number) {
 /** Replace the default patch with oscillator → output (osc Pitch input left free for MIDI/QWERTY). */
 async function setupBareOscillator(page: Page): Promise<{ osc: number; out: number; scale: number }> {
   return page.evaluate(() => {
-    const api = (window as unknown as { __bespoke: Record<string, (...a: unknown[]) => unknown> }).__bespoke;
+    const api = window.__bespoke!;
     const modules = api.getModules() as Array<{ id: number; type: string }>;
     for (const m of modules) if (m.type !== 'transport' && m.type !== 'scale') api.deleteModule(m.id);
     const osc = api.createModule('oscillator', 120, 160) as number;
@@ -51,8 +48,7 @@ async function setupBareOscillator(page: Page): Promise<{ osc: number; out: numb
 /** Dominant frequency of the latest output via positive zero crossings. */
 async function measuredOutputHz(page: Page): Promise<number> {
   return page.evaluate(() => {
-    const w = window as unknown as { __bespoke: { getOutputWaveform: (n: number) => number[] } };
-    const samples = w.__bespoke.getOutputWaveform(2048);
+    const samples = window.__bespoke!.getOutputWaveform(2048);
     const crossings: number[] = [];
     for (let i = 1; i < samples.length; i++) {
       if (samples[i - 1] <= 0 && samples[i] > 0) {
@@ -62,7 +58,7 @@ async function measuredOutputHz(page: Page): Promise<number> {
     }
     if (crossings.length < 3) return 0;
     const periodSamples = (crossings[crossings.length - 1] - crossings[0]) / (crossings.length - 1);
-    const rate = (window as unknown as { __bespoke: { getSampleRate: () => number } }).__bespoke.getSampleRate();
+    const rate = window.__bespoke!.getSampleRate();
     return rate / periodSamples;
   });
 }
@@ -73,9 +69,7 @@ test.describe('Live instrument', () => {
     await waitForBespokeReady(page);
 
     const filter = await page.evaluate(() => {
-      const api = (window as unknown as { __bespoke: Api }).__bespoke as unknown as {
-        getModules: () => Array<{ id: number; type: string }>;
-      };
+      const api = window.__bespoke!;
       return api.getModules().find((m) => m.type === 'filter')!.id;
     });
     const info = await moduleInfo(page, filter);
@@ -89,12 +83,12 @@ test.describe('Live instrument', () => {
     await page.keyboard.up('Shift');
 
     const target = await page.evaluate(() =>
-      (window as unknown as { __bespoke: { getMidiLearnTarget: () => unknown } }).__bespoke.getMidiLearnTarget(),
+      window.__bespoke!.getMidiLearnTarget(),
     );
     expect(target).toEqual({ moduleId: filter, control: 'cutoff' });
 
     const afterLearn = await page.evaluate((id) => {
-      const api = (window as unknown as { __bespoke: Record<string, (...a: unknown[]) => unknown> }).__bespoke;
+      const api = window.__bespoke!;
       api.midiCc(1, 21, 0.5);
       return {
         cutoff: api.getControlValue(id, 'cutoff') as number,
@@ -110,7 +104,7 @@ test.describe('Live instrument', () => {
     await page.reload();
     await waitForBespokeReady(page);
     const reloaded = await page.evaluate((json) => {
-      const api = (window as unknown as { __bespoke: Record<string, (...a: unknown[]) => unknown> }).__bespoke;
+      const api = window.__bespoke!;
       api.loadStateJson(json);
       const id = (api.getModules() as Array<{ id: number; type: string }>).find((m) => m.type === 'filter')!.id;
       api.midiCc(1, 21, 1);
@@ -123,38 +117,40 @@ test.describe('Live instrument', () => {
     expect(reloaded.otherChannel).toBeCloseTo(20000, 0);
   });
 
-  test('QWERTY piano plays the oscillator through Scale quantization', async ({ page }) => {
-    await gotoApp(page, 'audio=sdl');
-    await waitForBespokeReady(page);
-    const { scale } = await setupBareOscillator(page);
-    await page.locator('#playBtn').click();
+  for (const audio of AUDIO_BACKENDS) {
+    test(`QWERTY piano plays the oscillator through Scale quantization [${audio}]`, async ({ page }) => {
+      await gotoApp(page, `audio=${audio}`);
+      await waitForBespokeReady(page);
+      const { scale } = await setupBareOscillator(page);
+      await page.locator('#playBtn').click();
 
-    // C major: the S key (C#4) snaps up to D4.
-    await page.evaluate((id) => {
-      const api = (window as unknown as { __bespoke: Record<string, (...a: unknown[]) => unknown> }).__bespoke;
-      api.setControlValue(id, 'root', 0);
-      api.setControlValue(id, 'type', 0);
-    }, scale);
-    await page.locator('#canvas').focus();
-    await page.keyboard.down('s');
-    await page.waitForTimeout(500);
-    const major = await measuredOutputHz(page);
-    await page.keyboard.up('s');
+      // C major: the S key (C#4) snaps up to D4.
+      await page.evaluate((id) => {
+        const api = window.__bespoke!;
+        api.setControlValue(id, 'root', 0);
+        api.setControlValue(id, 'type', 0);
+      }, scale);
+      await page.locator('#canvas').focus();
+      await page.keyboard.down('s');
+      await page.waitForTimeout(500);
+      const major = await measuredOutputHz(page);
+      await page.keyboard.up('s');
 
-    // Chromatic: the same key is C#4.
-    await page.evaluate((id) => {
-      const api = (window as unknown as { __bespoke: Record<string, (...a: unknown[]) => unknown> }).__bespoke;
-      api.setControlValue(id, 'type', 6);
-    }, scale);
-    await page.waitForTimeout(150);
-    await page.keyboard.down('s');
-    await page.waitForTimeout(500);
-    const chromatic = await measuredOutputHz(page);
-    await page.keyboard.up('s');
+      // Chromatic: the same key is C#4.
+      await page.evaluate((id) => {
+        const api = window.__bespoke!;
+        api.setControlValue(id, 'type', 6);
+      }, scale);
+      await page.waitForTimeout(150);
+      await page.keyboard.down('s');
+      await page.waitForTimeout(500);
+      const chromatic = await measuredOutputHz(page);
+      await page.keyboard.up('s');
 
-    expect(Math.abs(major - 293.66)).toBeLessThan(6);
-    expect(Math.abs(chromatic - 277.18)).toBeLessThan(6);
-  });
+      expect(Math.abs(major - 293.66)).toBeLessThan(6);
+      expect(Math.abs(chromatic - 277.18)).toBeLessThan(6);
+    });
+  }
 
   test('MIDI output: selected port receives note-on from the computer keyboard', async ({ page }) => {
     await page.addInitScript(() => {
@@ -184,89 +180,91 @@ test.describe('Live instrument', () => {
     expect(sent).toContainEqual([0x80, 60, 0]);
 
     const log = await page.evaluate(() =>
-      (window as unknown as { __bespoke: { getMidiOutLog: () => Array<{ bytes: number[] }> } }).__bespoke.getMidiOutLog(),
+      window.__bespoke!.getMidiOutLog(),
     );
     expect(log.map((entry) => entry.bytes)).toContainEqual([0x90, 60, 102]);
   });
 
-  test('20 undo steps restore the graph while audio keeps playing', async ({ page }) => {
-    test.setTimeout(60000);
-    await gotoApp(page, 'audio=sdl');
-    await waitForBespokeReady(page);
-    await page.locator('#playBtn').click();
+  for (const audio of AUDIO_BACKENDS) {
+    test(`20 undo steps restore the graph while audio keeps playing [${audio}]`, async ({ page }) => {
+      test.setTimeout(60000);
+      await gotoApp(page, `audio=${audio}`);
+      await waitForBespokeReady(page);
+      await page.locator('#playBtn').click();
 
-    const result = await page.evaluate(async () => {
-      const api = (window as unknown as { __bespoke: Record<string, (...a: unknown[]) => unknown> }).__bespoke;
-      const canonical = () => {
-        const state = JSON.parse(api.getStateJson() as string);
-        // Output "level" is a live meter written by the audio path, not patch state.
-        for (const m of state.modules) if (m.type === 'output') delete m.controls.level;
-        const modules = [...state.modules].sort((a: { id: number }, b: { id: number }) => a.id - b.id);
-        const connections = [...state.connections].map((c: Record<string, unknown>) => JSON.stringify(c)).sort();
-        return JSON.stringify({ modules, connections });
-      };
-      // Yield to the event loop so audio callbacks interleave with the edits/undos.
-      const frame = () => new Promise((resolve) => setTimeout(resolve, 0));
-      const states = [canonical()];
-      const ids: Record<string, number> = {};
-      const edits: Array<() => void> = [
-        () => (ids.a = api.createModule('oscillator', 60, 420) as number),
-        () => (ids.b = api.createModule('delay', 260, 420) as number),
-        () => (ids.c = api.createModule('reverb', 460, 420) as number),
-        () => api.connectModules(ids.a, ids.b),
-        () => api.connectModules(ids.b, ids.c),
-        () => api.setControlValue(ids.b, 'feedback', 0.6),
-        () => api.setControlValue(ids.a, 'frequency', 330),
-        () => (ids.d = api.createModule('noise', 60, 560) as number),
-        () => api.connectModules(ids.d, ids.c),
-        () => api.setControlValue(ids.d, 'volume', 0.2),
-        () => (ids.e = api.createModule('lfo', 660, 420) as number),
-        () => api.setControlValue(ids.e, 'rate', 5),
-        () => api.deleteModule(ids.b),
-        () => api.connectModules(ids.a, ids.c),
-        () => (ids.f = api.createModule('gain', 660, 560) as number),
-        () => api.connectModules(ids.c, ids.f),
-        () => api.setControlValue(ids.f, 'gain', 0.25),
-        () => api.deleteModule(ids.d),
-        () => api.setControlValue(ids.a, 'volume', 0.3),
-        () => api.deleteModule(ids.c),
-      ];
-      for (const edit of edits) {
-        edit();
-        await frame();
-        states.push(canonical());
-      }
-      const depth = api.getUndoDepth() as number;
-      const callbacksBefore = (api.getAudioHealth() as { callbackCount: number }).callbackCount;
-      let mismatches = 0;
-      for (let i = edits.length; i > 0; i--) {
-        if (!api.undo()) mismatches++;
-        await frame();
-        if (canonical() !== states[i - 1]) mismatches++;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      const callbacksAfter = (api.getAudioHealth() as { callbackCount: number }).callbackCount;
-      return { depth, mismatches, callbacksBefore, callbacksAfter, remaining: api.getUndoDepth() };
+      const result = await page.evaluate(async () => {
+        const api = window.__bespoke!;
+        const canonical = () => {
+          const state = JSON.parse(api.getStateJson() as string);
+          // Output "level" is a live meter written by the audio path, not patch state.
+          for (const m of state.modules) if (m.type === 'output') delete m.controls.level;
+          const modules = [...state.modules].sort((a: { id: number }, b: { id: number }) => a.id - b.id);
+          const connections = [...state.connections].map((c: Record<string, unknown>) => JSON.stringify(c)).sort();
+          return JSON.stringify({ modules, connections });
+        };
+        // Yield to the event loop so audio callbacks interleave with the edits/undos.
+        const frame = () => new Promise((resolve) => setTimeout(resolve, 0));
+        const states = [canonical()];
+        const ids: Record<string, number> = {};
+        const edits: Array<() => void> = [
+          () => (ids.a = api.createModule('oscillator', 60, 420) as number),
+          () => (ids.b = api.createModule('delay', 260, 420) as number),
+          () => (ids.c = api.createModule('reverb', 460, 420) as number),
+          () => api.connectModules(ids.a, ids.b),
+          () => api.connectModules(ids.b, ids.c),
+          () => api.setControlValue(ids.b, 'feedback', 0.6),
+          () => api.setControlValue(ids.a, 'frequency', 330),
+          () => (ids.d = api.createModule('noise', 60, 560) as number),
+          () => api.connectModules(ids.d, ids.c),
+          () => api.setControlValue(ids.d, 'volume', 0.2),
+          () => (ids.e = api.createModule('lfo', 660, 420) as number),
+          () => api.setControlValue(ids.e, 'rate', 5),
+          () => api.deleteModule(ids.b),
+          () => api.connectModules(ids.a, ids.c),
+          () => (ids.f = api.createModule('gain', 660, 560) as number),
+          () => api.connectModules(ids.c, ids.f),
+          () => api.setControlValue(ids.f, 'gain', 0.25),
+          () => api.deleteModule(ids.d),
+          () => api.setControlValue(ids.a, 'volume', 0.3),
+          () => api.deleteModule(ids.c),
+        ];
+        for (const edit of edits) {
+          edit();
+          await frame();
+          states.push(canonical());
+        }
+        const depth = api.getUndoDepth() as number;
+        const callbacksBefore = (api.getAudioHealth() as { callbackCount: number }).callbackCount;
+        let mismatches = 0;
+        for (let i = edits.length; i > 0; i--) {
+          if (!api.undo()) mismatches++;
+          await frame();
+          if (canonical() !== states[i - 1]) mismatches++;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        const callbacksAfter = (api.getAudioHealth() as { callbackCount: number }).callbackCount;
+        return { depth, mismatches, callbacksBefore, callbacksAfter, remaining: api.getUndoDepth() };
+      });
+
+      expect(result.depth).toBe(20);
+      expect(result.mismatches).toBe(0);
+      expect(result.remaining).toBe(0);
+      expect(result.callbacksAfter).toBeGreaterThan(result.callbacksBefore);
+
+      // Keyboard shortcut path: Ctrl+Z undoes a spawn, Ctrl+Shift+Z redoes it.
+      const counts = await page.evaluate(() => {
+        const api = window.__bespoke!;
+        const before = api.getModuleCount() as number;
+        api.createModule('noise', 40, 600);
+        return { before, after: api.getModuleCount() as number };
+      });
+      await page.locator('#canvas').focus();
+      await page.keyboard.press('Control+z');
+      expect(await page.evaluate(() => window.__bespoke!.getModuleCount())).toBe(counts.before);
+      await page.keyboard.press('Control+Shift+z');
+      expect(await page.evaluate(() => window.__bespoke!.getModuleCount())).toBe(counts.after);
     });
-
-    expect(result.depth).toBe(20);
-    expect(result.mismatches).toBe(0);
-    expect(result.remaining).toBe(0);
-    expect(result.callbacksAfter).toBeGreaterThan(result.callbacksBefore);
-
-    // Keyboard shortcut path: Ctrl+Z undoes a spawn, Ctrl+Shift+Z redoes it.
-    const counts = await page.evaluate(() => {
-      const api = (window as unknown as { __bespoke: Record<string, (...a: unknown[]) => unknown> }).__bespoke;
-      const before = api.getModuleCount() as number;
-      api.createModule('noise', 40, 600);
-      return { before, after: api.getModuleCount() as number };
-    });
-    await page.locator('#canvas').focus();
-    await page.keyboard.press('Control+z');
-    expect(await page.evaluate(() => (window as unknown as { __bespoke: { getModuleCount: () => number } }).__bespoke.getModuleCount())).toBe(counts.before);
-    await page.keyboard.press('Control+Shift+z');
-    expect(await page.evaluate(() => (window as unknown as { __bespoke: { getModuleCount: () => number } }).__bespoke.getModuleCount())).toBe(counts.after);
-  });
+  }
 
   test('Scala tuning: .scl drop retunes the Scale and persists in the patch', async ({ page }) => {
     await gotoApp(page);
@@ -282,14 +280,14 @@ test.describe('Live instrument', () => {
     await expect
       .poll(() =>
         page.evaluate(() => {
-          const api = (window as unknown as { __bespoke: { getNoteFrequency: (p: number) => number } }).__bespoke;
+          const api = window.__bespoke!;
           return api.getNoteFrequency(62) / api.getNoteFrequency(60);
         }),
       )
       .toBeCloseTo(1.25, 4);
 
     const json = await page.evaluate(() =>
-      (window as unknown as { __bespoke: { getStateJson: () => string } }).__bespoke.getStateJson(),
+      window.__bespoke!.getStateJson(),
     );
     expect(json).toContain('"scl"');
     expect(json).toContain('just_major.scl');
@@ -297,7 +295,7 @@ test.describe('Live instrument', () => {
     await page.reload();
     await waitForBespokeReady(page);
     const ratios = await page.evaluate((patch) => {
-      const api = (window as unknown as { __bespoke: Record<string, (...a: unknown[]) => unknown> }).__bespoke;
+      const api = window.__bespoke!;
       const tet = (api.getNoteFrequency(62) as number) / (api.getNoteFrequency(60) as number);
       api.loadStateJson(patch);
       const loaded = (api.getNoteFrequency(62) as number) / (api.getNoteFrequency(60) as number);
@@ -320,13 +318,14 @@ test.describe('Live instrument', () => {
       await waitForBespokeReady(page);
 
       const output = await page.evaluate(() => {
-        const api = (window as unknown as { __bespoke: { getModules: () => Array<{ id: number; type: string }> } }).__bespoke;
+        const api = window.__bespoke!;
         return api.getModules().find((m) => m.type === 'output')!.id;
       });
       const before = await moduleInfo(page, output);
       const box = await canvasBox(page);
       const cdp = await page.context().newCDPSession(page);
-      const touch = (type: string, points: Array<{ x: number; y: number; id: number }>) =>
+      type TouchType = 'touchStart' | 'touchMove' | 'touchEnd' | 'touchCancel';
+      const touch = (type: TouchType, points: Array<{ x: number; y: number; id: number }>) =>
         cdp.send('Input.dispatchTouchEvent', {
           type,
           touchPoints: points.map((p) => ({ x: p.x, y: p.y, id: p.id, radiusX: 2, radiusY: 2, force: 1 })),
@@ -345,7 +344,7 @@ test.describe('Live instrument', () => {
       expect(Number(after.y) - Number(before.y)).toBeGreaterThan(40);
 
       // Undo covers touch moves too.
-      await page.evaluate(() => (window as unknown as { __bespoke: { undo: () => boolean } }).__bespoke.undo());
+      await page.evaluate(() => window.__bespoke!.undo());
       expect(Number((await moduleInfo(page, output)).x)).toBeCloseTo(Number(before.x), 3);
 
       // Two fingers spreading apart zoom the canvas in.
@@ -363,89 +362,91 @@ test.describe('Live instrument', () => {
       await touch('touchStart', [{ x: box.x + 30, y: box.y + box.height - 60, id: 4 }]);
       await page.waitForTimeout(750);
       await touch('touchEnd', []);
-      expect(await page.evaluate(() => (window as unknown as { __bespoke: { isSpawnMenuOpen: () => boolean } }).__bespoke.isSpawnMenuOpen())).toBe(true);
+      expect(await page.evaluate(() => window.__bespoke!.isSpawnMenuOpen())).toBe(true);
     });
   });
 });
 
 test.describe('Script module (?script=1)', () => {
-  test('script sets oscillator frequency on beat 1 and cannot fetch', async ({ page }) => {
-    const leaked: string[] = [];
-    page.on('request', (request) => {
-      if (request.url().includes('should-not-happen')) leaked.push(request.url());
-    });
-    await gotoApp(page, 'script=1&audio=sdl');
-    await waitForBespokeReady(page);
-    await expect(page.locator('#scriptBtn')).toBeVisible();
-    await page.locator('#playBtn').click();
+  for (const audio of AUDIO_BACKENDS) {
+    test(`script sets oscillator frequency on beat 1 and cannot fetch [${audio}]`, async ({ page }) => {
+      const leaked: string[] = [];
+      page.on('request', (request) => {
+        if (request.url().includes('should-not-happen')) leaked.push(request.url());
+      });
+      await gotoApp(page, `script=1&audio=${audio}`);
+      await waitForBespokeReady(page);
+      await expect(page.locator('#scriptBtn')).toBeVisible();
+      await page.locator('#playBtn').click();
 
-    const osc = await page.evaluate(() => {
-      const api = (window as unknown as { __bespoke: Record<string, (...a: unknown[]) => unknown> }).__bespoke;
-      const id = (api.getModules() as Array<{ id: number; type: string }>).find((m) => m.type === 'oscillator')!.id;
-      api.setControlValue(id, 'frequency', 100);
-      api.runScript(`
-        const osc = bespoke.findModule('oscillator');
-        bespoke.log('fetch:' + typeof fetch, 'xhr:' + typeof XMLHttpRequest, 'ws:' + typeof WebSocket, 'wasm:' + typeof WebAssembly);
-        try { fetch('/should-not-happen'); bespoke.log('fetch-called'); } catch (e) { bespoke.log('fetch-blocked'); }
-        bespoke.onBeat((beat) => {
-          if (beat % 4 === 0) {
-            bespoke.setControl(osc, 'frequency', 330);
-            bespoke.log('beat1:' + beat);
-          }
-        });
-      `);
-      return id;
-    });
+      const osc = await page.evaluate(() => {
+        const api = window.__bespoke!;
+        const id = (api.getModules() as Array<{ id: number; type: string }>).find((m) => m.type === 'oscillator')!.id;
+        api.setControlValue(id, 'frequency', 100);
+        api.runScript(`
+          const osc = bespoke.findModule('oscillator');
+          bespoke.log('fetch:' + typeof fetch, 'xhr:' + typeof XMLHttpRequest, 'ws:' + typeof WebSocket, 'wasm:' + typeof WebAssembly);
+          try { fetch('/should-not-happen'); bespoke.log('fetch-called'); } catch (e) { bespoke.log('fetch-blocked'); }
+          bespoke.onBeat((beat) => {
+            if (beat % 4 === 0) {
+              bespoke.setControl(osc, 'frequency', 330);
+              bespoke.log('beat1:' + beat);
+            }
+          });
+        `);
+        return id;
+      });
 
-    await expect
-      .poll(async () => page.evaluate(() => JSON.stringify((window as unknown as { __bespoke: { getScriptLog: () => unknown } }).__bespoke.getScriptLog())), { timeout: 8000 })
-      .toContain('beat1:');
-    const state = await page.evaluate((id) => {
-      const api = (window as unknown as { __bespoke: Record<string, (...a: unknown[]) => unknown> }).__bespoke;
-      return {
-        frequency: api.getControlValue(id, 'frequency') as number,
-        status: api.getScriptStatus(),
-        log: (api.getScriptLog() as Array<{ text: string }>).map((e) => e.text).join('\n'),
-        undoDepth: api.getUndoDepth() as number,
-      };
-    }, osc);
-    expect(state.frequency).toBe(330);
-    expect(state.status).toBe('running');
-    expect(state.log).toContain('fetch:undefined xhr:undefined ws:undefined wasm:undefined');
-    expect(state.log).toContain('fetch-blocked');
-    expect(state.log).not.toContain('fetch-called');
-    expect(leaked).toEqual([]);
+      await expect
+        .poll(async () => page.evaluate(() => JSON.stringify(window.__bespoke!.getScriptLog())), { timeout: 8000 })
+        .toContain('beat1:');
+      const state = await page.evaluate((id) => {
+        const api = window.__bespoke!;
+        return {
+          frequency: api.getControlValue(id, 'frequency') as number,
+          status: api.getScriptStatus(),
+          log: (api.getScriptLog() as Array<{ text: string }>).map((e) => e.text).join('\n'),
+          undoDepth: api.getUndoDepth() as number,
+        };
+      }, osc);
+      expect(state.frequency).toBe(330);
+      expect(state.status).toBe('running');
+      expect(state.log).toContain('fetch:undefined xhr:undefined ws:undefined wasm:undefined');
+      expect(state.log).toContain('fetch-blocked');
+      expect(state.log).not.toContain('fetch-called');
+      expect(leaked).toEqual([]);
 
-    // Dynamic import is refused before it reaches a worker.
-    const importStatus = await page.evaluate(() => {
-      const api = (window as unknown as { __bespoke: Record<string, (...a: unknown[]) => unknown> }).__bespoke;
-      api.runScript('import("/should-not-happen.js")');
-      return api.getScriptStatus();
+      // Dynamic import is refused before it reaches a worker.
+      const importStatus = await page.evaluate(() => {
+        const api = window.__bespoke!;
+        api.runScript('import("/should-not-happen.js")');
+        return api.getScriptStatus();
+      });
+      expect(importStatus).toBe('error');
+      expect(leaked).toEqual([]);
     });
-    expect(importStatus).toBe('error');
-    expect(leaked).toEqual([]);
-  });
+  }
 
   test('a hung script is terminated and recreated', async ({ page }) => {
     test.setTimeout(30000);
     await gotoApp(page, 'script=1');
     await waitForBespokeReady(page);
     await page.evaluate(() => {
-      (window as unknown as { __bespoke: { runScript: (code: string) => number } }).__bespoke.runScript('while (true) {}');
+      window.__bespoke!.runScript('while (true) {}');
     });
     await expect
-      .poll(() => page.evaluate(() => (window as unknown as { __bespoke: { getScriptStatus: () => string } }).__bespoke.getScriptStatus()), {
+      .poll(() => page.evaluate(() => window.__bespoke!.getScriptStatus()), {
         timeout: 15000,
       })
       .toBe('killed');
     const log = await page.evaluate(() =>
-      (window as unknown as { __bespoke: { getScriptLog: () => Array<{ text: string }> } }).__bespoke
+      window.__bespoke!
         .getScriptLog()
         .map((e) => e.text)
         .join('\n'),
     );
     expect(log).toContain('restarted worker');
     // The UI thread stayed responsive throughout.
-    expect(await page.evaluate(() => (window as unknown as { __bespoke: { getModuleCount: () => number } }).__bespoke.getModuleCount())).toBeGreaterThan(0);
+    expect(await page.evaluate(() => window.__bespoke!.getModuleCount())).toBeGreaterThan(0);
   });
 });

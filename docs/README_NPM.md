@@ -114,10 +114,7 @@ Edit `webpack.config.js` to customize:
 
 ### WASM Build Options
 
-Edit `wasm/CMakeLists.txt` to configure:
-- WebGPU rendering (BESPOKE_WASM_WEBGPU)
-- SDL2 audio (BESPOKE_WASM_SDL2_AUDIO)
-- Threading support (BESPOKE_WASM_THREADS)
+WebGPU (with the WebGL2 fallback) and SDL2 audio are always built. Pass the flavor to the build script (`./wasm/build.sh Release|Debug|Profile`). The remaining switches are environment variables: `BESPOKE_WASM_LTO`, `BESPOKE_WASM_CLOSURE`, `BESPOKE_WASM_SIMD`. See the CMake options table in [wasm/README.md](../wasm/README.md#cmake-options).
 
 ## Development Tips
 

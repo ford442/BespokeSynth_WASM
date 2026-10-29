@@ -24,7 +24,7 @@ This project maintains TWO distinct build targets:
 ## 2. Technology Stack
 
 ### Core Technologies
-- **Language**: C++17
+- **Language**: C++20 (WASM build; `std::span`, designated initializers, `[[nodiscard]]`)
 - **Build System**: CMake 3.16+
 - **WASM Toolchain**: Emscripten SDK 6.0.3+ (pinned in `.emscripten-version`) with `emdawnwebgpu` port
 - **Graphics API**: WebGPU (via WGSL shaders)
@@ -105,7 +105,7 @@ BespokeSynth_WASM/
 **For WASM Build:**
 - Emscripten SDK 6.0.3+ (pinned in `.emscripten-version`) with `emdawnwebgpu` port
 - CMake 3.16+
-- Node.js 18+ and npm 9+
+- Node.js 22.6+ and npm 9+
 
 **For Desktop Build:**
 - CMake 3.16+
@@ -296,11 +296,11 @@ Module._bespoke_set_renderer_backend(1); // 0=WebGPU, 1=WebGL2
 
 Or from the browser: `?renderer=webgl`, header dropdown, `localStorage.bespokesynth.renderer`, or **Ctrl+Shift+R** (reloads with the other backend).
 
-If WebGPU init fails and the user did not force `?renderer=webgpu`, `src/index.ts` automatically retries with WebGL2.
+If WebGPU init fails and the user did not force `?renderer=webgpu`, `BespokeSynthApp` automatically retries with WebGL2. That includes a shader/pipeline error, which error scopes catch. A WebGPU device lost after init, or a lost WebGL2 context, moves the renderer to WebGL2 on a fresh canvas and keeps the patch (`bespoke_reinit_renderer`).
 
 ### Screenshots for agents & CI
 
-Prefer WebGL2 for reliable canvas readback (`preserveDrawingBuffer` is enabled). WebGPU uses GPU texture readback via `bespoke_capture_screenshot()` + `bespoke_get_screenshot_pixels()`.
+Both backends capture with `canvas.toDataURL()` in the same task as a `bespoke_render()` call, so WebGPU and WebGL2 screenshots work alike and are opaque (alpha 255). The crop rect is in canvas (device) pixels.
 
 ```js
 // After the app is ready
@@ -310,13 +310,6 @@ window.__bespoke.onScreenshotCaptured((dataUrl, info) => { /* post to agent */ }
 ```
 
 Keyboard shortcut: **Ctrl+Shift+S**. Header **Screenshot** button also works.
-
-C API (from C++ or via `Module._bespoke_*`):
-
-```js
-Module._bespoke_capture_screenshot(widthPtr, heightPtr); // renders frame; returns 1=WebGL2, 0=WebGPU pixels ready
-Module._bespoke_get_screenshot_pixels(byteLenPtr);       // RGBA for WebGPU path
-```
 
 ### Render test / visual regression
 
@@ -496,7 +489,7 @@ These notes cover non-obvious gotchas discovered while setting up this environme
 ### Emscripten toolchain (important)
 - The pinned `.emscripten-version` is **6.0.3**. WASM sources require `--use-port=emdawnwebgpu` and the modern Dawn WebGPU API (`WGPUStringView`, `WGPURequest*CallbackInfo`, `userdata1/2`). Emscripten 3.1.50 and older fail at compile with `clang++: error: unknown argument: '--use-port=emdawnwebgpu'`.
 - `wasm/build.sh` discovers emsdk via `EMSDK`, repo-local `emsdk/`, `$HOME/emsdk`, or an activated `emcc` on `PATH`. If `emcc` is missing, install/activate the pinned version and `source emsdk_env.sh`.
-- `npm run build:wasm` writes `wasm/dist/{BespokeSynthWASM.js,.wasm,.data}` (+ `resource/`). It is required before the web app can initialize (no WASM artifacts are committed). The `.data` preload bundle (~32 MB) is large but expected.
+- `npm run build:wasm` replaces `wasm/dist/` with `BespokeSynthWASM.{js,wasm,data}`, `BespokeSynthWASM_audio.{js,wasm}` and the bare `index.html` shell. It is required before the web app can initialize (no WASM artifacts are committed). The `.data` preload bundle is the minimal `wasm/resource-pack/` (~200 KB, [docs/wasm/resources.md](docs/wasm/resources.md)).
 
 ### npm install
 - CI uses `npm ci` with the committed `package-lock.json`. Locally, `npm install` is fine when the lockfile is unchanged.

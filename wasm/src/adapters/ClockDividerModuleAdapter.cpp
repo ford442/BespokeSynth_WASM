@@ -4,8 +4,7 @@
 
 #include "BespokeWasm/adapters/ClockDividerModuleAdapter.h"
 #include "BespokeWasm/SliderPanelModule.h"
-#include <cmath>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -13,52 +12,44 @@ namespace bespoke
    {
       namespace
       {
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "divide", .minValue = 1.0f, .maxValue = 32.0f, .defaultValue = 4.0f, .kind = ParamKind::IntRound, .offset = offsetof(ClockDividerParams, divide), .flags = kParamClamp },
+            { .id = 1, .name = "offset", .minValue = 0.0f, .maxValue = 31.0f, .defaultValue = 0.0f, .kind = ParamKind::IntRound, .offset = offsetof(ClockDividerParams, offset), .flags = kParamClamp },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Pulse, "Clock" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Pulse, "Out" } };
+
          const std::vector<SliderSpec>& clockDividerSpecs()
          {
-            static const std::vector<SliderSpec> specs = {
-               { "divide", "Divide", 1.0f, 32.0f, 4.0f, SliderFormat::Integer },
-               { "offset", "Offset", 0.0f, 31.0f, 0.0f, SliderFormat::Integer },
-            };
+            static const std::vector<SliderSpec> specs = slidersFromParams(kParams,
+                                                                           {
+                                                                           { "divide", "Divide", SliderFormat::Integer },
+                                                                           { "offset", "Offset", SliderFormat::Integer },
+                                                                           });
             return specs;
          }
       }
 
-      std::vector<WasmControlDescriptor> ClockDividerModuleAdapter::controlDescriptors() const
+      ParamTable ClockDividerModuleAdapter::paramTable() const
       {
-         return controlDescriptorsFromSpecs(clockDividerSpecs());
+         return kParams;
       }
 
-      std::vector<PortDescriptor> ClockDividerModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> ClockDividerModuleAdapter::inputPorts() const
       {
-         return { { PortType::Pulse, "Clock" } };
+         return kInputs;
       }
 
-      std::vector<PortDescriptor> ClockDividerModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> ClockDividerModuleAdapter::outputPorts() const
       {
-         return { { PortType::Pulse, "Out" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> ClockDividerModuleAdapter::createUiModule(int id) const
       {
          return std::make_unique<SliderPanelModule>(id, typeId(), displayName(), category(), clockDividerSpecs(), 140.0f);
-      }
-
-      void ClockDividerModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         const auto& specs = clockDividerSpecs();
-         auto* params = new (dst) ClockDividerParams();
-         params->divide = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "divide")));
-         params->offset = static_cast<int>(std::lround(sliderSpecValue(specs, controls, "offset")));
-      }
-
-      void ClockDividerModuleAdapter::initRuntimeState(void* runtimeState) const
-      {
-         new (runtimeState) ClockDividerRuntimeState();
-      }
-
-      void ClockDividerModuleAdapter::destroyRuntimeState(void* runtimeState) const
-      {
-         static_cast<ClockDividerRuntimeState*>(runtimeState)->~ClockDividerRuntimeState();
       }
 
       void ClockDividerModuleAdapter::emitPulsesForBeatRange(void* runtimeState,

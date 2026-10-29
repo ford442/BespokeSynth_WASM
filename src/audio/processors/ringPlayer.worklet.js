@@ -21,7 +21,6 @@ class RingPlayerProcessor extends AudioWorkletProcessor {
       this._samples = new Float32Array(sab, HEADER_BYTES);
       this._ready = true;
     }
-    this._framesOut = 0;
     this.port.onmessage = (ev) => {
       const data = ev.data || {};
       if (data.type === 'sab' && data.sab) {
@@ -65,16 +64,9 @@ class RingPlayerProcessor extends AudioWorkletProcessor {
         avail -= 1;
       }
     }
+    // Depth and underruns live in the SAB header (ringReadStats); posting stats from here
+    // would allocate on the render thread.
     Atomics.store(this._header, IDX_READ, read);
-    this._framesOut += frames;
-    if ((this._framesOut & 2047) === 0) {
-      this.port.postMessage({
-        type: 'stats',
-        frames: this._framesOut,
-        underruns: Atomics.load(this._header, IDX_UNDERRUN),
-        depth: avail,
-      });
-    }
     return true;
   }
 }

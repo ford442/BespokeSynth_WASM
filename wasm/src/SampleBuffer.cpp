@@ -11,9 +11,14 @@
 #define DR_WAV_IMPLEMENTATION
 #define DR_FLAC_IMPLEMENTATION
 #define DR_MP3_IMPLEMENTATION
+// Third-party single-header decoders: not held to this project's warning flags.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#pragma clang diagnostic ignored "-Wconversion"
 #include "dr_wav.h"
 #include "dr_flac.h"
 #include "dr_mp3.h"
+#pragma clang diagnostic pop
 
 namespace bespoke
 {
@@ -90,13 +95,24 @@ namespace bespoke
                            (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t * t * t);
          }
 
-         void mixToMono(const float* interleaved, int frames, int channels, std::vector<float>& mono)
+         /** Interleaved → planar; returns the kept channel count (1 or 2). */
+         int deinterleave(const float* interleaved, int frames, int channels, std::vector<float>& planar)
          {
-            mono.resize(static_cast<size_t>(frames));
+            if (channels == 2)
+            {
+               planar.resize(static_cast<size_t>(frames) * 2u);
+               for (int i = 0; i < frames; ++i)
+               {
+                  planar[static_cast<size_t>(i)] = interleaved[i * 2];
+                  planar[static_cast<size_t>(frames + i)] = interleaved[i * 2 + 1];
+               }
+               return 2;
+            }
+            planar.resize(static_cast<size_t>(frames));
             if (channels <= 1)
             {
-               std::memcpy(mono.data(), interleaved, static_cast<size_t>(frames) * sizeof(float));
-               return;
+               std::memcpy(planar.data(), interleaved, static_cast<size_t>(frames) * sizeof(float));
+               return 1;
             }
             const float inv = 1.0f / static_cast<float>(channels);
             for (int i = 0; i < frames; ++i)
@@ -104,18 +120,21 @@ namespace bespoke
                float sum = 0.0f;
                for (int ch = 0; ch < channels; ++ch)
                   sum += interleaved[i * channels + ch];
-               mono[static_cast<size_t>(i)] = sum * inv;
+               planar[static_cast<size_t>(i)] = sum * inv;
             }
+            return 1;
          }
       }
 
-      SampleBuffer::SampleBuffer(std::vector<float> mono,
+      SampleBuffer::SampleBuffer(std::vector<float> planar,
+                                 int channels,
                                  int sampleRate,
                                  std::string hash,
                                  std::string name)
-      : mSamples(std::move(mono))
+      : mSamples(std::move(planar))
       , mHash(std::move(hash))
       , mName(std::move(name))
+      , mChannels(channels == 2 && mSamples.size() % 2 == 0 ? 2 : 1)
       , mSampleRate(sampleRate > 0 ? sampleRate : 44100)
       {
          buildPeaks();
@@ -127,7 +146,7 @@ namespace bespoke
          if (mSamples.empty())
             return;
 
-         const int frames = static_cast<int>(mSamples.size());
+         const int frames = frameCount();
          for (int bin = 0; bin < kPeakBins; ++bin)
          {
             const int start = (bin * frames) / kPeakBins;
@@ -136,10 +155,14 @@ namespace bespoke
                end = start + 1;
             float minV = 1.0f;
             float maxV = -1.0f;
-            for (int i = start; i < end && i < frames; ++i)
+            for (int ch = 0; ch < mChannels; ++ch)
             {
-               minV = std::min(minV, mSamples[static_cast<size_t>(i)]);
-               maxV = std::max(maxV, mSamples[static_cast<size_t>(i)]);
+               const float* plane = channelData(ch);
+               for (int i = start; i < end && i < frames; ++i)
+               {
+                  minV = std::min(minV, plane[i]);
+                  maxV = std::max(maxV, plane[i]);
+               }
             }
             mPeaks[static_cast<size_t>(bin)] = { minV, maxV };
          }
@@ -224,11 +247,13 @@ namespace bespoke
 
       bool decodeAudioFile(const uint8_t* bytes,
                            int length,
-                           std::vector<float>& monoOut,
+                           std::vector<float>& planarOut,
+                           int& channelsOut,
                            int& sampleRateOut,
                            std::string& error)
       {
-         monoOut.clear();
+         planarOut.clear();
+         channelsOut = 1;
          sampleRateOut = 0;
          if (!bytes || length <= 0)
          {
@@ -257,7 +282,7 @@ namespace bespoke
                   error = "FLAC decode produced no frames";
                   return false;
                }
-               mixToMono(interleaved.data(), static_cast<int>(got), static_cast<int>(channels), monoOut);
+               channelsOut = deinterleave(interleaved.data(), static_cast<int>(got), static_cast<int>(channels), planarOut);
                sampleRateOut = static_cast<int>(sampleRate);
                return true;
             }
@@ -276,7 +301,7 @@ namespace bespoke
                   error = "MP3 decode produced no frames";
                   return false;
                }
-               mixToMono(interleaved.data(), static_cast<int>(got), static_cast<int>(channels), monoOut);
+               channelsOut = deinterleave(interleaved.data(), static_cast<int>(got), static_cast<int>(channels), planarOut);
                sampleRateOut = static_cast<int>(sampleRate);
                return true;
             }
@@ -285,10 +310,10 @@ namespace bespoke
             return false;
          }
 
-         mixToMono(pcm, static_cast<int>(frames), static_cast<int>(channels), monoOut);
+         channelsOut = deinterleave(pcm, static_cast<int>(frames), static_cast<int>(channels), planarOut);
          sampleRateOut = static_cast<int>(sampleRate);
          drwav_free(pcm, nullptr);
-         return !monoOut.empty();
+         return !planarOut.empty();
       }
 
       bool encodeWav(const float* interleaved,

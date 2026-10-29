@@ -69,6 +69,14 @@ namespace bespoke
          }
       }
 
+      std::string LFOModule::controlNameAt(float worldX, float worldY) const
+      {
+         // The waveform drawn under the shape line is the shape too.
+         return textLineControlAt(worldX, worldY, kTitleBarHeight + 14.0f,
+                                  std::max(UITheme::kValueFontSize, UITheme::kLabelFontSize),
+                                  { "rate", "depth", "shape" });
+      }
+
       void LFOModule::setControlValue(const std::string& name, float value)
       {
          if (name == "rate")

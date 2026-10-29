@@ -8,6 +8,10 @@ export interface RenderLoopHandle {
 export interface RenderLoopOptions {
   module: BespokeSynthModule;
   canvas: HTMLCanvasElement;
+  /** Runs before each bespoke_render(), e.g. to mirror worklet-engine telemetry into the UI module. */
+  beforeFrame?: () => void;
+  /** A frame threw (a WASM trap, or a hook failed). The loop has stopped; nothing else reports it. */
+  onError?: (error: unknown) => void;
 }
 
 /**
@@ -22,8 +26,17 @@ export function startRenderLoop(options: RenderLoopOptions): RenderLoopHandle {
     const deltaSeconds = Math.min(0.1, Math.max(0, (timestamp - lastFrameTime) / 1000));
     lastFrameTime = timestamp;
 
-    options.module._bespoke_set_frame_delta?.(deltaSeconds);
-    options.module._bespoke_render?.();
+    try {
+      options.beforeFrame?.();
+      options.module._bespoke_set_frame_delta(deltaSeconds);
+      options.module._bespoke_render();
+    } catch (error) {
+      // A trapped module is not safe to call again; stop instead of rethrowing every frame.
+      animationFrameId = null;
+      console.error('Render loop stopped:', error);
+      options.onError?.(error);
+      return;
+    }
     hostFrameCount += 1;
 
     animationFrameId = requestAnimationFrame(renderFrame);

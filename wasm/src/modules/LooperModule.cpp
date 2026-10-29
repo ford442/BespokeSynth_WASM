@@ -5,6 +5,7 @@
 #include "BespokeWasm/modules/WasmModules.h"
 #include "BespokeWasm/ModuleCanvasHelpers.h"
 #include "BespokeWasm/Theme.h"
+#include "BespokeWasm/WidgetPainter.h"
 #include <algorithm>
 #include <cstdio>
 
@@ -31,9 +32,9 @@ namespace bespoke
          const bool rec = mCommand == 1;
          const bool dub = mCommand == 2;
          const bool play = mCommand == 3;
-         renderer.drawButton(screenX + 8 * scale, btnY, btnW, btnH, "Rec", rec, false);
-         renderer.drawButton(screenX + 62 * scale, btnY, btnW, btnH, "Dub", dub, false);
-         renderer.drawButton(screenX + 116 * scale, btnY, btnW, btnH, "Play", play, false);
+         WidgetPainter(renderer).drawButton(screenX + 8 * scale, btnY, btnW, btnH, "Rec", rec, false);
+         WidgetPainter(renderer).drawButton(screenX + 62 * scale, btnY, btnW, btnH, "Dub", dub, false);
+         WidgetPainter(renderer).drawButton(screenX + 116 * scale, btnY, btnW, btnH, "Play", play, false);
 
          char line[48];
          snprintf(line, sizeof(line), "%d bar  mix %.0f%%", mBars, mMix * 100.0f);
@@ -60,6 +61,18 @@ namespace bespoke
          if (name == "command")
             return static_cast<float>(mCommand);
          return 0.0f;
+      }
+
+      std::string LooperModule::controlNameAt(float worldX, float worldY) const
+      {
+         // Mirrors handleMouseDown: the Rec/Dub/Play buttons, then the "N bar  mix" line.
+         const float btnY = mY + kTitleBarHeight + 12.0f;
+         const float btnH = 22.0f;
+         if (worldX < mX || worldX > mX + mWidth || worldY < btnY || worldY > btnY + btnH + 20.0f)
+            return {};
+         if (worldY <= btnY + btnH)
+            return worldX <= mX + 164.0f ? "command" : std::string();
+         return worldX < mX + 50.0f ? "bars" : "mix";
       }
 
       bool LooperModule::handleMouseDown(float worldX, float worldY)

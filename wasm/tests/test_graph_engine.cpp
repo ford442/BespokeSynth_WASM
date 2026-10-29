@@ -62,6 +62,7 @@ void test_audio_graph_rt_allocations()
 
    AudioGraphEngine engine;
    engine.prepareForBlock(128, 128, 32);
+   engine.prepareRuntimeStates(graph);
 
    constexpr int bufferSize = 128;
    std::vector<float> left(bufferSize, 0.0f);
@@ -107,6 +108,7 @@ void test_audio_graph_benchmark()
 
    AudioGraphEngine engine;
    engine.prepareForBlock(128, 128, 32);
+   engine.prepareRuntimeStates(graph);
    std::vector<float> left(128, 0.0f);
    std::vector<float> right(128, 0.0f);
    float* outputs[2] = { left.data(), right.data() };

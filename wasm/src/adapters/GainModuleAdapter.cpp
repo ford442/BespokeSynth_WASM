@@ -6,7 +6,7 @@
 #include "BespokeWasm/DspSimd.h"
 #include "BespokeWasm/modules/WasmModules.h"
 #include <algorithm>
-#include <new>
+#include <cstddef>
 
 namespace bespoke
 {
@@ -18,21 +18,29 @@ namespace bespoke
          {
             return std::max(minValue, std::min(maxValue, value));
          }
+
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "gain", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.7f, .offset = offsetof(GainParams, gain), .smoothingMs = kParamSmoothingMs },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Audio, "In" }, { PortType::Modulation, "Mod" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
       }
 
-      std::vector<WasmControlDescriptor> GainModuleAdapter::controlDescriptors() const
+      ParamTable GainModuleAdapter::paramTable() const
       {
-         return { { "gain", 0.7f } };
+         return kParams;
       }
 
-      std::vector<PortDescriptor> GainModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> GainModuleAdapter::inputPorts() const
       {
-         return { { PortType::Audio, "In" }, { PortType::Modulation, "Mod" } };
+         return kInputs;
       }
 
-      std::vector<PortDescriptor> GainModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> GainModuleAdapter::outputPorts() const
       {
-         return { { PortType::Audio, "Out" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> GainModuleAdapter::createUiModule(int id) const
@@ -40,24 +48,30 @@ namespace bespoke
          return std::make_unique<GainModule>(id);
       }
 
-      void GainModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
-      {
-         auto* params = new (dst) GainParams();
-         params->gain = wasmControlValue(controls, "gain", 0.7f);
-      }
-
       void GainModuleAdapter::processAudio(void* runtimeState,
                                            const void* paramsPtr,
-                                           float* buffer,
+                                           float* const* channels,
                                            const WasmAudioProcessContext& context) const
       {
          (void)runtimeState;
-         if (!paramsPtr || !buffer)
+         if (!paramsPtr || !channels)
             return;
 
          const auto& params = *static_cast<const GainParams*>(paramsPtr);
          const float gain = clampFloat(params.gain, 0.0f, 1.0f);
-         dsp::scale(buffer, context.numSamples, gain);
+         if (!context.modulationBuffer)
+         {
+            for (int ch = 0; ch < context.numChannels; ++ch)
+               dsp::scale(channels[ch], context.numSamples, gain);
+            return;
+         }
+         // Mod adds to the gain (an envelope at gain 0 is a VCA, an LFO at 0.5 a tremolo).
+         for (int i = 0; i < context.numSamples; ++i)
+         {
+            const float modulated = clampFloat(gain + context.modulationBuffer[i], 0.0f, 1.0f);
+            for (int ch = 0; ch < context.numChannels; ++ch)
+               channels[ch][i] *= modulated;
+         }
       }
 
       BESPOKE_REGISTER_MODULE(GainModuleAdapter);

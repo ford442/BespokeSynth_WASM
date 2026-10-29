@@ -85,8 +85,8 @@ void test_catalog_wave2_mixer_ports()
    {
       if (step.moduleId != 3)
          continue;
-      portsTagged = step.inputBufferSlots.size() == 2 && step.inputBufferPorts.size() == 2 &&
-                    step.inputBufferPorts.data[0] == 0 && step.inputBufferPorts.data[1] == 2;
+      const auto ports = plan.processPlan.audioInputPortsOf(step);
+      portsTagged = step.audioInputs.count == 2 && ports.size() == 2 && ports[0] == 0 && ports[1] == 2;
    }
    TEST("Plan tags mixer inputs with destination ports", portsTagged);
 
@@ -171,7 +171,7 @@ void test_catalog_wave2_dynamics_and_colour()
    WasmAudioProcessContext chorusContext;
    chorusContext.sampleRate = 44100.0f;
    chorusContext.numSamples = static_cast<int>(wet.size());
-   chorus.processAudio(chorusState.data(), &chorusParams, wet.data(), chorusContext);
+   chorus.processMono(chorusState.data(), &chorusParams, wet.data(), chorusContext);
    double chorusDiff = 0.0;
    for (size_t i = 0; i < wet.size(); ++i)
       chorusDiff += std::fabs(wet[i] - dry[i]);
@@ -193,7 +193,7 @@ void test_catalog_wave2_dynamics_and_colour()
    std::vector<float> driven = dry;
    WasmAudioProcessContext shaperContext;
    shaperContext.numSamples = static_cast<int>(driven.size());
-   shaper.processAudio(nullptr, &shaperParams, driven.data(), shaperContext);
+   shaper.processMono(nullptr, &shaperParams, driven.data(), shaperContext);
    float peak = 0.0f;
    for (float v : driven)
       peak = std::max(peak, std::fabs(v));
@@ -201,7 +201,7 @@ void test_catalog_wave2_dynamics_and_colour()
    std::vector<float> cv(dry.size(), -1.0f);
    std::vector<float> cvDriven = dry;
    shaperContext.modulationBuffer = cv.data();
-   shaper.processAudio(nullptr, &shaperParams, cvDriven.data(), shaperContext);
+   shaper.processMono(nullptr, &shaperParams, cvDriven.data(), shaperContext);
    TEST("Waveshaper Drive CV at -1 silences the shaped path", buffer_rms(cvDriven) < 1e-6f);
 }
 
@@ -261,8 +261,8 @@ void test_catalog_wave2_pulse_and_drums()
         divided.nodes[static_cast<size_t>(order[1])].id == 1);
    TEST("ClockDivider plan reads transport scratch",
         divided.processPlan.pulseSourcePlans.size() == 2 &&
-        divided.processPlan.pulseSourcePlans[1].pulseSourceScratchSlots.size() == 1 &&
-        divided.processPlan.pulseSourcePlans[1].pulseSourceScratchSlots.data[0] == 0);
+        divided.processPlan.pulseSourcePlans[1].pulseSources.count == 1 &&
+        divided.processPlan.pulseScratchSlotsOf(divided.processPlan.pulseSourcePlans[1].pulseSources)[0] == 0);
 
    // 150 blocks × 512 @ 44.1k ≈ 1.74 s ≈ 3.5 beats at 120 BPM.
    const int dividedOnsets = count_onsets(render_blocks(divided, 150));
@@ -300,7 +300,10 @@ void test_catalog_wave2_pulse_and_drums()
    for (const auto& step : kickOnly.processPlan.steps)
    {
       if (step.moduleId == 3)
-         kickFilter = step.noteSourcePortFilters.size() == 1 && step.noteSourcePortFilters.data[0] == 0;
+      {
+         const auto filters = kickOnly.processPlan.notePortFiltersOf(step.noteSources);
+         kickFilter = filters.size() == 1 && filters[0] == 0;
+      }
    }
    TEST("Plan filters drumseq Kick cable to note port 0", kickFilter);
    TEST("DrumSeq kick 0x1111 gives four-on-the-floor", count_onsets(render_blocks(kickOnly, 150)) == 4);
@@ -361,7 +364,7 @@ void test_catalog_wave2_freeverb()
    context.sampleRate = 44100.0f;
    context.numSamples = static_cast<int>(noise.size());
    std::vector<float> first = noise;
-   adapter.processAudio(runtimeA->data(), &params, first.data(), context);
+   adapter.processMono(runtimeA->data(), &params, first.data(), context);
    const float inRms = buffer_rms(noise);
    const float wetRms = buffer_rms(std::vector<float>(first.begin() + 4096, first.end()));
    printf("  freeverb in rms %.4f, 100%% wet rms %.4f\n", inRms, wetRms);
@@ -371,7 +374,7 @@ void test_catalog_wave2_freeverb()
    std::vector<uint8_t> runtimeB(*runtimeA);
    runtimeA.reset();
    std::vector<float> second = noise;
-   adapter.processAudio(runtimeB.data(), &params, second.data(), context);
+   adapter.processMono(runtimeB.data(), &params, second.data(), context);
    TEST("Freeverb survives runtime-arena relocation",
         all_finite(second) && buffer_rms(std::vector<float>(second.begin() + 4096, second.end())) > inRms * 0.25f);
    adapter.destroyRuntimeState(runtimeB.data());

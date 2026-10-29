@@ -7,6 +7,7 @@
 
 #include "BespokeWasm/WasmBridge.h"
 #include "BespokeWasm/WasmBridgeInternal.h"
+#include "BespokeWasm/AudioRemote.h"
 #include "BespokeWasm/Renderer2D.h"
 #include "BespokeWasm/Theme.h"
 #include "BespokeWasm/PixelFont.h"
@@ -144,12 +145,12 @@ EMSCRIPTEN_KEEPALIVE int bespoke_get_host_mouse_down_count(void)
 EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
 {
    auto& state = runtimeState();
+   // Delivers any AllowProcessEvents WebGPU callbacks (init requests); device-lost and
+   // error-scope callbacks are spontaneous and do not depend on this.
+   if (state.context)
+      state.context->processEvents();
    if (state.initState != InitState::FullyInitialized)
-   {
-      if (state.context)
-         state.context->processEvents();
       return;
-   }
 
    if (!state.renderer)
       return;
@@ -158,7 +159,9 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
       return;
 
    gHostRenderCallCount.fetch_add(1, std::memory_order_relaxed);
-   state.renderTime += gFrameDeltaSeconds;
+   // Render-test scenes are regression fixtures: shader animation stays at t = 0 so frames compare pixel for pixel.
+   if (!state.renderTestMode)
+      state.renderTime += gFrameDeltaSeconds;
    state.renderer->beginFrame(state.width, state.height,
                               static_cast<float>(emscripten_get_device_pixel_ratio()),
                               state.renderTime);
@@ -170,16 +173,17 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
    const bool useLegacy = state.legacyPanelsEnabled && state.viewMode != 0;
    if (!useLegacy && state.canvas)
    {
-      if (state.audioBackend)
+      // A worklet backend owns the device then; bespoke_play makes the same check.
+      if (state.audioBackend && !state.externalAudioActive)
       {
          const bool playing = state.canvas->isTransportPlaying();
          if (playing && !state.audioBackend->isRunning())
             state.audioBackend->start();
          else if (!playing && state.audioBackend->isRunning())
             state.audioBackend->stop();
-
-         state.canvas->setOutputLevel(state.audioBackend->getOutputLevel());
       }
+      // Engine-side peaks work for every backend (SDL, ring, worklet engine) and are measured pre-limit.
+      state.canvas->setOutputMeter(takePlayingOutputPeak(0), takePlayingOutputPeak(1));
       state.canvas->render(*state.renderer, state.width, state.height);
    }
    else if (useLegacy)
@@ -207,70 +211,25 @@ EMSCRIPTEN_KEEPALIVE void bespoke_resize(int width, int height)
    printf("BespokeSynth WASM: Resized to %dx%d\n", width, height);
 }
 
-EMSCRIPTEN_KEEPALIVE int bespoke_capture_screenshot(int* outWidth, int* outHeight)
-{
-   auto& state = runtimeState();
-   if (!state.initialized || !state.renderer)
-      return -1;
-
-   state.screenshotPixels.clear();
-   state.screenshotWidth = 0;
-   state.screenshotHeight = 0;
-
-   gBespokePendingScreenshotCapture = true;
-   bespoke_render();
-   gBespokePendingScreenshotCapture = false;
-
-   if (outWidth)
-      *outWidth = state.width;
-   if (outHeight)
-      *outHeight = state.height;
-
-   if (state.rendererBackend == RendererBackendType::WebGL2)
-      return 1;
-
-   if (state.context)
-   {
-      std::vector<uint8_t> pixels;
-      int w = 0;
-      int h = 0;
-      if (state.context->readCapturedPixels(pixels, w, h))
-      {
-         state.screenshotPixels = std::move(pixels);
-         state.screenshotWidth = w;
-         state.screenshotHeight = h;
-         if (outWidth)
-            *outWidth = w;
-         if (outHeight)
-            *outHeight = h;
-         return 0;
-      }
-   }
-
-   return -1;
-}
-
-EMSCRIPTEN_KEEPALIVE const unsigned char* bespoke_get_screenshot_pixels(int* outByteLength)
-{
-   auto& state = runtimeState();
-   if (outByteLength)
-      *outByteLength = static_cast<int>(state.screenshotPixels.size());
-   return state.screenshotPixels.empty() ? nullptr : state.screenshotPixels.data();
-}
-
 EMSCRIPTEN_KEEPALIVE void bespoke_set_render_test_mode(int scene)
 {
    auto& state = runtimeState();
    state.renderTestMode = scene != 0;
    state.renderTestScene = scene;
+   if (state.renderTestMode)
+      state.renderTime = 0.0f;
    if (!state.canvas)
       return;
 
    state.viewMode = 0;
+#if defined(BESPOKE_WASM_RENDER_TESTS)
    if (scene == 2)
       state.canvas->setupDrumRenderTestScene();
    else
       state.canvas->setupCanonicalRenderTestScene();
+#else
+   printf("WasmBridge: render-test scenes are not compiled in (BESPOKE_WASM_RENDER_TESTS=OFF)\n");
+#endif
    state.oscillatorModuleId = state.canvas->findFirstModuleOfType("oscillator");
    state.gainModuleId = state.canvas->findFirstModuleOfType("gain");
    if (state.renderTestMode)

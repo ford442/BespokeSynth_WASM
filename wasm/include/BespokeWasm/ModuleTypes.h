@@ -43,7 +43,9 @@ namespace bespoke
          ModulationSource,
          NoteSource,
          PulseSource,
-         Sink
+         Sink,
+         /** Consumes Note and emits Note in the same block (chorder, arp, filter, router). */
+         NoteProcessor
       };
 
       struct Port

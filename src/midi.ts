@@ -100,23 +100,28 @@ function messageForState(state: MidiConnectionState, connectedCount = 0): string
   }
 }
 
+/** AudioContext seconds to start a note received at an event's timeStamp; 0 plays it at once. */
+export type NoteTimeSource = (eventTimeStamp: number) => number;
+
 /**
  * Routes one incoming MIDI message into the WASM graph. Note and CC messages
  * carry their channel; the graph applies the note-channel filter and CC learn.
+ * `time` is when the note starts (NoteTimeSource), 0 for at once.
  */
-export function routeMidiMessage(module: BespokeSynthModule, data: ArrayLike<number>): void {
-  const status = data[0] ?? 0;
-  const data1 = data[1] ?? 0;
-  const data2 = data[2] ?? 0;
+export function routeMidiMessage(module: BespokeSynthModule, data: ArrayLike<number>, time = 0): void {
+  // Realtime and other short messages carry fewer than three bytes.
+  const status = data.length > 0 ? data[0] : 0;
+  const data1 = data.length > 1 ? data[1] : 0;
+  const data2 = data.length > 2 ? data[2] : 0;
   const command = status & 0xf0;
   const channel = status & 0x0f;
-  if (command === 0x90 && data2 > 0) module._bespoke_midi_note_on(channel, data1, data2 / 127);
-  else if (command === 0x80 || (command === 0x90 && data2 === 0)) module._bespoke_midi_note_off(channel, data1);
+  if (command === 0x90 && data2 > 0) module._bespoke_midi_note_on(channel, data1, data2 / 127, time);
+  else if (command === 0x80 || (command === 0x90 && data2 === 0)) module._bespoke_midi_note_off(channel, data1, time);
   else if (command === 0xb0) module._bespoke_midi_cc(channel, data1, data2 / 127);
 }
 
-function attachMidiHandlers(module: BespokeSynthModule, input: MidiInput): void {
-  input.onmidimessage = (event) => routeMidiMessage(module, event.data);
+function attachMidiHandlers(module: BespokeSynthModule, input: MidiInput, noteTime?: NoteTimeSource): void {
+  input.onmidimessage = (event) => routeMidiMessage(module, event.data, noteTime?.(event.timeStamp) ?? 0);
 }
 
 let midiAccess: MidiAccess | null = null;
@@ -129,8 +134,15 @@ function listPorts<T extends { name?: string }>(ports: Map<string, T> | undefine
   return list;
 }
 
-export async function connectWebMidi(module: BespokeSynthModule): Promise<MidiConnectResult> {
-  const request = (navigator as Navigator & { requestMIDIAccess?: RequestMidiAccess }).requestMIDIAccess;
+export async function connectWebMidi(
+  module: BespokeSynthModule,
+  noteTime?: NoteTimeSource,
+): Promise<MidiConnectResult> {
+  // Absent in browsers without Web MIDI, whatever lib.dom says.
+  const midiNavigator: { requestMIDIAccess?: RequestMidiAccess } = navigator as Navigator & {
+    requestMIDIAccess?: RequestMidiAccess;
+  };
+  const request = midiNavigator.requestMIDIAccess;
   if (!request) {
     return {
       state: 'unsupported',
@@ -168,11 +180,11 @@ export async function connectWebMidi(module: BespokeSynthModule): Promise<MidiCo
   }
 
   midiAccess = access;
-  access.inputs.forEach((input) => attachMidiHandlers(module, input));
+  access.inputs.forEach((input) => attachMidiHandlers(module, input, noteTime));
   // Hot-plugged inputs start routing without another click.
-  access.addEventListener?.('statechange', () => {
+  access.addEventListener('statechange', () => {
     access.inputs.forEach((input) => {
-      if (!input.onmidimessage) attachMidiHandlers(module, input);
+      if (!input.onmidimessage) attachMidiHandlers(module, input, noteTime);
     });
   });
 
@@ -231,6 +243,10 @@ export class MidiOutputRouter {
 
   selectedOutputId(): string | null {
     return this.output?.id ?? null;
+  }
+
+  hasOutput(): boolean {
+    return this.output !== null;
   }
 
   send(bytes: number[], timestamp?: number): void {

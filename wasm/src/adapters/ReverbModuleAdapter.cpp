@@ -11,6 +11,7 @@
 #include "BespokeWasm/Theme.h"
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <new>
@@ -29,6 +30,16 @@ namespace bespoke
          }
 
          constexpr int kChunk = 64;
+
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "room", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.7f, .offset = offsetof(ReverbParams, roomSize) },
+            { .id = 1, .name = "damping", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.3f, .offset = offsetof(ReverbParams, damping) },
+            { .id = 2, .name = "mix", .minValue = 0.0f, .maxValue = 1.0f, .defaultValue = 0.35f, .offset = offsetof(ReverbParams, mix), .smoothingMs = kParamSmoothingMs },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+
+         constexpr PortDescriptor kInputs[] = { { PortType::Audio, "In" } };
+         constexpr PortDescriptor kOutputs[] = { { PortType::Audio, "Out" } };
       }
 
       /**
@@ -78,6 +89,12 @@ namespace bespoke
          (void)lineH;
       }
 
+      std::string ReverbModule::controlNameAt(float worldX, float worldY) const
+      {
+         return textLineControlAt(worldX, worldY, kTitleBarHeight + 18.0f, UITheme::kValueFontSize,
+                                  { "room", "damping", "mix" });
+      }
+
       void ReverbModule::setControlValue(const std::string& name, float value)
       {
          if (name == "room")
@@ -99,23 +116,19 @@ namespace bespoke
          return 0.0f;
       }
 
-      std::vector<WasmControlDescriptor> ReverbModuleAdapter::controlDescriptors() const
+      ParamTable ReverbModuleAdapter::paramTable() const
       {
-         return {
-            { "room", 0.7f },
-            { "damping", 0.3f },
-            { "mix", 0.35f },
-         };
+         return kParams;
       }
 
-      std::vector<PortDescriptor> ReverbModuleAdapter::inputPorts() const
+      std::span<const PortDescriptor> ReverbModuleAdapter::inputPorts() const
       {
-         return { { PortType::Audio, "In" } };
+         return kInputs;
       }
 
-      std::vector<PortDescriptor> ReverbModuleAdapter::outputPorts() const
+      std::span<const PortDescriptor> ReverbModuleAdapter::outputPorts() const
       {
-         return { { PortType::Audio, "Out" } };
+         return kOutputs;
       }
 
       std::unique_ptr<Module> ReverbModuleAdapter::createUiModule(int id) const
@@ -123,12 +136,9 @@ namespace bespoke
          return std::make_unique<ReverbModule>(id);
       }
 
-      void ReverbModuleAdapter::fillParams(const WasmControlMap& controls, void* dst) const
+      void ReverbModuleAdapter::initParams(void* params) const
       {
-         auto* params = new (dst) ReverbParams();
-         params->roomSize = wasmControlValue(controls, "room", 0.7f);
-         params->damping = wasmControlValue(controls, "damping", 0.3f);
-         params->mix = wasmControlValue(controls, "mix", 0.35f);
+         new (params) ReverbParams();
       }
 
       size_t ReverbModuleAdapter::runtimeStateSize() const
@@ -149,10 +159,10 @@ namespace bespoke
 
       void ReverbModuleAdapter::processAudio(void* runtimeState,
                                              const void* paramsPtr,
-                                             float* buffer,
+                                             float* const* channels,
                                              const WasmAudioProcessContext& context) const
       {
-         if (!runtimeState || !paramsPtr || !buffer)
+         if (!runtimeState || !paramsPtr || !channels)
             return;
 
          auto* state = static_cast<ReverbAdapterRuntimeState*>(runtimeState);
@@ -177,21 +187,34 @@ namespace bespoke
          model.setdry(0.0f);
          model.update();
 
-         // Mono graph: the same signal feeds both inputs (freeverb sums L+R, so the input is
-         // doubled) and the decorrelated outputs are averaged. The 0.5 undoes the doubling;
-         // with scalewet that puts 100% wet at roughly 0.7x the input RMS on white noise.
+         // Freeverb sums L+R into its tank, so a mono source (upmixed to identical L/R by the
+         // engine) is doubled; the 0.5 undoes that. With scalewet, 100% wet sits at roughly
+         // 0.7x the input RMS per channel on white noise. The L/R tails stay decorrelated.
          const float wetGain = mix * scalewet * 0.5f;
          const float dryGain = 1.0f - mix;
-         float in[kChunk];
+         float inL[kChunk];
+         float inR[kChunk];
          float outL[kChunk];
          float outR[kChunk];
          for (int start = 0; start < context.numSamples; start += kChunk)
          {
             const int count = std::min(kChunk, context.numSamples - start);
-            std::memcpy(in, buffer + start, static_cast<size_t>(count) * sizeof(float));
-            model.processreplace(in, in, outL, outR, count, 1);
+            std::memcpy(inL, channels[0] + start, static_cast<size_t>(count) * sizeof(float));
+            if (context.numChannels < 2)
+            {
+               // One-channel block (processMono): the two tails are averaged back to mono.
+               model.processreplace(inL, inL, outL, outR, count, 1);
+               for (int i = 0; i < count; ++i)
+                  channels[0][start + i] = inL[i] * dryGain + (outL[i] + outR[i]) * 0.5f * wetGain;
+               continue;
+            }
+            std::memcpy(inR, channels[1] + start, static_cast<size_t>(count) * sizeof(float));
+            model.processreplace(inL, inR, outL, outR, count, 1);
             for (int i = 0; i < count; ++i)
-               buffer[start + i] = in[i] * dryGain + (outL[i] + outR[i]) * 0.5f * wetGain;
+            {
+               channels[0][start + i] = inL[i] * dryGain + outL[i] * wetGain;
+               channels[1][start + i] = inR[i] * dryGain + outR[i] * wetGain;
+            }
          }
       }
 

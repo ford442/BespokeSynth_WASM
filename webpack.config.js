@@ -4,6 +4,8 @@ const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 module.exports = (env, argv) => {
   const isDevelopment = argv.mode === 'development';
+  // Opt-in COOP/COEP service worker for hosts that cannot send the headers (src/coi/).
+  const coiServiceWorker = process.env.BESPOKE_COI_SW === '1' || Boolean(env && env.coiServiceWorker);
 
   return {
     entry: './src/index.ts',
@@ -36,6 +38,7 @@ module.exports = (env, argv) => {
       new HtmlWebpackPlugin({
         template: './src/index.html',
         inject: 'body',
+        coiServiceWorker,
       }),
       new CopyWebpackPlugin({
         patterns: [
@@ -45,15 +48,11 @@ module.exports = (env, argv) => {
             noErrorOnMissing: true,
           },
           {
-            from: 'wasm/resource-pack',
-            to: 'resource',
-            noErrorOnMissing: true,
-          },
-          {
             from: 'src/audio/processors',
             to: 'audio',
             noErrorOnMissing: true,
           },
+          ...(coiServiceWorker ? [{ from: 'src/coi/coi-serviceworker.js', to: 'coi-serviceworker.js' }] : []),
         ],
       }),
     ],
@@ -67,13 +66,13 @@ module.exports = (env, argv) => {
       hot: true,
       open: true,
       headers: {
-        // Cross-origin isolation enables SharedArrayBuffer for the AudioWorklet
-        // SAB ring backend, which is the default whenever the page is isolated
-        // (src/audio/audioMode.ts). SDL2 is the fallback for non-isolated pages
-        // and for ?audio=sdl. Production hosts must send the same COOP/COEP pair
-        // (or equivalent) or they get SDL2. `npm run serve` sends them too.
-        // BESPOKE_WASM_THREADS stays OFF — these headers are not an enablement
-        // of pthreads.
+        // Cross-origin isolation enables SharedArrayBuffer, which both AudioWorklet
+        // backends need: the worklet engine (BespokeSynthWASM_audio, the default
+        // whenever the page is isolated) and the SAB ring fallback (?audio=ring).
+        // See src/audio/audioMode.ts. Non-isolated pages and ?audio=sdl get SDL2.
+        // Production hosts must send the same COOP/COEP pair or they get SDL2.
+        // `npm run serve` (scripts/e2e-static-server.js) sends them too.
+        // BESPOKE_WASM_THREADS stays OFF: these headers do not enable pthreads.
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'require-corp',
         // Worklet scripts loaded via addModule need CORP when COEP is require-corp.

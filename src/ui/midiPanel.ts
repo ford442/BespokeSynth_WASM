@@ -53,7 +53,7 @@ export function setupMidiPanel(
     '<option value="-1">Omni</option>' +
     Array.from({ length: 16 }, (_, i) => `<option value="${i}">Ch ${i + 1}</option>`).join('');
   channelSelect.addEventListener('change', () => {
-    getModule()?._bespoke_set_midi_note_channel?.(Number(channelSelect.value));
+    getModule()?._bespoke_set_midi_note_channel(Number(channelSelect.value));
   });
 
   const outputSelect = document.createElement('select');
@@ -142,7 +142,7 @@ export function setupMidiPanel(
 
   const renderPopover = (): void => {
     const module = getModule();
-    const channel = module?._bespoke_get_midi_note_channel?.() ?? -1;
+    const channel = module?._bespoke_get_midi_note_channel() ?? -1;
     channelSelect.value = String(channel);
     renderPorts(lastResult);
     const clock = live?.isClockRunning()
@@ -184,7 +184,7 @@ export function setupMidiPanel(
     midiBtn.textContent = 'MIDI…';
     renderStatus('Requesting MIDI access…', 'pending');
 
-    const result = await connectWebMidi(module);
+    const result = await connectWebMidi(module, live ? (eventTime) => live.noteTime(eventTime) : undefined);
     connecting = false;
     midiBtn.disabled = false;
     lastResult = result;

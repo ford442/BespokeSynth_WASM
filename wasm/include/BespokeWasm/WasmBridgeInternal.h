@@ -14,8 +14,6 @@ namespace bespoke
 {
    namespace wasm
    {
-      extern bool gBespokePendingScreenshotCapture;
-
       constexpr const char* kWasmVersion = "1.0.0-wasm";
 
       extern std::atomic<uint32_t> gHostRenderCallCount;

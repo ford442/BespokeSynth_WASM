@@ -8,7 +8,7 @@
 #pragma once
 
 #include "Oscillator.h"
-#include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/AdapterStorage.h"
 
 namespace bespoke
 {
@@ -43,7 +43,7 @@ namespace bespoke
          OscillatorType oscillatorType = kOsc_Sin;
       };
 
-      class OscillatorModuleAdapter : public WasmModuleAdapter
+      class OscillatorModuleAdapter : public AdapterStorage<OscillatorParams, OscillatorAdapterRuntimeState>
       {
       public:
          const char* typeId() const override { return "oscillator"; }
@@ -51,20 +51,14 @@ namespace bespoke
          ModuleCategory category() const override { return ModuleCategory::Synth; }
          WasmAudioRole audioRole() const override { return WasmAudioRole::AudioSource; }
 
-         std::vector<WasmControlDescriptor> controlDescriptors() const override;
-         std::vector<PortDescriptor> inputPorts() const override;
-         std::vector<PortDescriptor> outputPorts() const override;
+         ParamTable paramTable() const override;
+         std::span<const PortDescriptor> inputPorts() const override;
+         std::span<const PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
 
-         size_t paramsSize() const override { return sizeof(OscillatorParams); }
-         void fillParams(const WasmControlMap& controls, void* dst) const override;
-
-         size_t runtimeStateSize() const override { return sizeof(OscillatorAdapterRuntimeState); }
-         void initRuntimeState(void* runtimeState) const override;
-         void destroyRuntimeState(void* runtimeState) const override;
          void processAudio(void* runtimeState,
                            const void* params,
-                           float* buffer,
+                           float* const* channels,
                            const WasmAudioProcessContext& context) const override;
       };
 

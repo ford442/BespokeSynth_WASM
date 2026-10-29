@@ -14,7 +14,6 @@ namespace bespoke::wasm
 {
    namespace
    {
-      std::atomic<float> gAudioCpuLoad{ 0.0f };
       std::chrono::steady_clock::time_point gLastCallbackTime{};
       bool gHasLastCallbackTime = false;
 
@@ -64,7 +63,7 @@ namespace bespoke::wasm
             ? static_cast<float>(frames) / sampleRate
             : 0.0f;
          const float instantaneous = bufferDuration > 0.0f ? elapsed / bufferDuration : 0.0f;
-         gAudioCpuLoad.store(gAudioCpuLoad.load() * 0.9f + instantaneous * 0.1f);
+         state.audioCpuLoad.store(state.audioCpuLoad.load() * 0.9f + instantaneous * 0.1f);
          audioHealthOnCallback(elapsed, bufferDuration, intervalSeconds);
          if (state.audioGraphEngine)
             audioHealthSetNoteDropCount(state.audioGraphEngine->noteDropCount());
@@ -78,7 +77,8 @@ namespace bespoke::wasm
          return;
       }
 
-      if (!state.canvas || !state.audioGraphEngine)
+      // The AudioWorklet engine owns the graph: this module must not render it as well.
+      if (!state.canvas || !state.audioGraphEngine || state.remoteAudioActive)
       {
          for (int channel = 0; channel < std::min(numOutputChannels, 2); ++channel)
             if (output[channel])
@@ -104,7 +104,7 @@ namespace bespoke::wasm
          sampleRate = static_cast<float>(state.audioBackend->getSampleRate());
 
       state.audioGraphEngine->processBlock(*graph, output, numOutputChannels, numSamples, sampleRate);
-      AudioAnalysis::pushSamples(output[0], numSamples);
+      AudioAnalysis::pushStereo(output[0], numOutputChannels > 1 ? output[1] : nullptr, numSamples);
       finishMetrics(numSamples, sampleRate);
    }
 
@@ -127,6 +127,6 @@ namespace bespoke::wasm
 
    float wasmAudioCpuLoad()
    {
-      return gAudioCpuLoad.load();
+      return runtimeState().audioCpuLoad.load();
    }
 }

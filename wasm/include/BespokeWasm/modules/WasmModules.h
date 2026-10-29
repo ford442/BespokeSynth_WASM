@@ -8,6 +8,7 @@
 #pragma once
 
 #include "BespokeWasm/Module.h"
+#include "BespokeWasm/SampleStore.h"
 #include "BespokeWasm/TuningTable.h"
 
 namespace bespoke
@@ -56,11 +57,19 @@ namespace bespoke
       public:
          OutputModule(int id);
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
+         /** `limit` is serialized; `meterL`/`meterR` are live pre-limit peaks fed by the canvas each frame. */
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         bool handleMouseDown(float worldX, float worldY) override;
+         std::string controlNameAt(float worldX, float worldY) const override;
 
       private:
+         bool hitLimitToggle(float worldX, float worldY) const;
+
          float mLevel = 0.0f;
+         float mMeter[2] = { 0.0f, 0.0f };
+         int mClipHoldFrames = 0;
+         bool mLimit = true;
       };
 
       class FilterModule : public Module
@@ -85,6 +94,7 @@ namespace bespoke
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         std::string controlNameAt(float worldX, float worldY) const override;
 
       private:
          float mRate = 1.0f;
@@ -99,6 +109,7 @@ namespace bespoke
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         std::string controlNameAt(float worldX, float worldY) const override;
 
       private:
          float mAttack = 10.0f;
@@ -114,11 +125,13 @@ namespace bespoke
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         std::string controlNameAt(float worldX, float worldY) const override;
 
       private:
          float mTime = 0.25f;
          float mFeedback = 0.35f;
          float mMix = 0.35f;
+         float mPingpong = 0.0f;
       };
 
       class NoiseModule : public Module
@@ -128,6 +141,7 @@ namespace bespoke
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         std::string controlNameAt(float worldX, float worldY) const override;
 
       private:
          float mVolume = 0.35f;
@@ -143,6 +157,7 @@ namespace bespoke
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         std::string controlNameAt(float worldX, float worldY) const override;
          bool handleMouseDown(float worldX, float worldY) override;
 
          bool isStepActive(int step) const;
@@ -162,6 +177,7 @@ namespace bespoke
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         std::string controlNameAt(float worldX, float worldY) const override;
 
          bool isPlaying() const { return mPlaying; }
          void setPlaying(bool playing) { mPlaying = playing; }
@@ -183,6 +199,7 @@ namespace bespoke
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         std::string controlNameAt(float worldX, float worldY) const override;
          void setStringProperty(const std::string& name, const std::string& value) override;
          std::string getStringProperty(const std::string& name) const override;
          std::vector<std::string> stringPropertyNames() const override;
@@ -193,7 +210,8 @@ namespace bespoke
 
          std::string mSampleHash;
          std::string mSampleName;
-         const class SampleBuffer* mSample = nullptr;
+         /** Resolved per frame: the store may evict and reload the buffer behind it. */
+         SampleHandle mSampleHandle;
          float mVolume = 0.85f;
          float mStart = 0.0f;
          float mEnd = 1.0f;
@@ -210,6 +228,7 @@ namespace bespoke
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         std::string controlNameAt(float worldX, float worldY) const override;
          bool handleMouseDown(float worldX, float worldY) override;
 
       private:
@@ -225,6 +244,7 @@ namespace bespoke
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         std::string controlNameAt(float worldX, float worldY) const override;
 
       private:
          int mPitch = 60;
@@ -252,6 +272,7 @@ namespace bespoke
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         std::string controlNameAt(float worldX, float worldY) const override;
          /** "scl"/"kbm" hold Scala text; "sclName"/"kbmName" the imported file names. */
          void setStringProperty(const std::string& name, const std::string& value) override;
          std::string getStringProperty(const std::string& name) const override;

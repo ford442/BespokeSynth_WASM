@@ -48,21 +48,26 @@ export function setupRendererPanel(options: RendererPanelOptions): void {
   // The tone POC (?audioWorkletPoc=1) is a diagnostic and deliberately not listed here.
   audioSelect.innerHTML = `
     <option value="worklet">Audio: Worklet</option>
+    <option value="ring">Audio: Worklet ring (main-thread DSP)</option>
     <option value="sdl">Audio: SDL2</option>
   `;
   const choice = options.audioBackendChoice;
   audioSelect.value = choice.backend;
   if (choice.fallbackReason) {
-    const workletOption = audioSelect.querySelector<HTMLOptionElement>('option[value="worklet"]');
-    if (workletOption) {
-      workletOption.disabled = true;
-      workletOption.textContent = 'Audio: Worklet (unavailable)';
+    for (const value of ['worklet', 'ring']) {
+      const option = audioSelect.querySelector<HTMLOptionElement>(`option[value="${value}"]`);
+      if (option) {
+        option.disabled = true;
+        option.textContent += ' (unavailable)';
+      }
     }
     const sdlOption = audioSelect.querySelector<HTMLOptionElement>('option[value="sdl"]');
     if (sdlOption) sdlOption.textContent = 'Audio: SDL2 (fallback)';
     audioSelect.title = `AudioWorklet unavailable: ${choice.fallbackReason}. Using SDL2.`;
   } else {
-    audioSelect.title = 'Audio backend (reloads page). Worklet is the default when the page is cross-origin isolated.';
+    audioSelect.title =
+      'Audio backend (reloads page). Worklet (the graph runs in the AudioWorklet) is the default when the page ' +
+      'is cross-origin isolated; the ring keeps the graph on the main thread.';
   }
   audioSelect.addEventListener('change', () => {
     switchAudioPreference(audioSelect.value as AudioBackendId);
@@ -81,7 +86,7 @@ export function setupRendererPanel(options: RendererPanelOptions): void {
   debugSelect.disabled = options.rendererBackend !== 'webgl';
   debugSelect.addEventListener('change', () => {
     const mode = Number(debugSelect.value);
-    options.getModule()?._bespoke_set_webgl_debug_mode?.(mode);
+    options.getModule()?._bespoke_set_webgl_debug_mode(mode);
   });
 
   const screenshotBtn = document.createElement('button');
@@ -100,7 +105,7 @@ export function setupRendererPanel(options: RendererPanelOptions): void {
   undoBtn.textContent = '↶';
   undoBtn.title = 'Undo (Ctrl+Z)';
   undoBtn.setAttribute('aria-label', 'Undo');
-  undoBtn.addEventListener('click', () => options.getModule()?._bespoke_undo?.());
+  undoBtn.addEventListener('click', () => options.getModule()?._bespoke_undo());
 
   const redoBtn = document.createElement('button');
   redoBtn.id = 'redoBtn';
@@ -108,7 +113,7 @@ export function setupRendererPanel(options: RendererPanelOptions): void {
   redoBtn.textContent = '↷';
   redoBtn.title = 'Redo (Ctrl+Shift+Z)';
   redoBtn.setAttribute('aria-label', 'Redo');
-  redoBtn.addEventListener('click', () => options.getModule()?._bespoke_redo?.());
+  redoBtn.addEventListener('click', () => options.getModule()?._bespoke_redo());
 
   const saveBtn = document.createElement('button');
   saveBtn.id = 'savePatchBtn';

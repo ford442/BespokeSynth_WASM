@@ -9,9 +9,19 @@ namespace bespoke
 {
    namespace wasm
    {
-      std::vector<WasmControlDescriptor> ScaleModuleAdapter::controlDescriptors() const
+      namespace
       {
-         return { { "root", 0.0f }, { "type", 0.0f } };
+         // UI-only: the audio side never reads a Scale Params block.
+         constexpr ParamDescriptor kParams[] = {
+            { .id = 0, .name = "root", .minValue = 0.0f, .maxValue = 11.0f, .defaultValue = 0.0f },
+            { .id = 1, .name = "type", .minValue = 0.0f, .maxValue = 6.0f, .defaultValue = 0.0f },
+         };
+         static_assert(paramTableIdsAreIndices(kParams));
+      }
+
+      ParamTable ScaleModuleAdapter::paramTable() const
+      {
+         return kParams;
       }
 
       std::unique_ptr<Module> ScaleModuleAdapter::createUiModule(int id) const

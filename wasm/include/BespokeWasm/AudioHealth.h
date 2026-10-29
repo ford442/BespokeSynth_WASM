@@ -8,6 +8,8 @@
 
 namespace bespoke::wasm
 {
+   /** Block process time over the block's own duration: <10%, <25%, <50%, <75%, <100%, <150%, <200%, more. */
+   constexpr int kAudioBlockTimeBuckets = 8;
 
    struct AudioHealthSnapshot
    {
@@ -24,6 +26,7 @@ namespace bespoke::wasm
       int backend = 0; // 0=sdl, 1=worklet, 2=poc
       uint64_t noteDropCount = 0;
       uint64_t heapBytes = 0; // WASM linear memory size (== peak; memory never shrinks)
+      uint64_t blockTimeHistogram[kAudioBlockTimeBuckets] = {};
    };
 
    void audioHealthReset();

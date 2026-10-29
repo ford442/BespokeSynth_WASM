@@ -8,6 +8,7 @@
 #include "BespokeWasm/modules/WasmModules.h"
 #include "BespokeWasm/ModuleCanvasHelpers.h"
 #include "BespokeWasm/Theme.h"
+#include "BespokeWasm/WidgetPainter.h"
 #include <cmath>
 #include <cstdio>
 
@@ -34,10 +35,10 @@ namespace bespoke
          float sliderW = 100 * scale;
          float sliderH = 16 * scale;
 
-         renderer.drawSlider(sliderX, sliderY, sliderW, sliderH,
-                             mGain,
-                             Color(0.2f, 0.2f, 0.22f, 1.0f),
-                             Color(0.8f, 0.5f, 0.2f, 1.0f));
+         WidgetPainter(renderer).drawSlider(sliderX, sliderY, sliderW, sliderH,
+                                            mGain,
+                                            Color(0.2f, 0.2f, 0.22f, 1.0f),
+                                            Color(0.8f, 0.5f, 0.2f, 1.0f));
 
          char gainText[16];
          formatGainDb(mGain, gainText, sizeof(gainText));

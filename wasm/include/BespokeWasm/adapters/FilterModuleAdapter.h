@@ -8,7 +8,7 @@
 #pragma once
 
 #include "BiquadFilter.h"
-#include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/AdapterStorage.h"
 
 namespace bespoke
 {
@@ -24,12 +24,12 @@ namespace bespoke
 
       struct FilterAdapterRuntimeState
       {
-         BiquadFilter filter;
+         BiquadFilter filter[2]; // one per channel, shared coefficients
          float lastSampleRate = 0.0f;
          int lastFilterType = -1;
       };
 
-      class FilterModuleAdapter : public WasmModuleAdapter
+      class FilterModuleAdapter : public AdapterStorage<FilterParams, FilterAdapterRuntimeState>
       {
       public:
          const char* typeId() const override { return "filter"; }
@@ -37,20 +37,14 @@ namespace bespoke
          ModuleCategory category() const override { return ModuleCategory::AudioEffect; }
          WasmAudioRole audioRole() const override { return WasmAudioRole::AudioProcessor; }
 
-         std::vector<WasmControlDescriptor> controlDescriptors() const override;
-         std::vector<PortDescriptor> inputPorts() const override;
-         std::vector<PortDescriptor> outputPorts() const override;
+         ParamTable paramTable() const override;
+         std::span<const PortDescriptor> inputPorts() const override;
+         std::span<const PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
 
-         size_t paramsSize() const override { return sizeof(FilterParams); }
-         void fillParams(const WasmControlMap& controls, void* dst) const override;
-
-         size_t runtimeStateSize() const override { return sizeof(FilterAdapterRuntimeState); }
-         void initRuntimeState(void* runtimeState) const override;
-         void destroyRuntimeState(void* runtimeState) const override;
          void processAudio(void* runtimeState,
                            const void* params,
-                           float* buffer,
+                           float* const* channels,
                            const WasmAudioProcessContext& context) const override;
 
          static FilterType filterTypeFor(int filterType);

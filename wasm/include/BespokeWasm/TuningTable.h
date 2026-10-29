@@ -41,6 +41,12 @@ namespace bespoke
          return table[index];
       }
 
+      /** Frequency ratio of a bend in semitones (the bend is relative to the note's tuned pitch). */
+      inline float pitchBendRatio(float semitones)
+      {
+         return semitones == 0.0f ? 1.0f : std::exp2(semitones / 12.0f);
+      }
+
       struct TuningParseResult
       {
          bool ok = false;

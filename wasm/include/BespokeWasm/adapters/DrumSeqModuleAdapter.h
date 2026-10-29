@@ -12,7 +12,7 @@
 #pragma once
 
 #include "BespokeWasm/Module.h"
-#include "BespokeWasm/WasmModuleAdapter.h"
+#include "BespokeWasm/AdapterStorage.h"
 
 namespace bespoke
 {
@@ -45,6 +45,7 @@ namespace bespoke
          void render(Renderer2D& renderer, float offsetX, float offsetY, float scale) override;
          void setControlValue(const std::string& name, float value) override;
          float getControlValue(const std::string& name) const override;
+         std::string controlNameAt(float worldX, float worldY) const override;
          bool handleMouseDown(float worldX, float worldY) override;
 
          bool isStepActive(int track, int step) const;
@@ -59,7 +60,7 @@ namespace bespoke
          float mGate = 0.5f;
       };
 
-      class DrumSeqModuleAdapter : public WasmModuleAdapter
+      class DrumSeqModuleAdapter : public AdapterStorage<DrumSeqParams, DrumSeqRuntimeState>
       {
       public:
          const char* typeId() const override { return "drumseq"; }
@@ -69,17 +70,11 @@ namespace bespoke
          // Drum pitches are trigger ids, not melody: never snap them to the Scale.
          bool quantizesNotesToScale() const override { return false; }
 
-         std::vector<WasmControlDescriptor> controlDescriptors() const override;
-         std::vector<PortDescriptor> inputPorts() const override;
-         std::vector<PortDescriptor> outputPorts() const override;
+         ParamTable paramTable() const override;
+         std::span<const PortDescriptor> inputPorts() const override;
+         std::span<const PortDescriptor> outputPorts() const override;
          std::unique_ptr<Module> createUiModule(int id) const override;
 
-         size_t paramsSize() const override { return sizeof(DrumSeqParams); }
-         void fillParams(const WasmControlMap& controls, void* dst) const override;
-
-         size_t runtimeStateSize() const override { return sizeof(DrumSeqRuntimeState); }
-         void initRuntimeState(void* runtimeState) const override;
-         void destroyRuntimeState(void* runtimeState) const override;
          void emitNotesForBeatRange(void* runtimeState,
                                     const void* params,
                                     double beatStart,

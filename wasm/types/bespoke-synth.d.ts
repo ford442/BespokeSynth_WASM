@@ -52,8 +52,9 @@ export interface BespokeSynthModule extends EmscriptenRuntime {
     // Control access
     _bespoke_set_control_value(moduleId: number, controlName: number, value: number): void;
     _bespoke_get_control_value(moduleId: number, controlName: number): number;
-    _bespoke_midi_note_on(channel: number, pitch: number, velocity: number): void;
-    _bespoke_midi_note_off(channel: number, pitch: number): void;
+    /** `time`: AudioContext seconds to start at (AudioWorklet engine), 0 = at once. */
+    _bespoke_midi_note_on(channel: number, pitch: number, velocity: number, time: number): void;
+    _bespoke_midi_note_off(channel: number, pitch: number, time: number): void;
     _bespoke_midi_cc(channel: number, cc: number, value: number): void;
 
     // State management
@@ -80,8 +81,34 @@ export interface BespokeSynthModule extends EmscriptenRuntime {
     _bespoke_set_external_sample_rate(sampleRate: number): void;
     _bespoke_set_audio_backend_id(backend: number): void;
     _bespoke_get_audio_health_json(): number;
+    /** JSON EngineStats (src/audio/engineStats.ts); valid until the next call. */
+    _bespoke_get_engine_stats_json(): number;
     _bespoke_reset_audio_health(): void;
     _bespoke_set_audio_queue_stats(depthFrames: number, capacityFrames: number, externalUnderruns: number): void;
+
+    // AudioWorklet engine (Option A): a second, DSP-only instance plays the graph
+    /** 1: the worklet engine plays; notes and graph changes go to `bespokeAudioRemote`. */
+    _bespoke_set_audio_remote(enabled: number): void;
+    _bespoke_get_audio_remote(): number;
+    /** Must equal the audio module's _bespoke_audio_wire_abi. */
+    _bespoke_get_audio_wire_abi(): number;
+    /** Encodes the latest graph; writes the byte length to the int at `outLength`. */
+    _bespoke_encode_audio_graph(outLength: number): number;
+    _bespoke_get_sample_count(): number;
+    /** Writes [channels, frames, sampleRate, planarPtr] into 4 ints at `out`; 0 when absent. */
+    _bespoke_get_sample_info(id: number, out: number): number;
+    /** Generation of sample `id`'s resident buffer; 0 once it was evicted. */
+    _bespoke_get_sample_generation(id: number): number;
+    /** JSON string[] of sample hashes a snapshot wanted but that are not resident; clears the list. */
+    _bespoke_take_missing_samples(): number;
+    /** After loading missing samples: rebuild the graph so samplers bind to them. */
+    _bespoke_samples_restored(): void;
+    /** Resident sample + looper memory budget; unused buffers past it are evicted. */
+    _bespoke_set_resource_budget_mb(megabytes: number): void;
+    _bespoke_set_remote_audio_status(beat: number, peakL: number, peakR: number, inputPeak: number): void;
+    _bespoke_push_analysis_samples(samples: number, count: number): void;
+    /** Installed by the host while the worklet engine is live (src/audio/workletEngineBackend.ts). */
+    bespokeAudioRemote?: BespokeAudioRemoteHooks;
 
     // Panel management
     _bespoke_process_events(): void;
@@ -118,9 +145,13 @@ export interface BespokeSynthModule extends EmscriptenRuntime {
     _bespoke_set_webgl_debug_mode(mode: number): void;
     _bespoke_get_webgl_debug_mode(): number;
 
-    // Screenshot / render-test capture
-    _bespoke_capture_screenshot(outWidth: number, outHeight: number): number;
-    _bespoke_get_screenshot_pixels(outByteLength: number): number;
+    /**
+     * After a lost GPU device / WebGL context, with #canvas already replaced: rebuilds only the
+     * renderer (1 = WebGL2). 0 on success, -5 when the new context or shaders fail.
+     */
+    _bespoke_reinit_renderer(backend: number): number;
+
+    // Render-test capture (screenshots read the canvas itself, see src/rendererMode.ts)
     /** 0 off, 1 canonical synth voice, 2 drum bus. */
     _bespoke_set_render_test_mode(scene: number): void;
     /** Active render-test scene id (0 when off). */
@@ -135,7 +166,16 @@ export interface BespokeSynthModule extends EmscriptenRuntime {
     _bespoke_find_first_module(type: number): number;
     _bespoke_set_module_string(moduleId: number, key: number, value: number): number;
     _bespoke_get_module_string(moduleId: number, key: number): number;
+    /** BCP 47 tag pointer (`navigator.language`); help falls back to English. */
+    _bespoke_set_help_locale(tag: number): void;
+    /** Pointer to the hover tooltip text ("" for none). */
+    _bespoke_get_hover_help(): number;
+    /** Desktop .bsk bytes (heap pointer + length); 0 on success. */
+    _bespoke_import_desktop_savestate(bytes: number, length: number): number;
+    /** Pointer to a /resource/ file's text ("" when missing), valid until the next call. */
+    _bespoke_read_resource_text(path: number): number;
     _bespoke_push_input_audio(frames: number, framesCount: number): void;
+    _bespoke_set_input_capture_active(active: number): void;
     _bespoke_set_offline_format(bitsPerSample: number): void;
     _bespoke_render_offline(seconds: number, sampleRate: number): number;
     _bespoke_get_offline_wav(outByteLength: number): number;
@@ -180,8 +220,17 @@ export interface BespokeSynthModule extends EmscriptenRuntime {
     _bespoke_scale_get_tuning_error(): number;
     _bespoke_get_note_frequency(pitch: number): number;
 
+    // Graph notes for the MIDI output
+    _bespoke_set_graph_note_capture(enabled: number): void;
+    /** Pops captured notes into an Int32 buffer: pitch | vel << 8 | channel << 16 | on << 20. */
+    _bespoke_drain_graph_notes(out: number, maxEvents: number): number;
+    /** 1 when a Note processor listens to the performance instead of a cable. */
+    _bespoke_performance_notes_processed(): number;
+    _bespoke_get_placeholder_count(): number;
+
     // Script module host (?script=1)
     _bespoke_set_scripting_enabled(enabled: number): void;
+    /** 0 rejected, 1 queued on the script's own cables, 2 played on the performance path. */
     _bespoke_script_note(moduleId: number, pitch: number, velocity: number, isNoteOn: number): number;
     _bespoke_script_set_control(moduleId: number, controlName: number, value: number): number;
     _bespoke_script_stopped(moduleId: number): void;
@@ -195,16 +244,25 @@ export interface BespokeSynthModule extends EmscriptenRuntime {
     _bespoke_get_analyzer_gpu_fft_count(): number;
 }
 
+/** Called from C++ (wasm/src/AudioRemote.cpp) while the worklet engine plays. */
+export interface BespokeAudioRemoteHooks {
+    /**
+     * One AudioEngineEventType record (a note, a script note or a control change) for the
+     * worklet. false when the event ring is full (a control change then republishes the graph).
+     */
+    event(type: number, a: number, b: number, c: number): boolean;
+    /** A snapshot was published; `reset` when a patch was loaded. */
+    graphChanged(reset: boolean): void;
+}
+
 /**
  * The slice of the Emscripten Module this build exports (EXPORTED_RUNTIME_METHODS
  * in wasm/CMakeLists.txt). Heap views and the allocator are taken from
  * @types/emscripten rather than redeclared; only members it omits are added here.
+ * Only HEAP8, HEAPU8 and HEAPF32 exist at runtime: view `HEAPU8.buffer` for other
+ * widths (after any call that can grow the heap).
  */
-interface EmscriptenRuntime
-    extends Pick<
-        EmscriptenModule,
-        'HEAP8' | 'HEAP16' | 'HEAP32' | 'HEAPU8' | 'HEAPU16' | 'HEAPU32' | 'HEAPF32' | 'HEAPF64' | '_malloc' | '_free'
-    > {
+interface EmscriptenRuntime extends Pick<EmscriptenModule, 'HEAP8' | 'HEAPU8' | 'HEAPF32' | '_malloc' | '_free'> {
     calledRun?: boolean;
     onRuntimeInitialized?: () => void;
     ccall?(
