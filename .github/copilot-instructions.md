@@ -16,7 +16,7 @@ This project maintains **TWO distinct architectural branches**:
 | Entry Point | `Source/MainComponent.cpp` | `wasm/src/WasmMain.cpp` |
 | Build Command | `cmake`/`just` | `./wasm/build.sh` |
 
-**Critical Rule**: Changes to `Source/` do not automatically apply to WASM. Always verify WASM compatibility for shared code. The WASM build is currently a proof-of-concept/demo architecture, not feature-parity with desktop.
+**Critical Rule**: Changes to `Source/` do not automatically apply to WASM. Always verify WASM compatibility for shared code. The WASM build is a working modular synth (audio graph, MIDI, samples, Scala tunings, WebGPU and WebGL2 renderers) but a separate, smaller module catalog than desktop, not feature-parity.
 
 ### Core Design Patterns
 
@@ -37,7 +37,7 @@ Audio processing runs on a high-priority thread while UI runs on a lower-priorit
 ### Prerequisites
 
 **WASM Build**:
-- Emscripten SDK 3.1+ with `emdawnwebgpu` port
+- Emscripten SDK pinned in `.emscripten-version` (6.0.3 or newer) with the `emdawnwebgpu` port
 - CMake 3.16+
 - Node.js 18+ and npm 9+
 

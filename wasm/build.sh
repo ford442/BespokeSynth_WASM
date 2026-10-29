@@ -29,12 +29,21 @@ NC='\033[0m' # No Color
 echo -e "${GREEN}=== BespokeSynth WASM ${BUILD_FLAVOR} Build ===${NC}"
 
 read_required_emscripten_version() {
-    if [ -f "$EMSCRIPTEN_VERSION_FILE" ]; then
-        tr -d '[:space:]' < "$EMSCRIPTEN_VERSION_FILE"
-    else
-        echo "4.0.0"
+    local version
+    if [ ! -f "$EMSCRIPTEN_VERSION_FILE" ]; then
+        echo -e "${RED}Error: $EMSCRIPTEN_VERSION_FILE is missing${NC}" >&2
+        echo "It pins the Emscripten SDK this tree builds with; there is no safe default." >&2
+        exit 1
     fi
+    version="$(tr -d '[:space:]' < "$EMSCRIPTEN_VERSION_FILE")"
+    if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo -e "${RED}Error: $EMSCRIPTEN_VERSION_FILE must contain a MAJOR.MINOR.PATCH version (got '$version')${NC}" >&2
+        exit 1
+    fi
+    echo "$version"
 }
+
+REQUIRED_EMSCRIPTEN_VERSION="$(read_required_emscripten_version)"
 
 version_ge() {
     # True when $1 >= $2 (semantic version).
@@ -85,7 +94,6 @@ if ! command -v emcc &> /dev/null; then
 fi
 
 EMCC_VERSION="$(emcc --version | head -n 1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
-REQUIRED_EMSCRIPTEN_VERSION="$(read_required_emscripten_version)"
 echo -e "${GREEN}Using Emscripten:${NC} $(emcc --version | head -n 1)"
 
 if ! version_ge "$EMCC_VERSION" "$REQUIRED_EMSCRIPTEN_VERSION"; then
@@ -172,7 +180,7 @@ fi
 echo -e "${GREEN}Build complete!${NC}"
 echo "Output files are in: $OUTPUT_DIR"
 echo ""
-echo "To run locally, start a web server:"
-echo "  cd $OUTPUT_DIR"
-echo "  python -m http.server 8000"
+echo "To run the full app (cross-origin isolated, AudioWorklet audio):"
+echo "  npm run build:web-only && npm run serve"
 echo "Then open: http://localhost:8000/"
+echo "(A plain 'python -m http.server' in $OUTPUT_DIR serves only the bare Emscripten shell, SDL2 audio.)"

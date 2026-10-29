@@ -67,10 +67,11 @@ module.exports = (env, argv) => {
       hot: true,
       open: true,
       headers: {
-        // Cross-origin isolation enables SharedArrayBuffer for the opt-in
-        // AudioWorklet SAB ring backend (?audio=worklet). SDL2 remains default
-        // and does not require these headers. Production hosts that enable the
-        // worklet path must send the same COOP/COEP pair (or equivalent).
+        // Cross-origin isolation enables SharedArrayBuffer for the AudioWorklet
+        // SAB ring backend, which is the default whenever the page is isolated
+        // (src/audio/audioMode.ts). SDL2 is the fallback for non-isolated pages
+        // and for ?audio=sdl. Production hosts must send the same COOP/COEP pair
+        // (or equivalent) or they get SDL2. `npm run serve` sends them too.
         // BESPOKE_WASM_THREADS stays OFF — these headers are not an enablement
         // of pthreads.
         'Cross-Origin-Opener-Policy': 'same-origin',

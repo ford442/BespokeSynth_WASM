@@ -6,10 +6,12 @@
  * Licensed under GNU GPL v3
  */
 
+/// <reference types="emscripten" />
+
 /**
  * BespokeSynth WASM Module interface
  */
-export interface BespokeSynthModule extends EmscriptenModule {
+export interface BespokeSynthModule extends EmscriptenRuntime {
     // Initialization
     _bespoke_init(width: number, height: number, sampleRate: number, bufferSize: number): number;
     _bespoke_shutdown(): void;
@@ -194,9 +196,15 @@ export interface BespokeSynthModule extends EmscriptenModule {
 }
 
 /**
- * Emscripten Module interface
+ * The slice of the Emscripten Module this build exports (EXPORTED_RUNTIME_METHODS
+ * in wasm/CMakeLists.txt). Heap views and the allocator are taken from
+ * @types/emscripten rather than redeclared; only members it omits are added here.
  */
-interface EmscriptenModule {
+interface EmscriptenRuntime
+    extends Pick<
+        EmscriptenModule,
+        'HEAP8' | 'HEAP16' | 'HEAP32' | 'HEAPU8' | 'HEAPU16' | 'HEAPU32' | 'HEAPF32' | 'HEAPF64' | '_malloc' | '_free'
+    > {
     calledRun?: boolean;
     onRuntimeInitialized?: () => void;
     ccall?(
@@ -206,15 +214,8 @@ interface EmscriptenModule {
         args: Array<number | string | boolean>
     ): number | string | boolean | null;
     UTF8ToString(ptr: number): string;
-    allocateUTF8(str: string): number;
-    _free(ptr: number): void;
-    _malloc(size: number): number;
-    HEAP8: Int8Array;
-    HEAP16: Int16Array;
-    HEAP32: Int32Array;
-    HEAPU8: Uint8Array;
-    HEAPU16: Uint16Array;
-    HEAPU32: Uint32Array;
-    HEAPF32: Float32Array;
-    HEAPF64: Float64Array;
+    /** Heap-allocates a NUL-terminated copy of `str`; the caller must `_free` it. */
+    stringToNewUTF8(str: string): number;
+    /** The module's linear memory. Its `buffer` is replaced when the heap grows. */
+    wasmMemory: WebAssembly.Memory;
 }

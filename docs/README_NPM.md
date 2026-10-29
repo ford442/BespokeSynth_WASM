@@ -46,9 +46,8 @@ Output will be in the `dist/` directory.
 
 ### Build Scripts
 
-- `npm run build` - Full production build (WASM + TypeScript + webpack)
+- `npm run build` - Full production build (WASM once, then webpack; ts-loader type-checks)
 - `npm run build:wasm` - Build only the WASM module (requires Emscripten)
-- `npm run build:ts` - Compile TypeScript only
 - `npm run build:webpack` - Bundle with webpack only
 - `npm run dev` - Start development server with hot reload
 - `npm run clean` - Remove all build artifacts

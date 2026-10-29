@@ -60,28 +60,11 @@ export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRin
     module._bespoke_set_audio_queue_stats(stats.depth, stats.capacity, stats.underruns);
   };
 
-  const getHeapF32 = (): Float32Array => {
-    const m = module as BespokeSynthModule & {
-      HEAPF32?: Float32Array;
-      HEAP8?: Int8Array;
-      wasmMemory?: WebAssembly.Memory;
-    };
-    if (m.HEAPF32) return m.HEAPF32;
-    if (m.wasmMemory?.buffer) return new Float32Array(m.wasmMemory.buffer);
-    if (m.HEAP8?.buffer) return new Float32Array(m.HEAP8.buffer);
-    throw new Error('WASM heap Float32 view unavailable');
-  };
-
   const ensureHeapBuffer = (frames: number) => {
     if (heapBufferPtr && heapBufferFrames >= frames) return;
-    const alloc = module._malloc ?? (module as unknown as { malloc?: (n: number) => number }).malloc;
-    const freeFn = module._free ?? (module as unknown as { free?: (p: number) => void }).free;
-    if (typeof alloc !== 'function') {
-      throw new Error('WASM malloc is not exported; rebuild with _malloc/_free in EXPORTED_FUNCTIONS');
-    }
-    if (heapBufferPtr && typeof freeFn === 'function') freeFn(heapBufferPtr);
+    if (heapBufferPtr) module._free(heapBufferPtr);
     heapBufferFrames = frames;
-    heapBufferPtr = alloc(frames * 2 * 4);
+    heapBufferPtr = module._malloc(frames * 2 * 4);
   };
 
   const produce = () => {
@@ -96,9 +79,9 @@ export function createWorkletRingBackend(module: BespokeSynthModule): WorkletRin
     while (ringFramesAvailable(ring.header) < target && ringFramesFree(ring.header) >= blockFrames) {
       ensureHeapBuffer(blockFrames);
       module._bespoke_process_audio_block(heapBufferPtr, blockFrames);
-      const heap = getHeapF32();
+      // Emscripten replaces module.HEAPF32 when the heap grows, so read it after the call.
       const start = heapBufferPtr >> 2;
-      const copy = heap.slice(start, start + blockFrames * 2);
+      const copy = module.HEAPF32.slice(start, start + blockFrames * 2);
       const written = ringWriteInterleaved(ring, copy, blockFrames);
       if (written < blockFrames) break;
     }

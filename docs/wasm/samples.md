@@ -15,7 +15,7 @@ Note-triggered, 8-voice, allocation-free callback. Modes: one-shot, loop, gate. 
 
 ## Looper
 
-Record / overdub / play, length quantized to bars from transport BPM. The record arena is preallocated on the UI thread (`LooperArenaPool`). Live input arrives through `bespoke_push_input_audio` (header **Mic** button).
+Record / overdub / play, length quantized to bars from transport BPM. The record arena is preallocated on the UI thread (`LooperArenaPool`). Live input arrives through `bespoke_push_input_audio` (header **Mic** button): `src/audio/inputCapture.ts` runs `src/audio/processors/micCapture.worklet.js` as an AudioWorklet, which batches 512-frame mono chunks and posts them to the main thread, which pushes them into `InputAudioBus`. No SharedArrayBuffer is needed, so it works without cross-origin isolation.
 
 ## Offline render
 

@@ -41,7 +41,7 @@ Oscillator is 8-voice (oldest-age steal, pitch-matched note-off). Sampler still 
 
 ## Scale snapshot
 
-The Scale module stays a singleton UI editor (`WasmAudioRole::None`). `AudioGraphSnapshot::musicScale` copies `{ root, mode }` at publish time. `quantizeMidiPitch` snaps note events when the engine fills `context.notes`. Chromatic mode is identity. Real `.scl`/`.kbm` is reserved and not parsed yet.
+The Scale module stays a singleton UI editor (`WasmAudioRole::None`). `AudioGraphSnapshot::musicScale` copies `{ root, mode }` at publish time. `quantizeMidiPitch` snaps note events when the engine fills `context.notes`. Chromatic mode is identity. A loaded Scala `.scl`/`.kbm` replaces the mode quantizer with a 128-entry note → Hz table (`GraphMusicScale::noteFrequency`); see [live-instrument.md](live-instrument.md#scala-tunings-scl--kbm).
 
 ## MIDI map (patch schema 4)
 
@@ -57,7 +57,7 @@ Top-level patch JSON:
 - Empty `"cc": []` is a no-op (CC does nothing).
 - Schema v3 patches without `midi` migrate to CC7 → first gain, CC74 → first filter cutoff (20–20000 Hz), CC1 → first LFO depth.
 
-CC is applied on the UI thread via `ModuleCanvas::applyMidiCc`. MIDI learn UI is out of scope.
+CC is applied on the UI thread via `ModuleCanvas::applyMidiCc`. Shift-click a control to arm MIDI learn; learned maps are saved in this schema (see [live-instrument.md](live-instrument.md)).
 
 ## Step sequencer (`stepsequencer`)
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Static file server for Playwright / local smoke tests.
+ * Static file server for dist/: Playwright smoke tests and `npm run serve`.
  * Sends COOP/COEP so SharedArrayBuffer + AudioWorklet SAB ring can be tested.
  * Paths under /no-coi/ are served without isolation headers, to exercise the
  * SDL2 fallback a non-isolated production host would get.

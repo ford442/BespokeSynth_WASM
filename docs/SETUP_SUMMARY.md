@@ -84,9 +84,8 @@ This document summarizes the npm buildable web app setup that has been implement
 ### Build Scripts
 
 ```bash
-npm run build              # Full build (WASM + TypeScript + Webpack)
+npm run build              # Full build (WASM once, then Webpack; ts-loader type-checks)
 npm run build:wasm         # Build WASM module only (requires Emscripten)
-npm run build:ts           # Compile TypeScript only
 npm run build:webpack      # Bundle with Webpack only
 npm run build:web-only     # Build web app without WASM (useful for testing)
 ```
@@ -96,7 +95,7 @@ npm run build:web-only     # Build web app without WASM (useful for testing)
 ```bash
 npm run dev                # Start development server with hot reload (port 8080)
 npm start                  # Alias for npm run dev
-npm run serve              # Serve built dist/ directory (port 8000)
+npm run serve              # Serve built dist/ directory (port 8000, COOP/COEP so the AudioWorklet backend runs)
 ```
 
 ### Quality Scripts
