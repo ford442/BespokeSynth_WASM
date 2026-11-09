@@ -95,6 +95,14 @@ namespace bespoke::wasm
       /** When true, play/stop only toggles transport; JS owns the audio device (worklet). */
       bool externalAudioActive = false;
       float externalSampleRate = 44100.0f;
+      /** Rate and block size SDL2 is asked for when it is opened (bespoke_enable_sdl_audio). */
+      int sdlRequestedSampleRate = 44100;
+      int sdlRequestedBufferSize = 512;
+      /**
+       * The canvas transport started (Space, the play button) while no output was open, and the host
+       * was asked to start one (__bespoke_on_playback_requested). Reset when the transport stops.
+       */
+      bool playbackRequestSent = false;
       /** The AudioWorklet engine (a second WASM instance) plays the graph; ours stays idle. */
       bool remoteAudioActive = false;
       /** Worklet engine telemetry the host mirrors in once per frame (bespoke_set_remote_audio_status). */

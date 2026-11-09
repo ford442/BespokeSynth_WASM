@@ -215,10 +215,26 @@ The issue calls this "catalogue wave 3"; the code and tests call it wave 4 (`tes
 | --- | --- | --- |
 | Worklet engine (default) | automatic when `crossOriginIsolated`, or `?audio=worklet` | The graph runs in `BespokeSynthWASM_audio` inside the AudioWorklet; the UI module sends it snapshots and notes. One quantum of buffering |
 | Worklet + SAB ring | `?audio=ring`, or automatic if the engine fails to start | UI module renders via `bespoke_process_audio_block` on the main thread; adaptive lookahead |
-| SDL2 | `?audio=sdl`, or automatic without isolation | Compatibility path (old Safari, hosts without COOP/COEP) |
+| Worklet + message port | `?audio=port`, or automatic without isolation (hosts without COOP/COEP) | Same main-thread rendering and lookahead as the ring, but blocks travel to `portPlayer.worklet.js` as transferred `Float32Array`s, so no `SharedArrayBuffer` is needed. The producer's queue depth comes from the player's stats messages (~11 ms behind), so its lookahead starts at 80 ms |
+| SDL2 | `?audio=sdl`, or automatic only when `AudioWorkletNode` does not exist | Last resort: Emscripten's SDL2 driver uses a deprecated `ScriptProcessorNode`. Opened on Play (`bespoke_enable_sdl_audio`), never at load |
 | Tone POC | `?audioWorkletPoc=1` | Isolation demo only; not in the header dropdown |
 
-Resolution order: `?audio=` (persisted to `localStorage` `bespokesynth.audio`) → stored preference → auto. A worklet request on a page that is not cross-origin isolated falls back to SDL2; the header shows *Audio: SDL2 (fallback)* with the reason in its tooltip and a status message. `window.__bespoke.getAudioBackendChoice()` returns `{ backend, requested, source, fallbackReason? }`.
+Resolution order: `?audio=` (persisted to `localStorage` `bespokesynth.audio`) → stored preference → auto. A worklet or ring request on a page that is not cross-origin isolated resolves to the message-port player; the header shows *Audio: Worklet port (fallback)* with the reason in its tooltip. Play tries the engine, then the ring, then the port player, then SDL2, so a worklet that fails to load only costs a step. `window.__bespoke.getAudioBackendChoice()` returns `{ backend, requested, source, fallbackReason? }`.
+
+### Audio status (what the browser really says)
+
+Neither SDL2 nor a connected `AudioWorkletNode` proves a device is playing: SDL2's driver reports success without a device, and an `AudioContext` runs with nothing behind it. `src/audio/audioStatus.ts` combines what is observable, and the header shows it (*Audio idle / on / suspended / No audio output*; the tooltip lists the details) plus a dismissible banner when sound cannot come out:
+
+| Signal | Meaning |
+| --- | --- |
+| `AudioContext.state` | `suspended` after Play = blocked by autoplay policy; `interrupted` = system took the device; `closed` |
+| Clock check | A `running` context whose `currentTime` advances under a quarter of real time for ~1 s is `stalled`: no device is pulling samples |
+| `enumerateDevices()` | Zero `audiooutput` entries, trusted only where the browser lists outputs without permission (Chromium, detected by `AudioContext.prototype.setSinkId`). Other browsers report `null` (unknown), never "none" |
+| `error` event / start failure | The context's own error, or the backend throwing while starting |
+
+`window.__bespoke.getAudioStatus()` returns `{ level: 'idle'|'ok'|'warn'|'error', state, message, backend, contextState, clockAdvancing, outputDevices, sampleRate, latencyMs }`. Before Play there is no context, so the state is `idle`, not `running`.
+
+Nothing opens an audio device at load, and any start path reaches the same backend chain: the header Play button calls it directly, and a transport started on the canvas (Space, the play button) with no output open makes C++ call `window.__bespoke_on_playback_requested`, once per play. `bespoke_init` only records the rate; the host measures the device's native rate with a closed-again probe `AudioContext` (`src/audio/deviceProbe.ts`) and passes it as `sampleRate`, so the sampler (which does not rate-convert) decodes samples and the bundled kit at the real rate.
 
 Health: `window.__bespoke.getAudioHealth()` (includes `heapBytes`; with the engine also `audioHeapBytes`, `snapshotCount`, `mainThreadBlocks`), `window.__bespoke.getAudioRingStats()` (lookahead), and the `?debug=1` HUD. Offline bounce (Export WAV, `renderOfflineWav`) always renders with the UI module's engine on the main thread. Full design: [../wasm-audio.md](../wasm-audio.md#option-a--audioworklet-engine).
 

@@ -34,13 +34,16 @@ import {
   type WorkletRingBackend,
   type WorkletRingStats,
 } from '../audio/workletRingBackend';
+import { canUseWorkletPortBackend, createWorkletPortBackend } from '../audio/workletPortBackend';
 import {
   AUDIO_BACKEND_WORKLET_WASM,
   compileWorkletEngine,
   createWorkletEngineBackend,
   type WorkletEngineBackend,
 } from '../audio/workletEngineBackend';
-import { readAudioHealth, type AudioHealth } from '../audio/audioHealth';
+import { AUDIO_BACKEND_PORT, readAudioHealth, type AudioHealth } from '../audio/audioHealth';
+import { probeAudioDevice } from '../audio/deviceProbe';
+import { audioBackendLabel, AudioStatusMonitor, type AudioStatus } from '../audio/audioStatus';
 import { bespokeWindow } from './browserWindow';
 import { withCStrings } from './wasmStrings';
 import { loadWasmModule } from './wasmLoader';
@@ -64,6 +67,7 @@ import {
   setupRendererPanel,
 } from '../ui/rendererPanel';
 import { setupAudioHealthHud } from '../ui/audioHealthHud';
+import { setupAudioStatusIndicator } from '../ui/audioStatusIndicator';
 import { setupDemoGallery } from '../ui/demoGallery';
 import { collectSampleHashes } from '../samples/opfsStore';
 import {
@@ -108,6 +112,7 @@ export class BespokeSynthApp {
   private cssHeight = 600;
   private readonly audioBackendChoice: AudioBackendChoice = resolveAudioBackendChoice();
   private audioBackendId: AudioBackendId = this.audioBackendChoice.backend;
+  /** The main-thread-DSP AudioWorklet player: the SAB ring, or the message-port player without isolation. */
   private workletRing: WorkletRingBackend | null = null;
   /** Option A: the graph runs in a DSP-only WASM instance inside the AudioWorklet. */
   private workletEngine: WorkletEngineBackend | null = null;
@@ -118,6 +123,12 @@ export class BespokeSynthApp {
   /** In-flight Play: a second click while the backend starts joins it instead of opening another context. */
   private playbackStarting: Promise<void> | null = null;
   private playRequested = false;
+  /** What the browser says about the output: AudioContext state, clock, device list (audioStatus.ts). */
+  private readonly audioStatus = new AudioStatusMonitor({
+    getBackend: () => this.audioBackendId,
+    getContext: () => this.currentAudioContext(),
+    getPlayRequested: () => this.playRequested,
+  });
   private recoveringRenderer = false;
   private readonly disposers: Array<() => void> = [];
   readonly live = new LiveInstrument(() => this.module);
@@ -133,6 +144,17 @@ export class BespokeSynthApp {
 
   getAudioBackendChoice(): AudioBackendChoice {
     return this.audioBackendChoice;
+  }
+
+  getAudioStatus(): AudioStatus {
+    return this.audioStatus.poll();
+  }
+
+  /** The AudioContext that plays now (SDL2 keeps its own); null before Play. */
+  private currentAudioContext(): AudioContext | null {
+    return (
+      this.workletEngine?.getContext() ?? this.workletRing?.getContext() ?? this.module?.SDL2?.audioContext ?? null
+    );
   }
 
   getAudioRingStats(): WorkletRingStats | null {
@@ -260,6 +282,16 @@ export class BespokeSynthApp {
 
     setupKeyboardShortcuts(this.rendererBackend, () => void this.captureScreenshot());
 
+    const audioChoice = this.audioBackendChoice;
+    setupAudioStatusIndicator(
+      this.audioStatus,
+      audioChoice.fallbackReason
+        ? `${audioBackendLabel(audioChoice.backend)} is used because ${audioChoice.requested} is unavailable: ${audioChoice.fallbackReason}`
+        : null,
+    );
+    this.audioStatus.start();
+    this.disposers.push(() => this.audioStatus.dispose());
+
     if (isDebugRequested()) {
       setupFloatingRendererToggle(this.rendererBackend);
       setupAudioHealthHud(
@@ -284,6 +316,7 @@ export class BespokeSynthApp {
       bespokeWindow.__bespoke_on_device_lost = () => this.handleDeviceLost();
       bespokeWindow.__bespoke_on_canvas_notice = (message) => this.patchStatusHelpers.showPatchStatus(message, 5000);
       bespokeWindow.__bespoke_on_samples_missing = () => void this.restoreMissingSamples();
+      bespokeWindow.__bespoke_on_playback_requested = () => void this.startPlayback();
 
       const backendCode = this.rendererBackend === 'webgl' ? 1 : 0;
       this.module._bespoke_set_renderer_backend(backendCode);
@@ -301,7 +334,11 @@ export class BespokeSynthApp {
       }
       publishRendererBreadcrumbs(this.rendererBackend, this.rendererFallbackReason);
 
-      const sampleRate = 44100;
+      // No audio device is open yet (output opens on Play). The probe gives the device's own rate so
+      // samples decode at it; its failure, if any, is the first thing the audio status can report.
+      const deviceProbe = probeAudioDevice();
+      if (deviceProbe.error) this.audioStatus.noteDeviceError(deviceProbe.error);
+      const sampleRate = deviceProbe.sampleRate;
       const bufferSize = 512;
       const statePollInterval = window.setInterval(() => {
         this.pollInitState();
@@ -530,6 +567,7 @@ export class BespokeSynthApp {
       this.playbackStarting = this.startPlaybackOnce()
         .catch((error: unknown) => {
           console.error('Playback failed to start:', error);
+          this.audioStatus.noteStartError(error instanceof Error ? error.message : String(error));
           this.patchStatusHelpers.showPatchStatus('Audio failed to start');
         })
         .finally(() => {
@@ -541,38 +579,74 @@ export class BespokeSynthApp {
 
   private async startPlaybackOnce(): Promise<void> {
     if (!this.module) return;
+    this.audioStatus.noteStartError(null);
 
     if (this.audioBackendId === 'worklet' && (await this.ensureWorkletEngine())) {
       this.playIfStillRequested();
       return;
     }
 
-    if (this.audioBackendId === 'worklet' || this.audioBackendId === 'ring') {
-      const gate = canUseWorkletRingBackend();
-      if (gate.ok) {
-        this.workletRing ??= createWorkletRingBackend(this.module);
-        try {
-          await this.workletRing.start();
-          this.playIfStillRequested();
-          return;
-        } catch (error) {
-          // start() rolled itself back (external audio off, context closed); stay on SDL from now on.
-          const reason = error instanceof Error ? error.message : String(error);
-          this.workletRing.dispose();
-          this.workletRing = null;
-          this.audioBackendId = 'sdl';
-          const message = `Audio: worklet unavailable (${reason}); using SDL2`;
-          console.warn(message);
-          this.patchStatusHelpers.showPatchStatus(message, 8000);
-        }
-      } else {
-        console.warn('Worklet audio unavailable, falling back to SDL2:', gate.reason);
-      }
+    // Main-thread-DSP AudioWorklet players, best first: the SAB ring, then the message-port
+    // player, which needs no cross-origin isolation. SDL2 comes after both.
+    const players: Array<'ring' | 'port'> =
+      this.audioBackendId === 'worklet' || this.audioBackendId === 'ring'
+        ? ['ring', 'port']
+        : this.audioBackendId === 'port'
+          ? ['port']
+          : [];
+    for (const kind of players) {
+      if (await this.startWorkletPlayer(kind)) return;
     }
 
+    // Last resort: Emscripten's SDL2 driver (a deprecated ScriptProcessorNode). Nothing opens it at load.
+    this.audioBackendId = 'sdl';
+    if (players.length > 0) {
+      const message = 'Audio: AudioWorklet players failed; using SDL2';
+      console.warn(message);
+      this.patchStatusHelpers.showPatchStatus(message, 8000);
+    }
+    if (this.module._bespoke_enable_sdl_audio() !== 1) {
+      const message = 'Audio output could not be opened';
+      this.audioStatus.noteStartError(message);
+      this.patchStatusHelpers.showPatchStatus(message, 8000);
+      return;
+    }
+    // SDL2 created its AudioContext just now, inside the Play click, so it may start running; if the
+    // browser still holds it, resuming here is as close to the gesture as this code gets.
+    const sdlContext = this.module.SDL2?.audioContext;
+    if (sdlContext?.state === 'suspended') await sdlContext.resume().catch(() => undefined);
     this.module._bespoke_set_external_audio(0);
     this.module._bespoke_set_audio_backend_id(0);
     this.playIfStillRequested();
+  }
+
+  /** Starts the ring or message-port player; on failure it rolls itself back, steps down a backend and returns false. */
+  private async startWorkletPlayer(kind: 'ring' | 'port'): Promise<boolean> {
+    if (!this.module) return false;
+    const stepDown: AudioBackendId = kind === 'ring' ? 'port' : 'sdl';
+    const gate = kind === 'ring' ? canUseWorkletRingBackend() : canUseWorkletPortBackend();
+    if (!gate.ok) {
+      console.warn(`Audio: ${kind} AudioWorklet player unavailable:`, gate.reason);
+      this.audioBackendId = stepDown;
+      return false;
+    }
+    this.workletRing ??= (kind === 'ring' ? createWorkletRingBackend : createWorkletPortBackend)(this.module);
+    try {
+      await this.workletRing.start();
+      this.audioBackendId = kind;
+      this.playIfStillRequested();
+      return true;
+    } catch (error) {
+      // start() rolled itself back (external audio off, context closed).
+      const reason = error instanceof Error ? error.message : String(error);
+      this.workletRing.dispose();
+      this.workletRing = null;
+      this.audioBackendId = stepDown;
+      const message = `Audio: ${kind} AudioWorklet player failed (${reason}); falling back`;
+      console.warn(message);
+      this.patchStatusHelpers.showPatchStatus(message, 8000);
+      return false;
+    }
   }
 
   /** Stop pressed while the backend was starting wins. */
@@ -656,7 +730,12 @@ export class BespokeSynthApp {
     const rendererSelect = document.getElementById('rendererSelect') as HTMLSelectElement | null;
     if (rendererSelect) rendererSelect.value = activeBackend;
 
-    const backendIds: Record<AudioBackendId, number> = { worklet: AUDIO_BACKEND_WORKLET_WASM, ring: 1, sdl: 0 };
+    const backendIds: Record<AudioBackendId, number> = {
+      worklet: AUDIO_BACKEND_WORKLET_WASM,
+      ring: 1,
+      sdl: 0,
+      port: AUDIO_BACKEND_PORT,
+    };
     this.module._bespoke_set_audio_backend_id(backendIds[this.audioBackendId]);
     const choice = this.audioBackendChoice;
     if (choice.backend === 'worklet') {
@@ -665,6 +744,9 @@ export class BespokeSynthApp {
       compileWorkletEngine().catch(() => undefined);
     } else if (choice.backend === 'ring') {
       console.log(`Audio backend: worklet ring, main-thread DSP (${choice.source}) — starts on Play`);
+    } else if (choice.backend === 'port') {
+      const why = choice.fallbackReason ? `; shared-memory backends unavailable: ${choice.fallbackReason}` : '';
+      console.log(`Audio backend: AudioWorklet message port, main-thread DSP (${choice.source}) — starts on Play${why}`);
     } else if (choice.fallbackReason) {
       const message = `Audio: SDL2 fallback — AudioWorklet unavailable: ${choice.fallbackReason}`;
       console.warn(message);
@@ -1000,6 +1082,7 @@ export class BespokeSynthApp {
     delete bespokeWindow.__bespoke_on_device_lost;
     delete bespokeWindow.__bespoke_on_canvas_notice;
     delete bespokeWindow.__bespoke_on_samples_missing;
+    delete bespokeWindow.__bespoke_on_playback_requested;
     this.inputCapture?.stop();
     this.inputCapture = null;
     this.live.graphNotes.setSource(null);

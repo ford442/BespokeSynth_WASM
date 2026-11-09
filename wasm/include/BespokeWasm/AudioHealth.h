@@ -23,7 +23,7 @@ namespace bespoke::wasm
       int queueDepthFrames = 0;
       int maxQueueDepthFrames = 0;
       int capacityFrames = 0;
-      int backend = 0; // 0=sdl, 1=worklet, 2=poc
+      int backend = 0; // 0=sdl, 1=worklet SAB ring, 2=poc, 3=worklet engine, 4=worklet message-port player
       uint64_t noteDropCount = 0;
       uint64_t heapBytes = 0; // WASM linear memory size (== peak; memory never shrinks)
       uint64_t blockTimeHistogram[kAudioBlockTimeBuckets] = {};

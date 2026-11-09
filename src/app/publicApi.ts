@@ -84,6 +84,11 @@ export function createPublicApi(app: BespokeSynthApp) {
     loadPatchFile: () => promptForPatchStateFile(app.getModule()),
     loadBundledLayout: (path: string) => loadBundledLayout(app.getModule(), path),
     getAudioHealth: () => app.getAudioHealth(),
+    /**
+     * What the browser reports about the output: AudioContext state, whether its clock advances,
+     * output devices listed, and a verdict ({ level, state, message }). See src/audio/audioStatus.ts.
+     */
+    getAudioStatus: () => app.getAudioStatus(),
     /** Plan compiles, publishes and control fast-path counters (a knob drag publishes nothing). */
     getEngineStats: () => readEngineStats(app.getModule()),
     getAudioBackend: () => app.getAudioBackendChoice().backend,

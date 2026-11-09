@@ -59,7 +59,9 @@ bool SDL2AudioBackend::initialize(int sampleRate, int bufferSize, int numOutputC
         return false;
     }
     
-    printf("SDL2AudioBackend: Opened audio device successfully\n");
+    // SDL2's Emscripten driver succeeds whether or not the browser has an output device; the host
+    // reads the real state from the AudioContext (src/audio/audioStatus.ts).
+    printf("SDL2AudioBackend: SDL audio output created (browser device state is reported by the host)\n");
     printf("  Obtained sample rate: %d\n", mObtainedSpec.freq);
     printf("  Obtained buffer size: %d\n", mObtainedSpec.samples);
     printf("  Obtained channels: %d\n", mObtainedSpec.channels);

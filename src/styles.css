@@ -685,6 +685,71 @@ body {
     text-overflow: ellipsis;
 }
 
+/* Audio output status (src/ui/audioStatusIndicator.ts) */
+.audio-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid #3a3a40;
+    border-radius: 4px;
+    background: #1e1e22;
+    color: #b8b8c0;
+    font-size: 12px;
+    white-space: nowrap;
+    cursor: help;
+}
+
+.audio-status__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #777;
+}
+
+.audio-status--ok .audio-status__dot { background: #4CAF50; }
+.audio-status--warn { border-color: #8a6d1a; color: #f0d58a; }
+.audio-status--warn .audio-status__dot { background: #f0b429; }
+.audio-status--error { border-color: #8a2a2a; color: #ffb4ab; }
+.audio-status--error .audio-status__dot { background: #f44336; }
+
+.audio-banner {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: min(92%, 640px);
+    padding: 8px 12px;
+    border: 1px solid #8a6d1a;
+    border-radius: 4px;
+    background: rgba(40, 32, 12, 0.95);
+    color: #f0d58a;
+    font-size: 13px;
+}
+
+.audio-banner[data-level="error"] {
+    border-color: #8a2a2a;
+    background: rgba(48, 18, 18, 0.95);
+    color: #ffb4ab;
+}
+
+.audio-banner[hidden] {
+    display: none;
+}
+
+.audio-banner__dismiss {
+    border: none;
+    background: transparent;
+    color: inherit;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+
 /* Loading Animation */
 @keyframes pulse {
     0%, 100% {

@@ -125,13 +125,40 @@ test.describe('Runtime safety nets', () => {
     expect(result.inputs).toBe(16);
   });
 
-  test('a failing worklet addModule falls back to SDL audio without an unhandled rejection', async ({ page }) => {
+  test('a failing ring addModule falls back to the message-port AudioWorklet player', async ({ page }) => {
     test.setTimeout(120000);
     const errors = collectPageErrors(page);
     await page.addInitScript(() => {
       const original = AudioWorklet.prototype.addModule;
       AudioWorklet.prototype.addModule = function (url: string | URL, options?: WorkletOptions) {
         if (String(url).includes('ringPlayer')) return Promise.reject(new Error('mocked addModule failure'));
+        return original.call(this, url, options);
+      };
+    });
+    await page.goto('/?renderer=webgl&audio=ring');
+    await waitForBespokeReady(page);
+
+    await page.evaluate(() => {
+      void window.__bespoke?.play();
+      return window.__bespoke?.play();
+    });
+    await expect
+      .poll(() => page.evaluate(() => window.__bespoke?.getAudioHealth()?.backend), { timeout: 10000 })
+      .toBe(4);
+    expect(await page.evaluate(() => window.__bespoke?.getAudioStatus().backend)).toBe('port');
+    expect(errors).toEqual([]);
+  });
+
+  test('failing worklet addModules fall back to SDL audio without an unhandled rejection', async ({ page }) => {
+    test.setTimeout(120000);
+    const errors = collectPageErrors(page);
+    await page.addInitScript(() => {
+      const original = AudioWorklet.prototype.addModule;
+      AudioWorklet.prototype.addModule = function (url: string | URL, options?: WorkletOptions) {
+        const name = String(url);
+        if (name.includes('ringPlayer') || name.includes('portPlayer')) {
+          return Promise.reject(new Error('mocked addModule failure'));
+        }
         return original.call(this, url, options);
       };
     });

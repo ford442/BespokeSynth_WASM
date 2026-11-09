@@ -81,27 +81,43 @@ namespace bespoke
          processWasmAudio(input, output, numInputChannels, numOutputChannels, numSamples);
       }
 
+      bool ensureSdlAudioBackend()
+      {
+         auto& state = runtimeState();
+         if (state.audioBackend)
+            return true;
+         printf("WasmBridge: Opening the SDL2 audio output...\n");
+         auto backend = std::make_unique<SDL2AudioBackend>();
+         if (!backend->initialize(state.sdlRequestedSampleRate, state.sdlRequestedBufferSize, 2, 0))
+         {
+            printf("BespokeSynth WASM: Failed to open the SDL2 audio output\n");
+            return false;
+         }
+         backend->setCallback(wasmAudioCallback);
+         state.audioBackend = std::move(backend);
+         // The device may run at another rate than the one asked for; samples follow it.
+         syncSampleStoreRate();
+         return true;
+      }
+
       bool initializeAudioAndControls(int sampleRate, int bufferSize)
       {
          auto& state = runtimeState();
-         printf("WasmBridge: Initializing audio backend...\n");
-         reportInitProgress("audio_init", "Opening audio device...");
-         state.audioBackend = std::make_unique<SDL2AudioBackend>();
-         if (!state.audioBackend->initialize(sampleRate, bufferSize, 2, 0))
-         {
-            printf("BespokeSynth WASM: Failed to initialize audio\n");
-            reportInitProgress("audio_failed", "Audio device initialization failed");
-            state.initState = InitState::Failed;
-            state.initErrorMessage = "Audio backend initialization failed";
-            return false;
-         }
-
-         printf("WasmBridge: Audio backend initialized successfully\n");
+         // No device is opened here. The host picks the output on Play: an AudioWorklet backend
+         // when it can, SDL2 (bespoke_enable_sdl_audio) only as the last resort. Opening SDL2 at
+         // load made Emscripten's SDL2 port create a deprecated ScriptProcessorNode and an
+         // AudioContext on every page load, and reported an "opened device" no one had verified.
+         state.sdlRequestedSampleRate = sampleRate;
+         state.sdlRequestedBufferSize = bufferSize;
+         state.playbackRequestSent = false;
+         // Until a backend takes over, samples (the bundled kit loads below) decode at the rate the
+         // host measured for the device; the sampler does not rate-convert.
+         if (sampleRate > 0 && !state.externalAudioActive)
+            state.externalSampleRate = static_cast<float>(sampleRate);
+         printf("WasmBridge: Audio engine ready (output is opened on Play)\n");
          syncSampleStoreRate();
-         reportInitProgress("audio_ready", "Audio device opened successfully");
          state.initState = InitState::AudioReady;
-         state.audioBackend->setCallback(wasmAudioCallback);
-         reportInitProgress("audio_ready", "Audio ready - click play to start");
+         reportInitProgress("audio_ready", "Audio engine ready - output opens on Play");
 
          if (state.legacyPanelsEnabled)
             ensureLegacyDemoKnobs();

@@ -25,6 +25,8 @@ namespace bespoke
       void wasmAudioCallback(const float* const* input, float* const* output,
                              int numInputChannels, int numOutputChannels, int numSamples);
       bool initializeAudioAndControls(int sampleRate, int bufferSize);
+      /** Opens the SDL2 output on first use (the last-resort audio backend); true when it is open. */
+      bool ensureSdlAudioBackend();
 
       void ensureLegacyDemoKnobs();
       void renderDemoPanels();

@@ -56,12 +56,16 @@ Isolation proof only — **not** the module graph. Also: `window.__bespoke.runAu
 
 | Mechanism | Example |
 | --- | --- |
-| Auto (no flag) | worklet engine if `crossOriginIsolated && SharedArrayBuffer && AudioWorkletNode`, else SDL2 |
-| URL | `?audio=worklet` (engine), `?audio=ring` (main-thread ring; `sab` is an alias), `?audio=sdl` (override; persisted) |
+| Auto (no flag) | worklet engine if `crossOriginIsolated && SharedArrayBuffer && AudioWorkletNode`, else the message-port worklet player if `AudioWorkletNode` exists, else SDL2 |
+| URL | `?audio=worklet` (engine), `?audio=ring` (main-thread ring; `sab` is an alias), `?audio=port` (message-port worklet player; `message` is an alias), `?audio=sdl` (override; persisted) |
 | localStorage | `bespokesynth.audio` |
-| Header dropdown | Audio: Worklet / Worklet ring (main-thread DSP) / SDL2 (reloads; worklet options disabled when unavailable) |
+| Header dropdown | Audio: Worklet / Worklet ring (main-thread DSP) / Worklet port (no shared memory) / SDL2 (reloads; unavailable options disabled) |
 
-If the engine fails to start (no `BespokeSynthWASM_audio` build, snapshot ABI mismatch, worklet error), Play falls back to the ring for the session and the status line says why.
+If the engine fails to start (no `BespokeSynthWASM_audio` build, snapshot ABI mismatch, worklet error), Play falls back to the ring for the session and the status line says why. A ring that cannot start falls to the message-port player, and only that failing too reaches SDL2.
+
+### Option C — message-port player (no SharedArrayBuffer)
+
+Pages without COOP/COEP cannot share memory with the worklet, but they can still run output on the audio thread. `src/audio/workletPortBackend.ts` renders on the main thread like the ring, up to an adaptive lookahead (`LookaheadController`), and posts each batch of 128-frame blocks to `bespoke-port-player` (`src/audio/processors/portPlayer.worklet.js`) as a transferred interleaved `Float32Array`. The player replies with `{ consumed, underruns }` every four quanta; the producer's queue depth is `framesSent - consumed`. Play bumps an `epoch`, so audio queued before a Stop (or stats from the previous run) is dropped on both sides. Trade-offs against the ring: one small `postMessage` from the render thread per ~11 ms (the ring posts nothing), and a deeper starting lookahead (80 ms) because the depth it sees is stale by about one report.
 
 ### Adaptive ring lookahead
 
@@ -231,7 +235,8 @@ A module takes any number of cables. `PlanStep` input lists are ranges into flat
 - [x] SDL2 / non-isolated pages keep the single-instance main-thread graph
 - [x] Engine `.wasm` size published separately (CI job summary)
 - [x] No pthreads, Asyncify, Comlink or WAM SDK
-- [x] No `ScriptProcessorNode` in repo code (mic capture is an AudioWorklet; the engine and ring are AudioWorklets). Follow-up: `bespoke_init` still opens the SDL2 device on every load, and the Emscripten SDL2 port's audio driver creates a `ScriptProcessorNode` (and its own `AudioContext`) when it does, idle unless SDL2 plays. Opening SDL2 only when it is the backend needs the pre-Play sample-store rate to come from somewhere else first (samples are resampled to the device rate at decode).
+- [x] No `ScriptProcessorNode` in repo code (mic capture is an AudioWorklet; the engine, ring and port player are AudioWorklets). The Emscripten SDL2 port's audio driver creates one when it opens, so `bespoke_init` no longer opens SDL2: it opens on Play (`bespoke_enable_sdl_audio`) and only when no AudioWorklet backend can run. The pre-Play sample-store rate comes from `probeAudioDevice()`.
+- [x] The UI reports the real output state (`getAudioStatus()`, header chip, banner), including no device / suspended / stalled clock, instead of SDL2's unconditional "opened device successfully"
 
 ## Related code
 

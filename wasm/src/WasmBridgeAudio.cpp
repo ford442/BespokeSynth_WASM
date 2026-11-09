@@ -139,6 +139,22 @@ EMSCRIPTEN_KEEPALIVE void bespoke_set_external_sample_rate(float sampleRate)
    }
 }
 
+/**
+ * Opens the SDL2 output (Emscripten's ScriptProcessorNode path). The host calls it on Play only
+ * when no AudioWorklet backend can run; nothing opens SDL2 at load. Returns 1 when SDL2 is open
+ * (also if it already was), 0 when it could not be opened. A 1 says SDL2 created its output, not
+ * that the browser has a device behind it: the host reads that from the AudioContext.
+ */
+EMSCRIPTEN_KEEPALIVE int bespoke_enable_sdl_audio(void)
+{
+   return ensureSdlAudioBackend() ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int bespoke_is_sdl_audio_open(void)
+{
+   return runtimeState().audioBackend ? 1 : 0;
+}
+
 EMSCRIPTEN_KEEPALIVE void bespoke_set_audio_backend_id(int backend)
 {
    audioHealthSetBackend(backend);

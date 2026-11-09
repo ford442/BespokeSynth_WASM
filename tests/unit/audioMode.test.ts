@@ -35,10 +35,11 @@ g.window = {
   location: { search: '' },
 };
 
-function setIsolation(on: boolean): void {
+/** `worklet: false` models a browser without AudioWorklet at all. */
+function setIsolation(on: boolean, worklet = true): void {
   g.crossOriginIsolated = on;
-  g.AudioWorkletNode = on ? function AudioWorkletNode() {} : undefined;
-  if (!on) delete g.AudioWorkletNode;
+  if (worklet) g.AudioWorkletNode = function AudioWorkletNode() {};
+  else delete g.AudioWorkletNode;
 }
 
 {
@@ -51,12 +52,28 @@ function setIsolation(on: boolean): void {
 
   setIsolation(false);
   c = resolveAudioBackendChoice('');
-  assert.equal(c.backend, 'sdl', 'not isolated: SDL2');
+  assert.equal(c.backend, 'port', 'not isolated: the message-port AudioWorklet player, not SDL2');
   assert.equal(c.requested, 'worklet');
-  assert.match(c.fallbackReason ?? '', /cross-origin isolated|AudioWorkletNode/, 'explains why');
+  assert.match(c.fallbackReason ?? '', /cross-origin isolated/, 'explains why');
 
   c = resolveAudioBackendChoice('?audio=worklet');
-  assert.equal(c.backend, 'sdl', 'explicit worklet still falls back without isolation');
+  assert.equal(c.backend, 'port', 'explicit worklet falls back to the port player without isolation');
+  assert.ok(c.fallbackReason);
+
+  c = resolveAudioBackendChoice('?audio=sdl');
+  assert.deepEqual([c.backend, c.fallbackReason], ['sdl', undefined], '?audio=sdl is still honoured');
+
+  c = resolveAudioBackendChoice('?audio=port');
+  assert.deepEqual([c.backend, c.fallbackReason], ['port', undefined], '?audio=port needs no isolation');
+  c = resolveAudioBackendChoice('?audio=message');
+  assert.equal(c.backend, 'port', '?audio=message is an alias');
+
+  setIsolation(false, false);
+  c = resolveAudioBackendChoice('');
+  assert.equal(c.backend, 'sdl', 'no AudioWorklet at all: SDL2 is all there is');
+  assert.match(c.fallbackReason ?? '', /AudioWorkletNode/, 'explains why');
+  c = resolveAudioBackendChoice('?audio=port');
+  assert.equal(c.backend, 'sdl', 'the port player needs AudioWorklet too');
   assert.ok(c.fallbackReason);
 
   setIsolation(true);
@@ -76,8 +93,11 @@ function setIsolation(on: boolean): void {
 
   setIsolation(false);
   c = resolveAudioBackendChoice('?audio=ring');
-  assert.equal(c.backend, 'sdl', 'the ring needs isolation too');
+  assert.equal(c.backend, 'port', 'the ring needs isolation too; the port player takes over');
   assert.ok(c.fallbackReason);
+  persistUrlAudioPreference('?audio=port');
+  c = resolveAudioBackendChoice('');
+  assert.deepEqual([c.backend, c.source], ['port', 'stored'], 'port preference is persisted');
 }
 
 console.log('audioMode/lookahead tests passed');

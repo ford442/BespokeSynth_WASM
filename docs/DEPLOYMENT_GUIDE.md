@@ -118,7 +118,7 @@ Cross-Origin-Embedder-Policy: require-corp
 Cross-Origin-Resource-Policy: same-origin
 ```
 
-Without them the app still runs, on the SDL2 fallback. The header shows *Audio: SDL2 (fallback)* and the status line explains why. To check: `crossOriginIsolated` in the DevTools console should be `true`, and `__bespoke.getAudioBackend()` should return `'worklet'`.
+Without them the app still runs, on an AudioWorklet player that needs no shared memory (the *message-port* backend; SDL2 and its deprecated `ScriptProcessorNode` are only used by browsers without AudioWorklet). The header shows *Audio: Worklet port (fallback)* and its tooltip explains why; the headers still matter because the full engine (graph inside the worklet, one render quantum of latency) needs them. To check: `crossOriginIsolated` in the DevTools console should be `true`, and `__bespoke.getAudioBackend()` should return `'worklet'`. `__bespoke.getAudioStatus()` reports whether sound can actually come out (context state, clock, output devices).
 
 **nginx**
 ```nginx

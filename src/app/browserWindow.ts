@@ -17,6 +17,8 @@ export interface BespokeBrowserWindow extends Window {
   __bespoke_on_device_lost?: () => void;
   /** A user-facing canvas message from C++ (e.g. a refused cable); shown as a toast. */
   __bespoke_on_canvas_notice?: (message: string) => void;
+  /** The canvas transport started (Space, the play button) with no audio output open yet: start one. */
+  __bespoke_on_playback_requested?: () => void;
   /** The graph wants evicted samples back (undo after eviction); load them from OPFS. */
   __bespoke_on_samples_missing?: () => void;
 }

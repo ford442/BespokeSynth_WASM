@@ -22,6 +22,14 @@
 
 using namespace bespoke::wasm;
 
+// clang-format off
+// The canvas transport started with no audio output open: the host picks a backend and starts it.
+EM_JS(void, bespoke_js_on_playback_requested, (), {
+   if (typeof window !== 'undefined' && window['__bespoke_on_playback_requested'])
+      window['__bespoke_on_playback_requested']();
+});
+// clang-format on
+
 namespace bespoke
 {
    namespace wasm
@@ -174,13 +182,25 @@ EMSCRIPTEN_KEEPALIVE void bespoke_render(void)
    if (!useLegacy && state.canvas)
    {
       // A worklet backend owns the device then; bespoke_play makes the same check.
-      if (state.audioBackend && !state.externalAudioActive)
+      if (!state.externalAudioActive)
       {
          const bool playing = state.canvas->isTransportPlaying();
-         if (playing && !state.audioBackend->isRunning())
-            state.audioBackend->start();
-         else if (!playing && state.audioBackend->isRunning())
-            state.audioBackend->stop();
+         if (state.audioBackend)
+         {
+            if (playing && !state.audioBackend->isRunning())
+               state.audioBackend->start();
+            else if (!playing && state.audioBackend->isRunning())
+               state.audioBackend->stop();
+         }
+         else if (playing && !state.playbackRequestSent)
+         {
+            // Nothing opens an output at load, so a transport started on the canvas (Space, the
+            // play button) has none yet: the host opens the right one, as for its Play button.
+            state.playbackRequestSent = true;
+            bespoke_js_on_playback_requested();
+         }
+         if (!playing)
+            state.playbackRequestSent = false;
       }
       // Engine-side peaks work for every backend (SDL, ring, worklet engine) and are measured pre-limit.
       state.canvas->setOutputMeter(takePlayingOutputPeak(0), takePlayingOutputPeak(1));
