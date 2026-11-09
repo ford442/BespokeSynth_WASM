@@ -5,6 +5,23 @@ import type { WorkletRingStats } from '../../src/audio/workletRingBackend';
 
 type Health = AudioHealth;
 
+/** Counts ScriptProcessorNodes the page creates (SDL2's audio driver makes one when it opens). */
+async function countScriptProcessors(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __scriptProcessors: number };
+    w.__scriptProcessors = 0;
+    const original = BaseAudioContext.prototype.createScriptProcessor;
+    BaseAudioContext.prototype.createScriptProcessor = function (...args: Parameters<typeof original>) {
+      w.__scriptProcessors += 1;
+      return original.apply(this, args);
+    };
+  });
+}
+
+function scriptProcessorCount(page: Page): Promise<number> {
+  return page.evaluate(() => (window as unknown as { __scriptProcessors: number }).__scriptProcessors);
+}
+
 interface StallResult {
   backend: number | undefined;
   sampleRate: number;
@@ -225,7 +242,10 @@ test.describe('Audio worklet path', () => {
     await expect(page.locator('#audioSelect')).toHaveValue('worklet');
   });
 
-  test('without isolation SDL2 starts and the UI explains why', async ({ page }) => {
+  test('without isolation the message-port AudioWorklet player is used and the UI explains why', async ({
+    page,
+  }) => {
+    await countScriptProcessors(page);
     await gotoApp(page, 'renderTest=1', '/no-coi/');
     await waitForBespokeReady(page);
 
@@ -234,14 +254,77 @@ test.describe('Audio worklet path', () => {
       return { coi: w.crossOriginIsolated === true, choice: window.__bespoke?.getAudioBackendChoice() ?? null };
     });
     expect(state.coi).toBe(false);
-    expect(state.choice?.backend).toBe('sdl');
+    expect(state.choice?.backend).toBe('port');
+    expect(state.choice?.requested).toBe('worklet');
     expect(state.choice?.fallbackReason).toBeTruthy();
 
     const select = page.locator('#audioSelect');
-    await expect(select).toHaveValue('sdl');
-    await expect(select).toHaveAttribute('title', /AudioWorklet unavailable/);
+    await expect(select).toHaveValue('port');
+    await expect(select).toHaveAttribute('title', /message-port/);
     await expect(select.locator('option[value="worklet"]')).toBeDisabled();
     await expect(select.locator('option[value="ring"]')).toBeDisabled();
+    expect(await scriptProcessorCount(page), 'loading the page opens no ScriptProcessorNode').toBe(0);
+
+    await page.evaluate(async () => {
+      await window.__bespoke?.play();
+    });
+    await expect
+      .poll(() => page.evaluate(() => window.__bespoke?.getAudioHealth()?.callbackCount ?? 0), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+    const health = await page.evaluate(() => window.__bespoke?.getAudioHealth() ?? null);
+    expect(health?.backend, 'worklet-port').toBe(4);
+    expect(await scriptProcessorCount(page), 'playing creates none either').toBe(0);
+
+    const status = await page.evaluate(() => window.__bespoke?.getAudioStatus() ?? null);
+    expect(status?.backend).toBe('port');
+    expect(status?.contextState).toBe('running');
+  });
+
+  test('SDL2 is opened on Play, never at load', async ({ page }) => {
+    await countScriptProcessors(page);
+    await gotoApp(page, 'audio=sdl&renderTest=1');
+    await waitForBespokeReady(page);
+
+    expect(await scriptProcessorCount(page), 'no SDL2 device at load').toBe(0);
+    const idle = await page.evaluate(() => window.__bespoke?.getAudioStatus() ?? null);
+    expect(idle?.state).toBe('idle');
+    expect(idle?.contextState).toBeNull();
+
+    await page.evaluate(async () => {
+      await window.__bespoke?.play();
+    });
+    await expect.poll(() => scriptProcessorCount(page), { timeout: 10_000 }).toBeGreaterThan(0);
+    const playing = await page.evaluate(() => window.__bespoke?.getAudioStatus() ?? null);
+    expect(playing?.backend).toBe('sdl');
+    expect(playing?.contextState).not.toBeNull();
+  });
+
+  test('Space on the canvas starts audio without the header Play button', async ({ page }) => {
+    await gotoApp(page, 'renderTest=1');
+    await waitForBespokeReady(page);
+    expect((await page.evaluate(() => window.__bespoke?.getAudioStatus()))?.state).not.toBe('running');
+
+    // No output is open at load, so the canvas transport asks the host to start one.
+    await page.locator('#canvas').click({ position: { x: 6, y: 6 } });
+    await page.keyboard.press('Space');
+    await expect
+      .poll(() => page.evaluate(() => window.__bespoke?.getAudioStatus().state), { timeout: 10_000 })
+      .toBe('running');
+  });
+
+  test('the header chip reports the audio state', async ({ page }) => {
+    await gotoApp(page, 'renderTest=1');
+    await waitForBespokeReady(page);
+
+    const chip = page.locator('#audioStatus');
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveAttribute('data-state', /idle|no-device/);
+
+    await page.evaluate(async () => {
+      await window.__bespoke?.play();
+    });
+    await expect(chip).toHaveAttribute('data-state', 'running', { timeout: 10_000 });
+    await expect(chip).toHaveText(/Audio on/);
   });
 
   test('canonical patch plays 30s on the default worklet path with finite underruns', async ({

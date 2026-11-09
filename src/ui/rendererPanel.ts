@@ -49,25 +49,44 @@ export function setupRendererPanel(options: RendererPanelOptions): void {
   audioSelect.innerHTML = `
     <option value="worklet">Audio: Worklet</option>
     <option value="ring">Audio: Worklet ring (main-thread DSP)</option>
+    <option value="port">Audio: Worklet port (no shared memory)</option>
     <option value="sdl">Audio: SDL2</option>
   `;
   const choice = options.audioBackendChoice;
   audioSelect.value = choice.backend;
+  const optionFor = (value: string) => audioSelect.querySelector<HTMLOptionElement>(`option[value="${value}"]`);
   if (choice.fallbackReason) {
-    for (const value of ['worklet', 'ring']) {
-      const option = audioSelect.querySelector<HTMLOptionElement>(`option[value="${value}"]`);
+    // The shared-memory backends are what is unavailable; the port player (or SDL2) plays instead.
+    const sharedMemoryOnly = choice.backend === 'port' || choice.backend === 'sdl';
+    for (const value of sharedMemoryOnly ? ['worklet', 'ring'] : []) {
+      const option = optionFor(value);
       if (option) {
         option.disabled = true;
         option.textContent += ' (unavailable)';
       }
     }
-    const sdlOption = audioSelect.querySelector<HTMLOptionElement>('option[value="sdl"]');
-    if (sdlOption) sdlOption.textContent = 'Audio: SDL2 (fallback)';
-    audioSelect.title = `AudioWorklet unavailable: ${choice.fallbackReason}. Using SDL2.`;
+    if (choice.backend === 'sdl') {
+      // No AudioWorklet at all: SDL2's ScriptProcessorNode is all there is.
+      const portOption = optionFor('port');
+      if (portOption) {
+        portOption.disabled = true;
+        portOption.textContent += ' (unavailable)';
+      }
+      const sdlOption = optionFor('sdl');
+      if (sdlOption) sdlOption.textContent = 'Audio: SDL2 (fallback)';
+      audioSelect.title = `AudioWorklet unavailable: ${choice.fallbackReason}. Using SDL2.`;
+    } else {
+      const portOption = optionFor('port');
+      if (portOption) portOption.textContent = 'Audio: Worklet port (fallback)';
+      audioSelect.title =
+        `The shared-memory AudioWorklet backends are unavailable: ${choice.fallbackReason}. ` +
+        'Using the AudioWorklet message-port player.';
+    }
   } else {
     audioSelect.title =
       'Audio backend (reloads page). Worklet (the graph runs in the AudioWorklet) is the default when the page ' +
-      'is cross-origin isolated; the ring keeps the graph on the main thread.';
+      'is cross-origin isolated; the ring keeps the graph on the main thread; the port player needs no ' +
+      'cross-origin isolation.';
   }
   audioSelect.addEventListener('change', () => {
     switchAudioPreference(audioSelect.value as AudioBackendId);

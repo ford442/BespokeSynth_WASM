@@ -56,7 +56,7 @@ test.describe('Mic capture', () => {
 
     const readSpy = () => page.evaluate(() => (window as unknown as { __micSpy: MicSpy }).__micSpy);
 
-    // The SDL2 audio backend may own a ScriptProcessorNode of its own; only mic capture is under test.
+    // The SDL2 backend (opened on Play) may own a ScriptProcessorNode; only mic capture is under test.
     const before = await readSpy();
 
     await page.locator('#inputCaptureBtn').click();
@@ -103,7 +103,7 @@ test.describe('Mic capture', () => {
       });
     await page.waitForTimeout(300);
     expect(await peak()).toBeLessThan(0.001);
-    // bespoke_init opens the SDL2 device (a ScriptProcessorNode) whatever the backend; only mic capture is under test.
+    // SDL2 opens on Play, not at load, but the baseline keeps this test about mic capture only.
     const before = await page.evaluate(() => (window as unknown as { __micSpy: MicSpy }).__micSpy.scriptProcessors);
 
     await page.locator('#inputCaptureBtn').click();

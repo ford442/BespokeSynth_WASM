@@ -80,6 +80,9 @@ export interface BespokeSynthModule extends EmscriptenRuntime {
     _bespoke_get_external_audio(): number;
     _bespoke_set_external_sample_rate(sampleRate: number): void;
     _bespoke_set_audio_backend_id(backend: number): void;
+    /** Opens the SDL2 output (last-resort backend, nothing opens it at load). 1 = open, 0 = failed. */
+    _bespoke_enable_sdl_audio(): number;
+    _bespoke_is_sdl_audio_open(): number;
     _bespoke_get_audio_health_json(): number;
     /** JSON EngineStats (src/audio/engineStats.ts); valid until the next call. */
     _bespoke_get_engine_stats_json(): number;
@@ -109,6 +112,11 @@ export interface BespokeSynthModule extends EmscriptenRuntime {
     _bespoke_push_analysis_samples(samples: number, count: number): void;
     /** Installed by the host while the worklet engine is live (src/audio/workletEngineBackend.ts). */
     bespokeAudioRemote?: BespokeAudioRemoteHooks;
+    /**
+     * Emscripten's SDL2 audio driver keeps its AudioContext here once SDL2 is open
+     * (bespoke_enable_sdl_audio). The host watches it for the real output state.
+     */
+    SDL2?: { audioContext?: AudioContext };
 
     // Panel management
     _bespoke_process_events(): void;

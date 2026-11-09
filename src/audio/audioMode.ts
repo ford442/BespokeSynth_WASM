@@ -1,9 +1,12 @@
 /**
  * - `worklet`: the graph runs in a second WASM instance inside the AudioWorklet (Option A, default).
  * - `ring`: the main-thread graph fills a SharedArrayBuffer ring the worklet plays (Option B).
- * - `sdl`: Emscripten's SDL2 audio on the main thread (no cross-origin isolation needed).
+ * - `port`: the main-thread graph posts blocks to an AudioWorklet over its MessagePort (Option C).
+ *   Needs no SharedArrayBuffer, so it is what a page without COOP/COEP gets.
+ * - `sdl`: Emscripten's SDL2 audio (a deprecated ScriptProcessorNode on the main thread). Only
+ *   used when AudioWorklet itself is missing, or on request (`?audio=sdl`).
  */
-export type AudioBackendId = 'sdl' | 'worklet' | 'ring';
+export type AudioBackendId = 'sdl' | 'worklet' | 'ring' | 'port';
 
 /** Where the requested backend came from. */
 export type AudioBackendSource = 'url' | 'stored' | 'auto';
@@ -14,7 +17,7 @@ export interface AudioBackendChoice {
   /** Backend asked for (URL, stored preference, or the auto default). */
   requested: AudioBackendId;
   source: AudioBackendSource;
-  /** Why the worklet is not in use when it was requested or would be the default. */
+  /** Why the requested backend is not in use (a lesser one plays instead). */
   fallbackReason?: string;
 }
 
@@ -23,7 +26,7 @@ const STORAGE_KEY = 'bespokesynth.audio';
 export function getStoredAudioPreference(): AudioBackendId | null {
   try {
     const value = window.localStorage.getItem(STORAGE_KEY);
-    return value === 'sdl' || value === 'worklet' || value === 'ring' ? value : null;
+    return value === 'sdl' || value === 'worklet' || value === 'ring' || value === 'port' ? value : null;
   } catch {
     return null;
   }
@@ -62,18 +65,28 @@ export function workletSupport(): { ok: boolean; reason?: string } {
   return { ok: true };
 }
 
+/** Whether the message-port AudioWorklet player can run: it needs AudioWorklet, not isolation. */
+export function portWorkletSupport(): { ok: boolean; reason?: string } {
+  if (typeof AudioWorkletNode === 'undefined') {
+    return { ok: false, reason: 'AudioWorkletNode unavailable' };
+  }
+  return { ok: true };
+}
+
 function parseAudioParam(search: string): AudioBackendId | null {
   const explicit = new URLSearchParams(search).get('audio')?.toLowerCase();
   if (explicit === 'worklet' || explicit === 'wasm') return 'worklet';
   if (explicit === 'ring' || explicit === 'sab') return 'ring';
+  if (explicit === 'port' || explicit === 'message') return 'port';
   if (explicit === 'sdl' || explicit === 'sdl2') return 'sdl';
   return null;
 }
 
 /**
- * Precedence: `?audio=` > stored preference > auto. Auto picks the worklet
- * engine whenever the page is cross-origin isolated, else SDL2. A worklet or
- * ring request that cannot run resolves to SDL2 with `fallbackReason` set.
+ * Precedence: `?audio=` > stored preference > auto. Auto picks the worklet engine whenever the
+ * page is cross-origin isolated. A worklet or ring request that cannot run (no isolation) resolves
+ * to the message-port AudioWorklet player with `fallbackReason` set; only a browser without
+ * AudioWorklet ends on SDL2.
  */
 export function resolveAudioBackendChoice(search: string = window.location.search): AudioBackendChoice {
   const fromUrl = parseAudioParam(search);
@@ -83,8 +96,14 @@ export function resolveAudioBackendChoice(search: string = window.location.searc
 
   if (requested === 'sdl') return { backend: 'sdl', requested, source };
 
+  const port = portWorkletSupport();
+  if (requested === 'port') {
+    return port.ok ? { backend: 'port', requested, source } : { backend: 'sdl', requested, source, fallbackReason: port.reason };
+  }
+
   const support = workletSupport();
   if (support.ok) return { backend: requested, requested, source };
+  if (port.ok) return { backend: 'port', requested, source, fallbackReason: support.reason };
   return { backend: 'sdl', requested, source, fallbackReason: support.reason };
 }
 

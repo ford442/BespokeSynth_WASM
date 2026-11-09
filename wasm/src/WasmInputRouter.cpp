@@ -178,7 +178,8 @@ namespace bespoke::wasm
       if (keyCode == kKeyShift)
          for (auto& knob : state.knobs)
             knob->setFineMode(true);
-      if (keyCode == kKeySpace && state.audioBackend && state.canvas)
+      // SDL2 only plays when it is the backend (open, and no worklet owns the device).
+      if (keyCode == kKeySpace && state.audioBackend && !state.externalAudioActive && state.canvas)
       {
          if (state.viewMode != 0)
             state.canvas->toggleTransportPlaying();

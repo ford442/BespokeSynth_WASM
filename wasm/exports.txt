@@ -49,6 +49,8 @@ bespoke_set_external_audio
 bespoke_get_external_audio
 bespoke_set_external_sample_rate
 bespoke_set_audio_backend_id
+bespoke_enable_sdl_audio
+bespoke_is_sdl_audio_open
 bespoke_get_audio_health_json
 bespoke_get_engine_stats_json
 bespoke_reset_audio_health

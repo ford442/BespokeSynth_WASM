@@ -60,6 +60,9 @@ export function readAudioHealth(module: BespokeSynthModule | null): AudioHealth 
   }
 }
 
+/** AudioHealth.backend for the message-port AudioWorklet player (workletPortBackend.ts). */
+export const AUDIO_BACKEND_PORT = 4;
+
 export function backendName(id: number): string {
   switch (id) {
     case 1:
@@ -68,6 +71,8 @@ export function backendName(id: number): string {
       return 'poc';
     case 3:
       return 'worklet-wasm';
+    case 4:
+      return 'worklet-port';
     default:
       return 'sdl';
   }
