@@ -10,8 +10,11 @@ Use URL flags:
 ?renderer=webgpu
 ?renderer=webgl
 ?webgl
+?webgl2=1
 ?webgpu
 ```
+
+WebGL2 is **opt-in only**. With no flag and no stored choice, the app requests WebGPU and, if that fails, shows a "WebGPU Unavailable" notice with an **Enable WebGL2 fallback** button (it stores the choice and reloads with `?renderer=webgl`). It never switches silently.
 
 The header **Renderer** dropdown persists the choice in `localStorage` (`bespokesynth.renderer`) and reloads with the matching `?renderer=` parameter.
 
@@ -196,12 +199,16 @@ Init state values exposed by `bespoke_get_init_state()`:
 
 Progress callbacks (`window.__bespoke_on_init_progress(step, detail)`) emit backend-specific steps such as `webgpu_requested` / `webgl_requested` so the UI can show the correct path.
 
-### Fallback behaviour
+### When WebGPU init fails
 
-When WebGPU init fails and the user did not force `?renderer=webgpu`, `BespokeSynthApp` shuts down and retries with WebGL2 automatically. This covers a synchronous failure (`bespoke_init` returns `-4`, no surface) as well as an asynchronous one: no adapter/device (`-1`), or a shader/pipeline error (`-2`). Pipeline and shader-module creation run inside Validation/Internal/OutOfMemory error scopes, so a WGSL syntax error fails init instead of leaving a black canvas.
+`BespokeSynthApp` does not retry with WebGL2 on its own. A synchronous failure (`bespoke_init` returns `-4`, no surface) or an asynchronous one (no adapter/device `-1`, shader/pipeline error `-2`) ends in the "WebGPU Unavailable" notice (`showWebGpuUnavailableState`), whose button opts in to WebGL2. Pipeline and shader-module creation run inside Validation/Internal/OutOfMemory error scopes, so a WGSL syntax error fails init instead of leaving a black canvas.
+
+### Backend labels
+
+`updateRendererStatus(backend, fallbackReason)` (`src/app/initProgress.ts`) is the one place that labels the renderer in use: the header badge ("WebGL2" when chosen, "WebGL2 fallback" after a lost WebGPU device; none for WebGPU) and the footer (`#footer-info`). When init failed, the footer says WebGPU is unavailable. Add new backend text there, not in static HTML.
 
 ### Losing the GPU after init
 
-- **WebGPU device lost** (driver reset, `GPUDevice.destroy()`): the device-lost callback is registered with `WGPUCallbackMode_AllowSpontaneous`, so it fires without anyone pumping `wgpuInstanceProcessEvents`. The host then replaces `#canvas` (a canvas keeps its first context type) and calls `bespoke_reinit_renderer(1)`. That rebuilds only the renderer, on WebGL2. The patch, audio and undo history are untouched.
+- **WebGPU device lost** (driver reset, `GPUDevice.destroy()`): this is the one automatic switch to WebGL2, because the live patch would otherwise be lost. The badge reads "WebGL2 fallback". The device-lost callback is registered with `WGPUCallbackMode_AllowSpontaneous`, so it fires without anyone pumping `wgpuInstanceProcessEvents`. The host then replaces `#canvas` (a canvas keeps its first context type) and calls `bespoke_reinit_renderer(1)`. That rebuilds only the renderer, on WebGL2. The patch, audio and undo history are untouched.
 - **WebGL2 context lost** (`webglcontextlost`): the same path runs on a fresh canvas, retrying after 0.5 s and 2 s. If every attempt fails, the status screen offers a reload.
 - **Stale swapchain**: when `GetCurrentTexture` returns `Outdated` or `Lost`, the surface is configured again and the texture requested once more. A devicePixelRatio change without a resize (dragging the window to another monitor) is caught by a `matchMedia('(resolution: Xdppx)')` listener, which resizes the canvas. If WebGL2 is also unavailable, `bespoke_get_webgl2_error()` returns a human-readable reason (missing canvas, blocked WebGL, or canvas already bound to another API).

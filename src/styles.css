@@ -616,12 +616,13 @@ body {
 .renderer-fallback-badge {
     display: inline-block;
     margin-left: 10px;
-    padding: 2px 8px;
-    font-size: 11px;
-    font-weight: 600;
-    color: #ffb74d;
-    background: rgba(255, 183, 77, 0.12);
-    border: 1px solid rgba(255, 183, 77, 0.35);
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #ffcc80;
+    background: rgba(255, 183, 77, 0.2);
+    border: 1px solid rgba(255, 183, 77, 0.6);
     border-radius: 4px;
     vertical-align: middle;
     cursor: help;
@@ -639,6 +640,12 @@ body {
     font-size: 13px;
     color: #ccc;
     line-height: 1.4;
+}
+
+.init-recovery-hint code {
+    padding: 1px 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
 }
 
 .init-retry-btn {

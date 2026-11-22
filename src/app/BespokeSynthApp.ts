@@ -53,7 +53,8 @@ import {
   WEBGPU_INIT_STEPS,
   showErrorState,
   showReadyState,
-  updateFallbackBadge,
+  showWebGpuUnavailableState,
+  updateRendererStatus,
 } from './initProgress';
 import { installCanvasInput, installInputBridge } from './inputBridge';
 import { startRenderLoop, type RenderLoopHandle } from './renderLoop';
@@ -354,11 +355,11 @@ export class BespokeSynthApp {
           if (result === 1) await this.waitForAsyncInit(statePollInterval);
         } catch (initError) {
           // Synchronous (-4: no surface or no navigator.gpu), thrown and asynchronous WebGPU
-          // failures fall back alike.
-          const canFallback = this.rendererBackend === 'webgpu' && !this.wasWebGPUExplicitlyRequested();
-          if (canFallback && (await this.retryWithWebGL2(sampleRate, bufferSize, statePollInterval))) {
-            this.completeInitialization();
-            console.log('BespokeSynth initialized with WebGL2 fallback');
+          // failures. WebGL2 is opt-in, so nothing is retried here: the user is told WebGPU is
+          // unavailable and can enable WebGL2 from the notice (or `?webgl2=1`).
+          if (this.rendererBackend === 'webgpu') {
+            console.error('WebGPU initialization failed:', initError);
+            showWebGpuUnavailableState(initError instanceof Error ? initError.message : 'WebGPU failed to start.');
             return;
           }
           throw initError;
@@ -373,9 +374,7 @@ export class BespokeSynthApp {
       }
     } catch (error) {
       console.error('Failed to initialize BespokeSynth:', error);
-      showErrorState(error instanceof Error ? error.message : 'Unknown error', {
-        canRetryWebGL: this.rendererBackend === 'webgpu',
-      });
+      showErrorState(error instanceof Error ? error.message : 'Unknown error');
     }
   }
 
@@ -386,7 +385,10 @@ export class BespokeSynthApp {
       this.module?._bespoke_get_renderer_backend() === 1 ? 'webgl' : 'webgpu',
       this.rendererFallbackReason,
     );
-    showReadyState(this.rendererFallbackReason);
+    showReadyState(
+      this.module?._bespoke_get_renderer_backend() === 1 ? 'webgl' : 'webgpu',
+      this.rendererFallbackReason,
+    );
     this.startHostLoop();
     this.applyPostInitOptions();
     const lost = this.pendingContextLoss;
@@ -454,80 +456,10 @@ export class BespokeSynthApp {
     }
   }
 
-  private wasWebGPUExplicitlyRequested(): boolean {
-    const params = new URLSearchParams(window.location.search);
-    const explicit = params.get('renderer')?.toLowerCase();
-    return explicit === 'webgpu' || params.has('webgpu');
-  }
-
   private shouldPreserveWebGLDrawingBuffer(): boolean {
     const params = new URLSearchParams(window.location.search);
     const explicit = params.get('renderer')?.toLowerCase();
     return explicit === 'webgl' || explicit === 'webgl2' || params.has('webgl') || isRenderTestRequested();
-  }
-
-  private async retryWithWebGL2(
-    sampleRate: number,
-    bufferSize: number,
-    previousPollInterval?: number,
-  ): Promise<boolean> {
-    if (!this.canvas || !this.module) return false;
-
-    console.warn('WebGPU init failed; retrying with WebGL2 fallback...');
-    if (previousPollInterval !== undefined) {
-      clearInterval(previousPollInterval);
-    }
-    delete bespokeWindow.__bespoke_on_init_complete;
-
-    this.module._bespoke_shutdown();
-    this.replaceCanvasElement();
-    this.rendererBackend = 'webgl';
-    this.rendererFallbackReason = 'WebGPU initialization failed; fell back to WebGL2';
-    this.initProgress.setInitSteps(WEBGL2_INIT_STEPS);
-    this.initProgress.initializeProgressUI();
-    this.module._bespoke_set_renderer_backend(1);
-    this.module._bespoke_set_webgl_preserve_drawing_buffer(
-      this.shouldPreserveWebGLDrawingBuffer() ? 1 : 0,
-    );
-    if (isLegacyPanelsRequested()) {
-      this.module._bespoke_set_legacy_panels(1);
-    }
-    publishRendererBreadcrumbs(this.rendererBackend, this.rendererFallbackReason);
-
-    const debugSelect = document.getElementById('webglDebugSelect') as HTMLSelectElement | null;
-    if (debugSelect) debugSelect.disabled = false;
-
-    const statusSubheader = document.querySelector('#status .status-subheader');
-    if (statusSubheader) {
-      statusSubheader.textContent = 'Retrying with WebGL2 renderer...';
-    }
-    const statusEl = document.getElementById('status');
-    statusEl?.classList.remove('error');
-    statusEl?.querySelector('.init-recovery')?.remove();
-
-    const statePollInterval = window.setInterval(() => {
-      this.pollInitState();
-    }, 50);
-
-    try {
-      const result = this.module._bespoke_init(this.cssWidth, this.cssHeight, sampleRate, bufferSize);
-
-      if (result === 0) {
-        this.initProgress.completeAllSteps();
-        return true;
-      }
-      if (result === 1) {
-        await this.awaitAsyncInitCompletion(statePollInterval);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('WebGL2 fallback initialization failed:', error);
-      return false;
-    } finally {
-      clearInterval(statePollInterval);
-      delete bespokeWindow.__bespoke_on_init_complete;
-    }
   }
 
   private configureAutoSave(enabled: boolean): void {
@@ -1019,7 +951,8 @@ export class BespokeSynthApp {
       this.rendererFallbackReason =
         lost === 'webgpu' ? 'WebGPU device lost; switched to WebGL2' : 'WebGL2 context lost; restored on a new context';
       publishRendererBreadcrumbs('webgl', this.rendererFallbackReason);
-      if (lost === 'webgpu') updateFallbackBadge(this.rendererFallbackReason);
+      // A restored WebGL2 context is not a WebGPU fallback; only a lost WebGPU device is.
+      updateRendererStatus('webgl', lost === 'webgpu' ? this.rendererFallbackReason : null);
       const rendererSelect = document.getElementById('rendererSelect') as HTMLSelectElement | null;
       if (rendererSelect) rendererSelect.value = 'webgl';
       this.startRenderLoopOnly();

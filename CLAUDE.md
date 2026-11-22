@@ -318,7 +318,7 @@ The WASM build **defaults to WebGPU** when available:
 - Firefox Nightly with `dom.webgpu.enabled` = true
 - Safari 17+ (experimental)
 
-If WebGPU init fails, the app automatically falls back to **WebGL2** unless `?renderer=webgpu` was explicitly requested. That covers shader/pipeline errors, which error scopes catch (`WebGPUContext::pushErrorScopes`). A device lost after init (or a lost WebGL2 context) moves the renderer to WebGL2 on a fresh `#canvas` via `bespoke_reinit_renderer(1)`, keeping the patch. Both canvases are opaque, and screenshots are `canvas.toDataURL()` right after `bespoke_render()`; there is no C++ capture API. Force WebGL2 with `?renderer=webgl` for Playwright screenshots and agent visual inspection.
+WebGL2 is **opt-in** (`?renderer=webgl`, `?webgl2=1`, the header picker, or the notice's button). If WebGPU init fails (including shader/pipeline errors, which error scopes catch in `WebGPUContext::pushErrorScopes`), the app shows a "WebGPU Unavailable" notice and does not retry on its own. The one automatic switch is a device lost after init: the renderer moves to WebGL2 on a fresh `#canvas` via `bespoke_reinit_renderer(1)`, keeping the patch (a lost WebGL2 context is restored the same way). Backend text (header badge, footer) comes from `updateRendererStatus` in `src/app/initProgress.ts`; never hard-code a backend name in HTML. Both canvases are opaque, and screenshots are `canvas.toDataURL()` right after `bespoke_render()`; there is no C++ capture API. Force WebGL2 with `?renderer=webgl` for Playwright screenshots and agent visual inspection.
 
 ### 1b. Renderer selection & screenshots
 
