@@ -1,4 +1,5 @@
 import { bespokeWindow } from './browserWindow';
+import { rendererFooterText, type RendererBackend } from '../rendererMode';
 
 export interface InitStep {
   id: string;
@@ -176,7 +177,10 @@ export class InitProgressController {
   }
 }
 
-export function showReadyState(rendererFallbackReason: string | null): void {
+export function showReadyState(
+  backend: RendererBackend,
+  rendererFallbackReason: string | null,
+): void {
   const statusEl = document.getElementById('status');
   const subheaderEl = statusEl?.querySelector('.status-subheader');
 
@@ -184,34 +188,54 @@ export function showReadyState(rendererFallbackReason: string | null): void {
     subheaderEl.textContent = 'Ready!';
   }
 
-  updateFallbackBadge(rendererFallbackReason);
+  updateRendererStatus(backend, rendererFallbackReason);
 
   setTimeout(() => {
     statusEl?.classList.add('hidden');
   }, 500);
 }
 
-export function updateFallbackBadge(rendererFallbackReason: string | null): void {
+/**
+ * Keeps every backend label (header badge, footer, picker) on the renderer that is really running.
+ * A WebGL2 renderer always gets a badge: "WebGL2 fallback" when it replaced WebGPU, else "WebGL2".
+ */
+export function updateRendererStatus(
+  backend: RendererBackend | null,
+  rendererFallbackReason: string | null,
+): void {
   const header = document.getElementById('header');
-  if (!header) return;
-
-  let badge = header.querySelector('.renderer-fallback-badge') as HTMLElement | null;
-  if (rendererFallbackReason) {
+  let badge = header?.querySelector<HTMLElement>('.renderer-fallback-badge') ?? null;
+  if (header && backend === 'webgl') {
     if (!badge) {
       badge = document.createElement('span');
       badge.className = 'renderer-fallback-badge';
       header.querySelector('h1')?.insertAdjacentElement('afterend', badge);
     }
-    badge.textContent = 'WebGL2 fallback';
-    badge.title = rendererFallbackReason;
+    badge.textContent = rendererFallbackReason ? 'WebGL2 fallback' : 'WebGL2';
+    badge.title = rendererFallbackReason ?? 'Rendering with WebGL2 (selected by you). Switch to WebGPU with the Renderer dropdown.';
   } else {
     badge?.remove();
   }
+
+  const footer = document.getElementById('footer-info');
+  if (footer) footer.textContent = rendererFooterText(backend, rendererFallbackReason);
+}
+
+/**
+ * WebGPU could not start and WebGL2 was not asked for. Nothing is retried on its own: the user
+ * decides whether to opt into the WebGL2 renderer.
+ */
+export function showWebGpuUnavailableState(detail: string): void {
+  updateRendererStatus(null, null);
+  showErrorState(`${detail} WebGL2 is available as an opt-in fallback, but it is not WebGPU.`, {
+    canRetryWebGL: true,
+    title: 'WebGPU Unavailable',
+  });
 }
 
 export function showErrorState(
   message: string,
-  options: { canRetryWebGL?: boolean } = {},
+  options: { canRetryWebGL?: boolean; title?: string } = {},
 ): void {
   const statusEl = document.getElementById('status');
   const headerEl = statusEl?.querySelector('.status-header');
@@ -221,7 +245,7 @@ export function showErrorState(
     statusEl.classList.remove('hidden');
     statusEl.classList.add('error');
   }
-  if (headerEl) headerEl.textContent = 'Initialization Failed';
+  if (headerEl) headerEl.textContent = options.title ?? 'Initialization Failed';
   if (subheaderEl) subheaderEl.textContent = message;
 
   const fillEl = document.getElementById('progress-fill');
@@ -242,8 +266,8 @@ export function showErrorState(
     const recovery = document.createElement('div');
     recovery.className = 'init-recovery';
     recovery.innerHTML = `
-      <p class="init-recovery-hint">WebGPU is not available in this browser. The WebGL2 renderer works as a fallback.</p>
-      <button type="button" class="btn init-retry-btn">Use WebGL2 renderer</button>
+      <p class="init-recovery-hint">WebGPU is not available in this browser. You can opt in to the WebGL2 renderer instead; it is a different renderer from WebGPU. You can also open this page with <code>?webgl2=1</code>.</p>
+      <button type="button" class="btn init-retry-btn">Enable WebGL2 fallback</button>
     `;
     recovery.querySelector('.init-retry-btn')?.addEventListener('click', () => {
       void import('../rendererMode').then(({ switchRendererPreference }) => {

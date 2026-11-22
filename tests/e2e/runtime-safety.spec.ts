@@ -242,7 +242,7 @@ test.describe('WebGPU failure paths', () => {
     await expect(page.locator('.renderer-fallback-badge')).toHaveText('WebGL2 fallback');
   });
 
-  test('a WGSL compile error fails init and falls back to WebGL2', async ({ page }) => {
+  test('a WGSL compile error fails init and offers WebGL2 as an opt-in', async ({ page }) => {
     test.setTimeout(120000);
     await page.addInitScript(() => {
       const gpuDevice = (globalThis as { GPUDevice?: { prototype: { createShaderModule: (d: { code: string }) => unknown } } })
@@ -255,12 +255,10 @@ test.describe('WebGPU failure paths', () => {
     });
     await page.goto('/');
     test.skip(!(await webgpuAvailable(page)), 'no WebGPU adapter in this browser');
-    await waitForBespokeReady(page, 90000);
-
-    expect(await page.evaluate(() => window.__bespoke?.getRendererBackend())).toBe('webgl');
-    expect(await page.evaluate(() => (window as Window & { rendererFallbackReason?: string }).rendererFallbackReason)).toMatch(
-      /WebGPU/,
-    );
+    await expect(page.locator('#status.error')).toBeVisible({ timeout: 90000 });
+    await expect(page.locator('#status .status-header')).toHaveText('WebGPU Unavailable');
+    await expect(page.locator('.init-retry-btn')).toBeVisible();
+    await expect(page.locator('#footer-info')).not.toContainText('WebGPU-accelerated');
   });
 });
 

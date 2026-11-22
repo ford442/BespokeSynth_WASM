@@ -44,9 +44,25 @@ export function setStoredRendererPreference(backend: RendererBackend): void {
 export function resolveRendererBackend(search: string = window.location.search): RendererBackend {
   const params = new URLSearchParams(search);
   const explicit = params.get('renderer')?.toLowerCase();
-  if (explicit === 'webgl' || explicit === 'webgl2' || params.has('webgl')) return 'webgl';
+  // WebGL2 is opt-in: `?renderer=webgl`, `?webgl`, `?webgl2=1`, or a stored picker choice.
+  const webgl2Flag = params.get('webgl2');
+  const webgl2On = params.has('webgl2') && webgl2Flag !== '0' && webgl2Flag?.toLowerCase() !== 'false';
+  if (explicit === 'webgl' || explicit === 'webgl2' || params.has('webgl') || webgl2On) return 'webgl';
   if (explicit === 'webgpu' || params.has('webgpu')) return 'webgpu';
   return getStoredRendererPreference() ?? 'webgpu';
+}
+
+/** Footer text for the renderer actually in use. `null` means no renderer is running (init failed). */
+export function rendererFooterText(
+  backend: RendererBackend | null,
+  fallbackReason: string | null,
+): string {
+  if (backend === 'webgpu') return 'WebGPU-accelerated modular synthesizer | Renderer: WebGPU | GPL-3.0';
+  if (backend === 'webgl') {
+    const detail = fallbackReason ? 'WebGL2 (fallback, not WebGPU)' : 'WebGL2 (not WebGPU)';
+    return `Modular synthesizer | Renderer: ${detail} | Use ?renderer=webgpu for WebGPU | GPL-3.0`;
+  }
+  return 'Modular synthesizer | Renderer: none, WebGPU unavailable | WebGL2 is opt-in: ?webgl2=1 | GPL-3.0';
 }
 
 export function isRenderTestRequested(search: string = window.location.search): boolean {
@@ -94,6 +110,8 @@ export function switchRendererPreference(backend: RendererBackend): void {
   setStoredRendererPreference(backend);
   const url = new URL(window.location.href);
   url.searchParams.set('renderer', backend);
+  // Alias flags would otherwise win over `renderer=` in resolveRendererBackend.
+  for (const alias of ['webgl', 'webgl2', 'webgpu']) url.searchParams.delete(alias);
   window.location.assign(url.toString());
 }
 

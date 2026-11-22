@@ -29,7 +29,7 @@ startup-reliability fix notes are archived in
 ### For Running
 
 - **WebGPU path (default):** Chrome 113+, Edge 113+, or Firefox Nightly with `dom.webgpu.enabled`
-- **WebGL2 fallback:** Any browser with WebGL2 — use `?renderer=webgl` for debugging without WebGPU
+- **WebGL2 fallback:** Any browser with WebGL2 — opt in with `?renderer=webgl` or `?webgl2=1` (never selected automatically when WebGPU init fails)
 
 See [docs/webgl-fallback.md](../docs/webgl-fallback.md) for renderer selection, debug modes, and screenshot capture.
 

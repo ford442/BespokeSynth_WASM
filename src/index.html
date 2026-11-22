@@ -21,13 +21,13 @@
         <main id="canvas-container">
             <canvas id="canvas"></canvas>
             <!-- Hybrid DOM text overlay: absolutely-positioned labels sit above the
-                 WebGPU canvas using system fonts for crisp, sub-pixel text rendering.
+                 render canvas using system fonts for crisp, sub-pixel text rendering.
                  pointer-events: none keeps all mouse input flowing to the canvas.
                  Content is populated and updated by BespokeSynthApp in index.ts.  -->
             <div id="gui-overlay" aria-hidden="true" role="presentation"></div>
             <div id="status">
                 <div class="status-header">Initializing BespokeSynth</div>
-                <div class="status-subheader">Setting up WebGPU and audio...</div>
+                <div class="status-subheader">Setting up renderer and audio...</div>
                 <div class="progress-container">
                     <div class="progress-bar-bg">
                         <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
@@ -40,8 +40,9 @@
             </div>
         </main>
         <footer id="footer">
-            <div class="info">
-                WebGPU-accelerated modular synthesizer | WebGL2 fallback: ?renderer=webgl | GPL-3.0
+            <!-- Filled in by updateRendererStatus() once the renderer in use is known. -->
+            <div class="info" id="footer-info">
+                Modular synthesizer | Renderer: starting... | GPL-3.0
             </div>
         </footer>
     </div>
