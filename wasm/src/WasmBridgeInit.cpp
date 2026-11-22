@@ -169,15 +169,15 @@ namespace bespoke
             state.canvas->connectModules(gainId, 0, outputId, 0);
             state.canvas->connectModules(lfoId, 0, filterId, 1);
 
-            // Match previous demo-knob seeds (Knob stored 0.5/0.7/0.3 after setRange).
+            // Control values are in real units (frequency/cutoff in Hz), not 0-1.
             if (auto* osc = state.canvas->getModule(oscId))
             {
-               osc->setControlValue("frequency", 0.5f);
+               osc->setControlValue("frequency", 440.0f);
                osc->setControlValue("volume", 0.7f);
             }
             if (auto* filter = state.canvas->getModule(filterId))
             {
-               filter->setControlValue("cutoff", 0.3f);
+               filter->setControlValue("cutoff", 1000.0f);
                filter->setControlValue("resonance", 0.55f);
             }
             if (auto* gain = state.canvas->getModule(gainId))
